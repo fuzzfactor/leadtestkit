@@ -70,6 +70,10 @@ func (f *fakePW) WalkEvents(ctx context.Context, opts pw.WalkOptions, handle fun
 		if ev.Category != opts.Category || ev.ID <= cursor {
 			continue
 		}
+		if opts.Cursor == 0 && !opts.Cutoff.IsZero() && pw.ParseDate(ev.Date).Before(opts.Cutoff) {
+			cursor = ev.ID
+			continue
+		}
 		if err := handle(ev); err != nil {
 			return cursor, err
 		}
@@ -186,6 +190,7 @@ func (f *fakePW) addSeries(id, n int, submitter string, date time.Time) {
 	}
 	f.series[id] = s
 	f.events = append(f.events, pw.Event{ID: len(f.events) + 1, Category: "series-completed",
+		Date:    date.Format("2006-01-02T15:04:05"),
 		Payload: &pw.SeriesCompletedPayload{Series: pw.SeriesSummary{ID: id}}})
 }
 
@@ -505,6 +510,7 @@ limits:
   max_inflight_patches: 10
   per_author_min: 2
   jobs_per_patch: 1
+  initial_backfill: 1d
   grace_after_runs: 10m
   no_run_timeout: 1h
 runner:

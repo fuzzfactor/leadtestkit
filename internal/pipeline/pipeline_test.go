@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"leadtestkit/internal/archive"
+	"leadtestkit/internal/config"
 	"leadtestkit/internal/gh"
 	"leadtestkit/internal/pw"
 	"leadtestkit/internal/state"
@@ -605,5 +606,50 @@ func TestHasDispatchTrigger(t *testing.T) {
 		if got := hasDispatchTrigger([]byte(content)); got != want {
 			t.Errorf("%q: got %v", content, got)
 		}
+	}
+}
+
+func TestFirstRunDoesNotTestOldSeries(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Limits.InitialBackfill = 0
+	e.pw.addSeries(170, 1, "lorem", e.now.Add(-2*time.Hour))
+	e.step()
+	if s := e.p.Store.Find(170); s != nil || len(e.gh.branches) != 0 {
+		t.Fatalf("old series tracked: %+v", s)
+	}
+	if e.p.Store.Meta.DiscoveryStart != state.FormatTime(e.now) || e.p.Store.Meta.Events["series-completed"] != 1 {
+		t.Fatalf("meta = %+v", e.p.Store.Meta)
+	}
+
+	// A new run must not pick the old series up through the series list.
+	e.reload()
+	e.advance(time.Hour)
+	e.pw.addSeries(171, 1, "ipsum", e.now)
+	e.step()
+	if e.p.Store.Find(170) != nil || e.series(171).Status != state.SeriesTesting {
+		t.Fatalf("queue = %+v", e.p.Store.Queue)
+	}
+}
+
+func TestFirstRunWithoutEvents(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Limits.InitialBackfill = 0
+	e.step()
+	e.advance(time.Hour)
+	e.pw.addSeries(180, 1, "lorem", e.now)
+	e.step()
+	if e.series(180).Status != state.SeriesTesting {
+		t.Fatalf("series = %+v", e.series(180))
+	}
+}
+
+func TestInitialBackfill(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Limits.InitialBackfill = config.Duration(3 * time.Hour)
+	e.pw.addSeries(190, 1, "lorem", e.now.Add(-5*time.Hour))
+	e.pw.addSeries(191, 1, "ipsum", e.now.Add(-2*time.Hour))
+	e.step()
+	if e.p.Store.Find(190) != nil || e.series(191).Status != state.SeriesTesting {
+		t.Fatalf("queue = %+v", e.p.Store.Queue)
 	}
 }

@@ -44,9 +44,20 @@ func (p *Pipeline) discover(ctx context.Context) {
 		return
 	}
 	now := p.now()
-	opts := pw.WalkOptions{Category: seriesEvents, Cursor: p.Store.Meta.Events[seriesEvents]}
+	meta := p.Store.Meta
+	if meta.DiscoveryStart == "" {
+		meta.DiscoveryStart = state.FormatTime(now)
+		p.log().Info("first discovery, older series are not tested",
+			"initial_backfill", p.Cfg.Limits.InitialBackfill.D())
+	}
+	cutoff := now.Add(-p.Cfg.Limits.SeriesMaxAge.D())
+	if c := state.ParseTime(meta.DiscoveryStart).Add(-p.Cfg.Limits.InitialBackfill.D()); c.After(cutoff) {
+		cutoff = c
+	}
+
+	opts := pw.WalkOptions{Category: seriesEvents, Cursor: meta.Events[seriesEvents]}
 	if opts.Cursor == 0 {
-		opts.Cutoff = now.Add(-p.Cfg.Limits.SeriesMaxAge.D())
+		opts.Cutoff = cutoff
 		opts.MaxPages = 3
 	}
 	cursor, err := p.PW.WalkEvents(ctx, opts, func(ev pw.Event) error {
@@ -55,8 +66,8 @@ func (p *Pipeline) discover(ctx context.Context) {
 		}
 		return nil
 	})
-	if cursor > p.Store.Meta.Events[seriesEvents] {
-		p.Store.Meta.Events[seriesEvents] = cursor
+	if cursor > meta.Events[seriesEvents] {
+		meta.Events[seriesEvents] = cursor
 	}
 	if err != nil {
 		p.log().Warn("series events", "err", err)
@@ -73,9 +84,8 @@ func (p *Pipeline) discover(ctx context.Context) {
 		return
 	}
 	p.safetyNetDone = true
-	cutoff := now.Add(-p.Cfg.Limits.SeriesMaxAge.D())
 	for _, s := range page.Items {
-		if d := pw.ParseDate(s.Date); !d.IsZero() && d.Before(cutoff) {
+		if d := pw.ParseDate(s.Date); d.IsZero() || d.Before(cutoff) {
 			continue
 		}
 		p.track(s.ID, known)

@@ -201,6 +201,7 @@ type Limits struct {
 	PerAuthorMaxShare  float64  `yaml:"per_author_max_share"`
 	JobsPerPatch       int      `yaml:"jobs_per_patch"`
 	SeriesMaxAge       Duration `yaml:"series_max_age"`
+	InitialBackfill    Duration `yaml:"initial_backfill"`
 	CompleteTimeout    Duration `yaml:"complete_timeout"`
 	NoRunTimeout       Duration `yaml:"no_run_timeout"`
 	RunTimeout         Duration `yaml:"run_timeout"`

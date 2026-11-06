@@ -242,6 +242,13 @@ limits:
   # Series older than this when discovered are skipped.
   series_max_age: 7d
 
+  # How far before its very first run the bot looks for series to test.
+  # 0 means that only series completed after the first run are tested,
+  # so switching from another bot does not test old series again.  The
+  # first run is recorded in meta.json (discovery_start); deleting it
+  # makes the next run a first run.
+  initial_backfill: 0s
+
   # Series that Patchwork does not report as complete within this time
   # are skipped.  Also how long a series waits for its Depends-on
   # series before being tested on the default base.

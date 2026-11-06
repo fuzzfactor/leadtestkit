@@ -54,10 +54,13 @@ const (
 )
 
 type Meta struct {
-	Schema   int                       `json:"schema"`
-	Events   map[string]int            `json:"events"`
-	Archives map[string]*ArchiveCursor `json:"archives"`
-	Stats    Stats                     `json:"stats"`
+	Schema int `json:"schema"`
+	// DiscoveryStart is when the bot first looked for series; older
+	// series are only tested within limits.initial_backfill of it.
+	DiscoveryStart string                    `json:"discovery_start,omitempty"`
+	Events         map[string]int            `json:"events"`
+	Archives       map[string]*ArchiveCursor `json:"archives"`
+	Stats          Stats                     `json:"stats"`
 }
 
 type ArchiveCursor struct {

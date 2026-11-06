@@ -110,6 +110,11 @@ without a scheme, so other bots reading the list ignore them.  They
 never copy the patch author or anyone else, whatever the rest of the
 configuration says.
 
+On its first run the bot only records where Patchwork and the archives
+are; series and reports from before that are not processed.  To get
+something to test right away, set ``limits.initial_backfill``, for
+example to ``1d``.
+
 To go live, set ``checks: post`` and ``email: live``.  Setting
 ``enabled: false`` pauses the bot.
 
