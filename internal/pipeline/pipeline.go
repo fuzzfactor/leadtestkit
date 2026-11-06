@@ -91,7 +91,6 @@ type Pipeline struct {
 	gcDone        bool
 }
 
-// Stats counts what a run did, for commit messages and the summary.
 type Stats struct {
 	Discovered int
 	Applied    int
@@ -160,8 +159,6 @@ func (p *Pipeline) checkpoint(ctx context.Context, stage string) {
 	}
 }
 
-// Step runs every stage once.  Stages are independent: an error in one
-// series or stage never stops the others.
 func (p *Pipeline) Step(ctx context.Context, final bool) {
 	p.steps++
 	stages := []struct {
@@ -189,11 +186,13 @@ func (p *Pipeline) Step(ctx context.Context, final bool) {
 			continue
 		}
 		s.fn(ctx)
-		switch s.name {
-		case "report", "schedule", "ingest", "finish":
+		// Emails cannot be taken back, so their state is saved right
+		// away; everything else is idempotent and saved once per step.
+		if s.name == "report" {
 			p.checkpoint(ctx, s.name)
 		}
 	}
+	p.checkpoint(ctx, "step")
 	p.warnTokenExpiry()
 }
 
@@ -245,7 +244,6 @@ func (p *Pipeline) applyManual(ctx context.Context) {
 	}
 }
 
-// resetSeries makes a series be tested again from scratch.
 func resetSeries(s *state.Series) {
 	s.Status = state.SeriesQueued
 	s.Reason = ""
@@ -276,7 +274,6 @@ func (p *Pipeline) stagingRef(s *state.Series) string {
 	return fmt.Sprintf("%sseries_%d", p.Cfg.TestRepo.StagingRef, s.ID)
 }
 
-// known returns IDs of series in the queue or in recent history.
 func (p *Pipeline) known() (map[int]bool, error) {
 	window := max(p.Cfg.Limits.HistoryWindow.D(), p.Cfg.Limits.SeriesMaxAge.D()) + 24*time.Hour
 	list, err := p.Store.Recent(p.now(), window)

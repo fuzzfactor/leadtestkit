@@ -26,11 +26,8 @@ const (
 	archiveTimeout = 7 * 24 * time.Hour
 )
 
-// errSkip marks a message that will never become a check.
 var errSkip = errors.New("skip")
 
-// scanMonths returns the months to scan, oldest first: everything since
-// the last scan, and at least the lookback months.
 func scanMonths(c *state.ArchiveCursor, now time.Time, lookback int) []time.Time {
 	cur := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	start := cur.AddDate(0, -lookback, 0)
@@ -85,7 +82,6 @@ func (p *Pipeline) newMessages(ctx context.Context, a Archive, c *state.ArchiveC
 	return out, now.Format("2006-01"), true
 }
 
-// ingest posts reports found in the reports list archive as checks.
 func (p *Pipeline) ingest(ctx context.Context) {
 	if !p.Cfg.Archive.Ingest || p.Reports == nil {
 		return

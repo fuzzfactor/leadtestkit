@@ -87,7 +87,6 @@ var terminalPatchStates = map[string]bool{
 	"not-applicable": true, "handled-elsewhere": true, "deferred": true,
 }
 
-// qualify fetches details of new series and decides whether to test them.
 func (p *Pipeline) qualify(ctx context.Context) {
 	now := p.now()
 	for _, s := range p.Store.Queue {
@@ -202,7 +201,6 @@ func baseName(name string) string {
 	return strings.ToLower(strings.TrimSpace(versionTagRe.ReplaceAllString(name, "")))
 }
 
-// supersede skips older versions of a series that were not started.
 func (p *Pipeline) supersede(s *state.Series, now time.Time) {
 	if !p.Cfg.Rules.Supersede || s.Version < 2 {
 		return

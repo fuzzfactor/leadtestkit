@@ -41,7 +41,6 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("git %s: exit %d: %s", strings.Join(e.Args, " "), e.Code, Tail(msg, 20))
 }
 
-// Tail returns the last n lines of s.
 func Tail(s string, n int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	if len(lines) > n {

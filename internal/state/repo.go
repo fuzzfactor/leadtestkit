@@ -17,7 +17,6 @@ import (
 // merged; the caller should reload the state and reconcile.
 var ErrConflict = errors.New("state branch conflict")
 
-// Repo commits and pushes the state directory.
 type Repo struct {
 	Git    *gitrepo.Git
 	Remote string

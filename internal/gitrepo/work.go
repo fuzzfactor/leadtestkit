@@ -57,7 +57,6 @@ func (w *WorkRepo) ensure(ctx context.Context) error {
 	return nil
 }
 
-// abortAm cleans up after a failed or interrupted git am.
 func (w *WorkRepo) abortAm(ctx context.Context) {
 	dir := filepath.Join(w.Git.Dir, ".git", "rebase-apply")
 	if _, err := os.Stat(dir); err != nil {
@@ -113,12 +112,10 @@ func (w *WorkRepo) fetch(ctx context.Context, url, src, dst string) (string, err
 	return w.Git.Out(ctx, "rev-parse", "--verify", dst+"^{commit}")
 }
 
-// Resolve fetches a branch and returns its commit.
 func (w *WorkRepo) Resolve(ctx context.Context, url, branch string) (string, error) {
 	return w.fetch(ctx, url, "refs/heads/"+branch, "heads/"+branch)
 }
 
-// ResolveTestRef fetches a ref from the test fork.
 func (w *WorkRepo) ResolveTestRef(ctx context.Context, ref string) (string, error) {
 	return w.fetch(ctx, w.TestRemote, ref, strings.TrimPrefix(ref, "refs/"))
 }
@@ -172,7 +169,6 @@ func (w *WorkRepo) Apply(ctx context.Context, base string, mboxes [][]byte) ([]s
 	return shas, -1, "", nil
 }
 
-// Push force-pushes a commit to a ref of the test fork.
 func (w *WorkRepo) Push(ctx context.Context, sha, ref string) error {
 	name, err := w.remote(ctx, w.TestRemote)
 	if err != nil {
@@ -184,7 +180,6 @@ func (w *WorkRepo) Push(ctx context.Context, sha, ref string) error {
 	return err
 }
 
-// ChangedFiles lists files changed between two commits.
 func (w *WorkRepo) ChangedFiles(ctx context.Context, from, to string) ([]string, error) {
 	out, err := w.Git.Out(ctx, "diff", "--name-only", "--no-renames", from, to)
 	if err != nil || out == "" {

@@ -19,8 +19,6 @@ const commentEvents = "patch-comment-created"
 
 var recheckRe = regexp.MustCompile(`(?m)^Recheck-request:[ \t]*(.+)$`)
 
-// HasRecheck reports whether a comment requests a recheck for one of
-// the labels.
 func HasRecheck(content string, labels []string) bool {
 	for _, m := range recheckRe.FindAllStringSubmatch(content, -1) {
 		for _, tok := range strings.FieldsFunc(m[1], func(r rune) bool {
@@ -41,7 +39,6 @@ type tracked struct {
 	patch  *state.Patch
 }
 
-// rechecks finds Recheck-request comments and reruns the workflows.
 func (p *Pipeline) rechecks(ctx context.Context) {
 	if !p.Cfg.Rechecks.Enabled {
 		return

@@ -16,8 +16,6 @@ import (
 	"leadtestkit/internal/state"
 )
 
-// schedule applies queued series and pushes their patches to the test
-// fork within the concurrency limits.
 func (p *Pipeline) schedule(ctx context.Context) {
 	if !p.Cfg.Mode.PushLive() {
 		return
@@ -93,7 +91,6 @@ func (p *Pipeline) schedule(ctx context.Context) {
 	}
 }
 
-// queuedJobs counts jobs of the test fork waiting for a runner.
 func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 	runs, err := p.GH.ActiveRuns(ctx)
 	if err != nil {
@@ -123,8 +120,6 @@ func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 	return total, nil
 }
 
-// pushable returns applied patches that may be pushed now: patches are
-// pushed in order, each after the previous one.
 func (p *Pipeline) pushable(s *state.Series) []*state.Patch {
 	var out []*state.Patch
 	for _, pt := range sortedPatches(s) {
@@ -168,7 +163,6 @@ type patchData struct {
 	mbox   []byte
 }
 
-// prepare fetches the patches, selects the base and applies the series.
 func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	now := p.now()
 	retry := func(op string, err error) {
@@ -436,8 +430,6 @@ func (p *Pipeline) selectBase(ctx context.Context, s *state.Series, data []patch
 
 const dispatchTitlePrefix = "leadtest "
 
-// dispatch starts the custom workflows of the test fork's tools branch
-// for a pushed patch.
 func (p *Pipeline) dispatch(ctx context.Context, s *state.Series, pt *state.Patch) {
 	if !p.Cfg.Workflows.Custom {
 		return

@@ -239,7 +239,6 @@ func (s *Store) History(month string) ([]*Series, error) {
 	return h.Series, nil
 }
 
-// MonthOf returns the history shard of a finished series.
 func MonthOf(x *Series) string {
 	t := ParseTime(x.Finished)
 	if t.IsZero() {
@@ -248,7 +247,6 @@ func MonthOf(x *Series) string {
 	return t.UTC().Format("2006-01")
 }
 
-// Archive moves a finished series from the queue to its history shard.
 func (s *Store) Archive(x *Series) error {
 	month := MonthOf(x)
 	list, err := s.History(month)
@@ -276,7 +274,6 @@ func (s *Store) Archive(x *Series) error {
 	return nil
 }
 
-// Reopen moves a series from history back to the queue.
 func (s *Store) Reopen(x *Series) error {
 	month := MonthOf(x)
 	list, err := s.History(month)
@@ -323,7 +320,6 @@ func (s *Store) Recent(now time.Time, window time.Duration) ([]*Series, error) {
 	return out, nil
 }
 
-// FindPatch looks for a patch among the given series.
 func FindPatch(list []*Series, patchID int) (*Series, *Patch) {
 	for _, x := range list {
 		if p := x.Patch(patchID); p != nil {

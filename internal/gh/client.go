@@ -164,7 +164,6 @@ func (c *Client) DeleteRef(ctx context.Context, name string) error {
 	return err
 }
 
-// MatchingRefs lists refs under a prefix such as "heads/series_".
 func (c *Client) MatchingRefs(ctx context.Context, prefix string) (map[string]string, error) {
 	out := map[string]string{}
 	u := c.repoURL("/git/matching-refs/" + prefix + "?per_page=100")
@@ -227,8 +226,6 @@ func (c *Client) RunsForSHA(ctx context.Context, sha string) ([]WorkflowRun, err
 	return c.listRuns(ctx, url.Values{"head_sha": {sha}}, 0)
 }
 
-// DispatchRuns lists workflow_dispatch runs on a branch created since
-// the given time.
 func (c *Client) DispatchRuns(ctx context.Context, branch string, since time.Time) ([]WorkflowRun, error) {
 	return c.listRuns(ctx, url.Values{
 		"event":   {"workflow_dispatch"},
@@ -237,7 +234,6 @@ func (c *Client) DispatchRuns(ctx context.Context, branch string, since time.Tim
 	}, 10)
 }
 
-// ActiveRuns lists runs that are queued or in progress.
 func (c *Client) ActiveRuns(ctx context.Context) ([]WorkflowRun, error) {
 	var all []WorkflowRun
 	for _, st := range []string{"queued", "in_progress", "waiting", "pending"} {
@@ -319,7 +315,6 @@ type contentEntry struct {
 	Encoding string `json:"encoding"`
 }
 
-// WorkflowFiles lists workflow file names on a branch.
 func (c *Client) WorkflowFiles(ctx context.Context, ref string) ([]string, error) {
 	var entries []contentEntry
 	_, err := c.getJSON(ctx, c.repoURL("/contents/.github/workflows?ref="+url.QueryEscape(ref)), &entries)

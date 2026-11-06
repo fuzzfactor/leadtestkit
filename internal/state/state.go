@@ -9,7 +9,6 @@ import (
 
 const SchemaVersion = 1
 
-// Series statuses.
 const (
 	SeriesNew     = "new"
 	SeriesQueued  = "queued"
@@ -20,7 +19,6 @@ const (
 	SeriesError   = "error"
 )
 
-// Patch statuses.
 const (
 	PatchPending     = "pending"
 	PatchApplied     = "applied"
@@ -31,7 +29,6 @@ const (
 	PatchSkipped     = "skipped"
 )
 
-// Run kinds.
 const (
 	RunApply    = "apply"
 	RunPush     = "push"
@@ -47,7 +44,6 @@ const (
 	ResultPending = "pending"
 )
 
-// Report step states.
 const (
 	StepPosted  = "posted"
 	StepLogged  = "logged"
@@ -181,7 +177,6 @@ type Report struct {
 	MessageID string `json:"message_id,omitempty"`
 }
 
-// Failure tracks a failing operation across runs.
 type Failure struct {
 	Op        string `json:"op"`
 	Attempts  int    `json:"attempts"`
@@ -232,7 +227,6 @@ func trimError(s string) string {
 	return s
 }
 
-// Due reports whether an operation may be attempted now.
 func (f *Failure) Due(now time.Time) bool {
 	return f == nil || !now.Before(ParseTime(f.Next))
 }

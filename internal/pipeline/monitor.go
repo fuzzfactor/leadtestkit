@@ -16,7 +16,6 @@ import (
 
 const monitorDeadline = 24 * time.Hour
 
-// monitor follows the workflow runs of pushed patches.
 func (p *Pipeline) monitor(ctx context.Context) {
 	dispatched := p.dispatchedRuns(ctx)
 	for _, s := range p.Store.Queue {
@@ -199,8 +198,6 @@ func ciRuns(pt *state.Patch) []*state.Run {
 	return out
 }
 
-// checkComplete decides whether all runs of a patch are in and
-// reported.
 func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state.Patch) {
 	now := p.now()
 	pushed := state.ParseTime(pt.Pushed)
@@ -299,8 +296,6 @@ func (p *Pipeline) recordJobs(ctx context.Context, pt *state.Patch) {
 	st.JobsPerPatch = float64(int(st.JobsPerPatch*10+0.5)) / 10
 }
 
-// hasDispatchTrigger reports whether a workflow can be started with
-// workflow_dispatch.
 func hasDispatchTrigger(data []byte) bool {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {

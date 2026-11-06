@@ -24,7 +24,6 @@ import (
 
 const perPage = "1024"
 
-// ErrInvalidPage is returned for a page number past the last page.
 var ErrInvalidPage = errors.New("invalid page")
 
 type Options struct {
@@ -46,13 +45,10 @@ type Client struct {
 
 var apiSuffixRe = regexp.MustCompile(`/api(/\d+\.\d+)?/?$`)
 
-// WebURL derives the web root from an API root like
-// https://patchwork.example.org/api/1.2.
 func WebURL(apiURL string) string {
 	return strings.TrimRight(apiSuffixRe.ReplaceAllString(strings.TrimRight(apiURL, "/"), ""), "/")
 }
 
-// APIVersion returns "1.2" for .../api/1.2, or "" if not versioned.
 func APIVersion(apiURL string) string {
 	m := apiSuffixRe.FindStringSubmatch(strings.TrimRight(apiURL, "/"))
 	if len(m) < 2 {
@@ -270,8 +266,6 @@ func (c *Client) GetPatch(ctx context.Context, id int) (*PatchDetail, error) {
 	return &pd, nil
 }
 
-// FindPatchesByMsgID looks a patch up by Message-ID, with or without
-// angle brackets.
 func (c *Client) FindPatchesByMsgID(ctx context.Context, msgid string) ([]Patch, error) {
 	v := url.Values{}
 	v.Set("msgid", strings.Trim(strings.TrimSpace(msgid), "<>"))

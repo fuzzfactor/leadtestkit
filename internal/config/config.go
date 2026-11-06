@@ -350,7 +350,6 @@ func (c *Config) LoadSecrets(getenv func(string) string) {
 	logx.AddSecret(c.Secrets.SMTPPassword)
 }
 
-// CheckSecrets reports secrets required by the configured modes.
 func (c *Config) CheckSecrets() error {
 	var missing []string
 	if c.Mode.PostChecks() && c.Secrets.PatchworkToken == "" {

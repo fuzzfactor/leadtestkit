@@ -224,7 +224,6 @@ func commonTree(byFile map[string]string) string {
 
 var diffFileRe = regexp.MustCompile(`(?m)^(?:diff --git a/\S+ b/(\S+)|--- a/(\S+)|\+\+\+ b/(\S+))`)
 
-// DiffFiles lists files touched by unified diffs.
 func DiffFiles(diffs ...string) []string {
 	seen := map[string]bool{}
 	var out []string

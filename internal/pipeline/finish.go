@@ -29,8 +29,6 @@ func patchFinal(pt *state.Patch) bool {
 	return true
 }
 
-// finish completes series whose patches are all reported and moves
-// finished series to the history.
 func (p *Pipeline) finish(ctx context.Context) {
 	now := p.now()
 	for _, s := range append([]*state.Series(nil), p.Store.Queue...) {
@@ -61,9 +59,8 @@ func (p *Pipeline) finish(ctx context.Context) {
 	}
 }
 
-// gc deletes test branches and staging refs of series that finished
-// longer ago than the retention period.  Refs of unknown series are
-// left alone, since the fork may be shared with other tools.
+// gc only deletes refs of series known to have finished long ago; the
+// fork may be shared with other tools.
 func (p *Pipeline) gc(ctx context.Context) {
 	if p.gcDone || !p.Cfg.Mode.PushLive() || p.Cfg.Limits.BranchRetention <= 0 {
 		return

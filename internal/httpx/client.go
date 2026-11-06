@@ -56,7 +56,6 @@ func (m transportMode) String() string {
 }
 
 type Options struct {
-	// Name identifies the client in logs, e.g. "patchwork".
 	Name     string
 	MinDelay time.Duration
 	Timeout  time.Duration

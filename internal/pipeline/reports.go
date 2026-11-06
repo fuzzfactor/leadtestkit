@@ -17,7 +17,6 @@ import (
 
 const logFetchAttempts = 3
 
-// report sends pending and final reports for all runs.
 func (p *Pipeline) report(ctx context.Context) {
 	for _, s := range p.Store.Queue {
 		if s.Status != state.SeriesTesting {
@@ -233,7 +232,6 @@ func (a *mailAddress) String() string {
 
 var logTimestampRe = regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z `)
 
-// failureLogs summarizes failed jobs of a run with the end of their logs.
 func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error) {
 	jobs, err := p.GH.Jobs(ctx, runID)
 	if err != nil {
