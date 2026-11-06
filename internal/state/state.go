@@ -55,11 +55,14 @@ type Meta struct {
 	Schema int `json:"schema"`
 	// DiscoveryStart is when the bot first looked for series; older
 	// series are only tested within limits.initial_backfill of it.
-	DiscoveryStart string                    `json:"discovery_start,omitempty"`
-	Instance       *Instance                 `json:"instance,omitempty"`
-	Events         map[string]int            `json:"events"`
-	Archives       map[string]*ArchiveCursor `json:"archives"`
-	Stats          Stats                     `json:"stats"`
+	DiscoveryStart string    `json:"discovery_start,omitempty"`
+	Instance       *Instance `json:"instance,omitempty"`
+	// ToolsSynced is when the tools branch was last synced with
+	// upstream.
+	ToolsSynced string                    `json:"tools_synced,omitempty"`
+	Events      map[string]int            `json:"events"`
+	Archives    map[string]*ArchiveCursor `json:"archives"`
+	Stats       Stats                     `json:"stats"`
 }
 
 type ArchiveCursor struct {

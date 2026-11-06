@@ -50,10 +50,19 @@ test_repo:
   # workflows.  It must not hold any secrets.
   repo: example/lorem
 
-  # Branch of the test fork with the workflows started for every patch
-  # when workflows.custom is enabled.  It must be the fork's default
-  # branch, because GitHub only dispatches workflows found there.
-  tools_branch: leadtestkit
+  # The default branch of the test fork: upstream's branch of the same
+  # name plus the custom workflows (see workflows.custom).  Empty means
+  # upstream.default_branch.  It has to be the default branch because
+  # GitHub only dispatches workflows found there, and because workflow
+  # runs on series branches can only restore caches saved on their own
+  # branch or on the default branch.
+  tools_branch: ""
+
+  # Every sync_interval, the tools branch is synced with upstream
+  # through GitHub's "Sync fork" (no data passes through the bot).  The
+  # resulting push runs the project's workflows on the default branch,
+  # which fills the caches used by the series branches.  0 disables it.
+  sync_interval: 7d
 
   # Patches are pushed to <branch_prefix><series id>.
   branch_prefix: series_
@@ -291,6 +300,10 @@ workflows:
   # Start the workflow_dispatch workflows of test_repo.tools_branch for
   # every pushed patch.  See fork-workflows/ for templates.
   custom: false
+
+  # Only workflow files whose name starts with this are started; the
+  # tools branch also holds the project's own workflows.
+  custom_prefix: leadtest-
 
   # Workflow files on the tools branch that are not started.
   custom_exclude: []

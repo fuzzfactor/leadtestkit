@@ -5,14 +5,46 @@ package pipeline
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/state"
 )
 
 const maxRefDeletes = 50
+
+// syncTools keeps the tools branch, the default branch of the test fork,
+// close to upstream.  The resulting push runs the project's workflows
+// there, which fills the caches that series branches can restore; runs
+// only see caches of their own and of the default branch.
+func (p *Pipeline) syncTools(ctx context.Context) {
+	interval := p.Cfg.TestRepo.SyncInterval.D()
+	if p.syncDone || !p.Cfg.Mode.PushLive() || interval <= 0 {
+		return
+	}
+	p.syncDone = true
+	now := p.now()
+	if last := state.ParseTime(p.Store.Meta.ToolsSynced); !last.IsZero() && now.Sub(last) < interval {
+		return
+	}
+	branch := p.Cfg.TestRepo.ToolsBranch
+	kind, err := p.GH.MergeUpstream(ctx, branch)
+	switch code := httpx.StatusCode(err); {
+	case err == nil:
+		p.log().Info("tools branch synced with upstream", "branch", branch, "merge", kind)
+		p.customLoaded = false
+	case code == http.StatusConflict || code == http.StatusUnprocessableEntity || code == http.StatusNotFound:
+		// Retrying before the next interval would not help.
+		p.errorf("cannot sync %s of the test fork with upstream (merge it manually): %v", branch, err)
+	default:
+		p.log().Warn("syncing the tools branch failed, will retry", "branch", branch, "err", err)
+		return
+	}
+	p.Store.Meta.ToolsSynced = state.FormatTime(now)
+}
 
 func patchFinal(pt *state.Patch) bool {
 	switch pt.Status {

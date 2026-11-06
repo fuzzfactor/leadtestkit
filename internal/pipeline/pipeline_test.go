@@ -12,6 +12,7 @@ import (
 	"leadtestkit/internal/archive"
 	"leadtestkit/internal/config"
 	"leadtestkit/internal/gh"
+	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/pw"
 	"leadtestkit/internal/state"
 )
@@ -515,26 +516,27 @@ func TestManualFlags(t *testing.T) {
 func TestCustomWorkflows(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Workflows.Custom = true
-	e.cfg.Workflows.CustomPerSeries = []string{"series.yml"}
+	e.cfg.Workflows.CustomPerSeries = []string{"leadtest-series.yml"}
 	e.cfg.Report.ApplySuccess = false
-	e.gh.files["checkpatch.yml"] = "name: Checkpatch\non:\n  workflow_dispatch:\n    inputs: {}\n"
-	e.gh.files["series.yml"] = "on: [workflow_dispatch]\n"
-	e.gh.files["other.yml"] = "on: push\n"
+	e.gh.files["leadtest-checkpatch.yml"] = "name: Checkpatch\non:\n  workflow_dispatch:\n    inputs: {}\n"
+	e.gh.files["leadtest-series.yml"] = "on: [workflow_dispatch]\n"
+	e.gh.files["leadtest-other.yml"] = "on: push\n"
+	e.gh.files["build-and-test.yml"] = "on: [push, workflow_dispatch]\n"
 	e.pw.addSeries(140, 2, "lorem", e.now)
 	e.step()
 	if len(e.gh.dispatches) != 3 {
 		t.Fatalf("dispatches = %v", e.gh.dispatches)
 	}
 	d := e.gh.dispatches[0]
-	if d["file"] != "checkpatch.yml" || d["ref"] != "leadtestkit" || d["sha"] != "sha-14001" ||
-		d["patch_index"] != "1" || d["correlation_id"] != "140-14001-checkpatch-1" {
+	if d["file"] != "leadtest-checkpatch.yml" || d["ref"] != "main" || d["sha"] != "sha-14001" ||
+		d["patch_index"] != "1" || d["correlation_id"] != "140-14001-leadtest-checkpatch-1" {
 		t.Errorf("dispatch = %v", d)
 	}
 	e.gh.dispatched = []gh.WorkflowRun{{ID: 5000, Name: "Checkpatch",
-		DisplayTitle: "leadtest 140-14001-checkpatch-1", Status: "completed", Conclusion: "failure",
+		DisplayTitle: "leadtest 140-14001-leadtest-checkpatch-1", Status: "completed", Conclusion: "failure",
 		RunAttempt: 1, HTMLURL: "https://github.com/ipsum/lorem/actions/runs/5000"}}
 	e.step()
-	r := runByFile(e.series(140).Patches[0], "checkpatch.yml")
+	r := runByFile(e.series(140).Patches[0], "leadtest-checkpatch.yml")
 	if r.Result != state.ResultFail || r.Workflow != "Checkpatch" || r.Final.Email != state.StepSent {
 		t.Fatalf("run = %+v", r)
 	}
@@ -546,7 +548,7 @@ func TestCustomWorkflows(t *testing.T) {
 func TestDispatchFailureRetried(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Workflows.Custom = true
-	e.gh.files["checkpatch.yml"] = "on: workflow_dispatch\n"
+	e.gh.files["leadtest-checkpatch.yml"] = "on: workflow_dispatch\n"
 	e.gh.fail["dispatch"] = 1
 	e.pw.addSeries(150, 1, "lorem", e.now)
 	e.step()
@@ -678,7 +680,7 @@ func (e *env) loseState() {
 func TestLostStateDoesNotStartRunsAgain(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Workflows.Custom = true
-	e.gh.files["checkpatch.yml"] = "on: workflow_dispatch\n"
+	e.gh.files["leadtest-checkpatch.yml"] = "on: workflow_dispatch\n"
 	e.pw.addSeries(200, 2, "lorem", e.now)
 	e.step()
 	if e.gh.setBranch != 2 || len(e.gh.dispatches) != 2 || e.repo.applies != 1 {
@@ -701,7 +703,7 @@ func TestLostStateDoesNotStartRunsAgain(t *testing.T) {
 		s.Patches[0].Status != state.PatchPushed || s.Patches[1].Status != state.PatchPushed {
 		t.Fatalf("series = %+v %+v %+v", s, s.Patches[0], s.Patches[1])
 	}
-	if r := runByFile(s.Patches[1], "checkpatch.yml"); r == nil || r.Status != "requested" {
+	if r := runByFile(s.Patches[1], "leadtest-checkpatch.yml"); r == nil || r.Status != "requested" {
 		t.Fatalf("dispatch run = %+v", r)
 	}
 }
@@ -892,12 +894,12 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Workflows.Custom = true
 	e.cfg.Report.ApplySuccess = false
-	e.gh.files["checkpatch.yml"] = "on: workflow_dispatch\n"
-	e.gh.files["perf.yml"] = "on: workflow_dispatch\n"
+	e.gh.files["leadtest-checkpatch.yml"] = "on: workflow_dispatch\n"
+	e.gh.files["leadtest-perf.yml"] = "on: workflow_dispatch\n"
 	e.pw.addSeries(300, 1, "lorem", e.now)
 	e.step()
 	e.gh.dispatched = []gh.WorkflowRun{{ID: 7000, Name: "Checkpatch",
-		DisplayTitle: "leadtest 300-30001-checkpatch-1", Status: "completed", Conclusion: "failure",
+		DisplayTitle: "leadtest 300-30001-leadtest-checkpatch-1", Status: "completed", Conclusion: "failure",
 		RunAttempt: 1}}
 	e.gh.finishRun(e.gh.startRuns("series_300", "sha-30001", "Build")[0], "success")
 	e.step()
@@ -906,27 +908,27 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 	e.step()
 	e.advance(11 * time.Minute)
 	e.step()
-	if r := runByFile(e.series(300).Patches[0], "perf.yml"); r.Result != state.ResultWarning {
+	if r := runByFile(e.series(300).Patches[0], "leadtest-perf.yml"); r.Result != state.ResultWarning {
 		t.Fatalf("perf run = %+v", r)
 	}
 	if s := e.series(300); s.Status != state.SeriesDone {
 		t.Fatalf("series = %+v", s)
 	}
 
-	requestRecheck(e, 300, "github-robot-_Checkpatch github-robot-_perf.yml")
+	requestRecheck(e, 300, "github-robot-_Checkpatch github-robot-_leadtest-perf.yml")
 	e.step()
 	if fmt.Sprint(e.gh.reruns) != "[7000]" {
 		t.Fatalf("reruns = %v", e.gh.reruns)
 	}
 	last := e.gh.dispatches[len(e.gh.dispatches)-1]
-	if len(e.gh.dispatches) != 3 || last["file"] != "perf.yml" || last["correlation_id"] != "300-30001-perf-2" {
+	if len(e.gh.dispatches) != 3 || last["file"] != "leadtest-perf.yml" || last["correlation_id"] != "300-30001-leadtest-perf-2" {
 		t.Fatalf("dispatches = %v", e.gh.dispatches)
 	}
 	pt := e.series(300).Patches[0]
 	if r := pt.Run(state.RunPush, "Build"); r.Result != state.ResultSuccess {
 		t.Errorf("Build changed: %+v", r)
 	}
-	if r := runByFile(pt, "perf.yml"); r.Status != "requested" || r.Result != "" {
+	if r := runByFile(pt, "leadtest-perf.yml"); r.Status != "requested" || r.Result != "" {
 		t.Errorf("perf run = %+v", r)
 	}
 }
@@ -936,5 +938,55 @@ func TestNextCorrelationID(t *testing.T) {
 		if got := nextCorrelationID(in); got != want {
 			t.Errorf("%q: got %q", in, got)
 		}
+	}
+}
+
+func TestSyncTools(t *testing.T) {
+	e := newEnv(t, "")
+	e.step()
+	e.step()
+	if fmt.Sprint(e.gh.merges) != "[main]" || e.p.Store.Meta.ToolsSynced != state.FormatTime(e.now) {
+		t.Fatalf("merges = %v synced = %q", e.gh.merges, e.p.Store.Meta.ToolsSynced)
+	}
+	e.reload()
+	e.advance(24 * time.Hour)
+	e.step()
+	if len(e.gh.merges) != 1 {
+		t.Fatalf("synced again too early: %v", e.gh.merges)
+	}
+	e.reload()
+	e.advance(7 * 24 * time.Hour)
+	e.step()
+	if len(e.gh.merges) != 2 {
+		t.Fatalf("merges = %v", e.gh.merges)
+	}
+}
+
+func TestSyncToolsErrors(t *testing.T) {
+	e := newEnv(t, "")
+	e.gh.mergeErr = errTransient
+	e.step()
+	if e.p.Store.Meta.ToolsSynced != "" || len(e.p.Stats.Errors) != 0 {
+		t.Fatalf("transient error: synced = %q errors = %v", e.p.Store.Meta.ToolsSynced, e.p.Stats.Errors)
+	}
+	e.reload()
+	e.gh.mergeErr = &httpx.StatusError{Code: 409}
+	e.step()
+	if len(e.gh.merges) != 2 || e.p.Store.Meta.ToolsSynced == "" || len(e.p.Stats.Errors) != 1 {
+		t.Fatalf("conflict: merges = %v synced = %q errors = %v",
+			e.gh.merges, e.p.Store.Meta.ToolsSynced, e.p.Stats.Errors)
+	}
+}
+
+func TestSyncToolsDisabled(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Mode.Push = "off"
+	e.step()
+	e.cfg.Mode.Push = "live"
+	e.cfg.TestRepo.SyncInterval = 0
+	e.reload()
+	e.step()
+	if len(e.gh.merges) != 0 {
+		t.Fatalf("merges = %v", e.gh.merges)
 	}
 }

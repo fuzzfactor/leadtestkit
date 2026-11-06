@@ -91,12 +91,13 @@ type Upstream struct {
 
 type TestRepo struct {
 	// Repo is "owner/name" of the test fork on GitHub.
-	Repo         string `yaml:"repo"`
-	ToolsBranch  string `yaml:"tools_branch"`
-	BranchPrefix string `yaml:"branch_prefix"`
-	StagingRef   string `yaml:"staging_ref"`
-	APIURL       string `yaml:"api_url"`
-	GitHost      string `yaml:"git_host"`
+	Repo         string   `yaml:"repo"`
+	ToolsBranch  string   `yaml:"tools_branch"`
+	SyncInterval Duration `yaml:"sync_interval"`
+	BranchPrefix string   `yaml:"branch_prefix"`
+	StagingRef   string   `yaml:"staging_ref"`
+	APIURL       string   `yaml:"api_url"`
+	GitHost      string   `yaml:"git_host"`
 }
 
 type Report struct {
@@ -218,6 +219,7 @@ type Workflows struct {
 	// Custom enables dispatching workflows from the fork's tools
 	// branch.
 	Custom        bool     `yaml:"custom"`
+	CustomPrefix  string   `yaml:"custom_prefix"`
 	CustomExclude []string `yaml:"custom_exclude"`
 	// CustomPerSeries lists custom workflow files that only run once
 	// per series, on the last patch.
@@ -263,7 +265,7 @@ func defaults() Config {
 		Patchwork: Patchwork{MinDelay: Duration(5 * time.Second)},
 		Upstream:  Upstream{DefaultBranch: "main"},
 		TestRepo: TestRepo{
-			ToolsBranch:  "leadtestkit",
+			SyncInterval: Duration(7 * 24 * time.Hour),
 			BranchPrefix: "series_",
 			StagingRef:   "refs/leadtest/",
 			APIURL:       "https://api.github.com",
@@ -304,7 +306,7 @@ func defaults() Config {
 			BranchRetention:    Duration(30 * 24 * time.Hour),
 			HistoryWindow:      Duration(30 * 24 * time.Hour),
 		},
-		Workflows: Workflows{RerunCancelled: true, RerunJobs: "failed"},
+		Workflows: Workflows{RerunCancelled: true, RerunJobs: "failed", CustomPrefix: "leadtest-"},
 		Rechecks:  Rechecks{Enabled: true, Window: Duration(30 * 24 * time.Hour)},
 		Runner: Runner{
 			LoopDuration: Duration(13 * time.Minute),
@@ -444,6 +446,9 @@ func (c *Config) validate() error {
 	}
 	if c.Upstream.DefaultBranch == "" {
 		add("upstream.default_branch is required")
+	}
+	if c.TestRepo.ToolsBranch == "" {
+		c.TestRepo.ToolsBranch = c.Upstream.DefaultBranch
 	}
 	if parts := strings.Split(c.TestRepo.Repo, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		add("test_repo.repo must be owner/name, got %q", c.TestRepo.Repo)

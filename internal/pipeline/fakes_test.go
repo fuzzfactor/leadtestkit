@@ -205,6 +205,8 @@ type fakeGH struct {
 	reruns           []int64
 	failedOnly       []bool
 	refuseFailedOnly bool
+	merges           []string
+	mergeErr         error
 	dispatches       []map[string]string
 	refs             map[string]string
 	deleted          []string
@@ -320,6 +322,14 @@ func (f *fakeGH) File(ctx context.Context, path, ref string) ([]byte, error) {
 }
 
 func (f *fakeGH) TokenExpiry() string { return "" }
+
+func (f *fakeGH) MergeUpstream(ctx context.Context, branch string) (string, error) {
+	f.merges = append(f.merges, branch)
+	if f.mergeErr != nil {
+		return "", f.mergeErr
+	}
+	return "merge", nil
+}
 
 // startRuns creates push runs for the head of a branch.
 func (f *fakeGH) startRuns(branch, sha string, names ...string) []int64 {

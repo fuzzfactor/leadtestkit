@@ -1,7 +1,8 @@
 # Checkpatch for DPDK patches, started by LeadTestKit.
 #
-# Copy to .github/workflows/ on the `leadtestkit` branch of the test
-# fork and make that branch the default one.
+# Commit to .github/workflows/ on the default branch of the test fork
+# (the tools branch, see SETUP.rst).  The file name must start with
+# workflows.custom_prefix ("leadtest-").
 #
 # CHECKPATCH_SOURCE selects the DPDK tree whose devtools are used:
 #   upstream-main - the upstream main branch (recommended, a patch

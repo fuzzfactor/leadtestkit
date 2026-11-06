@@ -12,6 +12,7 @@ meta.instance.project string
 meta.instance.test_repo string
 meta.schema int
 meta.stats.jobs_per_patch float64
+meta.tools_synced string
 series.schema int
 series.series[].base.branch string
 series.series[].base.git_url string

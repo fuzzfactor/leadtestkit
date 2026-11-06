@@ -16,7 +16,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const (
 	kindMeta   = "meta"

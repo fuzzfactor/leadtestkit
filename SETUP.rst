@@ -21,22 +21,29 @@ The test fork runs code from anyone who sends a patch to the list.
 
 1. Fork the project repository.
 2. Enable GitHub Actions in the fork.
-3. Create a branch named ``leadtestkit`` with only the workflows you
-   want LeadTestKit to start for every patch, for example::
+3. Add the workflows you want LeadTestKit to start for every patch to
+   the fork's ``main`` branch (the *tools branch*), on top of upstream,
+   for example::
 
-     git switch --orphan leadtestkit
-     mkdir -p .github/workflows
-     cp <leadtestkit>/fork-workflows/checkpatch-ovs.yml .github/workflows/
+     git switch main
+     cp <leadtestkit>/fork-workflows/leadtest-checkpatch-ovs.yml .github/workflows/
      git add .github && git commit -m "LeadTestKit workflows."
-     git push origin leadtestkit
+     git push origin main
 
-   Workflows must be started by ``workflow_dispatch``, take the inputs
-   used in the examples and set ``run-name: leadtest ${{
-   inputs.correlation_id }}``.  If you do not want custom workflows,
-   the branch can stay empty.
-4. Make ``leadtestkit`` the default branch of the fork.  GitHub only
-   starts ``workflow_dispatch`` workflows that exist on the default
-   branch, and scheduled upstream workflows stop running in the fork.
+   File names must start with ``leadtest-``; the project's own
+   workflows on the branch are never started by the bot.  Workflows
+   must be started by ``workflow_dispatch``, take the inputs used in
+   the examples and set ``run-name: leadtest ${{
+   inputs.correlation_id }}``.  Without custom workflows, leave
+   ``main`` as it is.
+4. Keep ``main`` the default branch of the fork.  GitHub only starts
+   ``workflow_dispatch`` workflows from the default branch, and the
+   runs on test branches can only restore caches saved on their own
+   branch or on the default branch.  LeadTestKit syncs ``main`` with
+   upstream every week (``test_repo.sync_interval``) with GitHub's
+   *Sync fork*; the project's workflows then run on ``main`` and fill
+   the caches.  If the sync reports a conflict, merge upstream into
+   ``main`` by hand.
 
 Patches are pushed to ``series_<id>`` branches, which runs the
 project's own workflows on push.  The applied series and patches are

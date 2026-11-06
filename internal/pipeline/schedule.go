@@ -640,7 +640,8 @@ func (p *Pipeline) customWorkflows(ctx context.Context) ([]string, error) {
 	}
 	var out []string
 	for _, f := range files {
-		if contains(p.Cfg.Workflows.CustomExclude, f) {
+		// The tools branch also has the project's own workflows.
+		if !strings.HasPrefix(f, p.Cfg.Workflows.CustomPrefix) || contains(p.Cfg.Workflows.CustomExclude, f) {
 			continue
 		}
 		data, err := p.GH.File(ctx, ".github/workflows/"+f, p.Cfg.TestRepo.ToolsBranch)

@@ -203,3 +203,28 @@ func TestTokenExpiry(t *testing.T) {
 		t.Errorf("expiry = %q", c.TokenExpiry())
 	}
 }
+
+func TestMergeUpstream(t *testing.T) {
+	var n atomic.Int32
+	var body map[string]string
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		if r.Method != "POST" || r.URL.Path != "/repos/ipsum/lorem/merge-upstream" {
+			t.Errorf("%s %s", r.Method, r.URL.Path)
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if n.Load() == 1 {
+			w.Write([]byte(`{"message":"ok","merge_type":"merge","base_branch":"upstream:main"}`))
+			return
+		}
+		w.WriteHeader(409)
+		w.Write([]byte(`{"message":"conflict"}`))
+	})
+	kind, err := c.MergeUpstream(context.Background(), "main")
+	if err != nil || kind != "merge" || body["branch"] != "main" {
+		t.Fatalf("kind=%q err=%v body=%v", kind, err, body)
+	}
+	if _, err := c.MergeUpstream(context.Background(), "main"); httpx.StatusCode(err) != 409 || n.Load() != 2 {
+		t.Fatalf("err=%v n=%d", err, n.Load())
+	}
+}

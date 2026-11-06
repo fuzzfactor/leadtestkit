@@ -50,6 +50,7 @@ type GitHub interface {
 	Dispatch(ctx context.Context, file, ref string, inputs map[string]string) error
 	WorkflowFiles(ctx context.Context, ref string) ([]string, error)
 	File(ctx context.Context, path, ref string) ([]byte, error)
+	MergeUpstream(ctx context.Context, branch string) (string, error)
 	TokenExpiry() string
 }
 
@@ -93,6 +94,7 @@ type Pipeline struct {
 	customLoaded  bool
 	expiryWarned  bool
 	safetyNetDone bool
+	syncDone      bool
 	gcDone        bool
 }
 
@@ -171,6 +173,7 @@ func (p *Pipeline) Step(ctx context.Context, final bool) {
 		fn   func(context.Context)
 	}{
 		{"manual", p.applyManual},
+		{"sync", p.syncTools},
 		{"discover", p.discover},
 		{"qualify", p.qualify},
 		{"rechecks", p.rechecks},
