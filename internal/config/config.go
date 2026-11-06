@@ -239,9 +239,10 @@ type Runner struct {
 type Pages struct {
 	Enabled bool   `yaml:"enabled"`
 	Title   string `yaml:"title"`
-	// ArchiveURLFormat links report emails by Message-ID when set,
-	// e.g. https://inbox.dpdk.org/test-report/{}/ for lore.
-	ArchiveURLFormat string `yaml:"archive_url_format"`
+	// ArchiveURLFormat and PatchArchiveURLFormat link report and patch
+	// emails by Message-ID, e.g. https://inbox.dpdk.org/dev/{}/ for lore.
+	ArchiveURLFormat      string `yaml:"archive_url_format"`
+	PatchArchiveURLFormat string `yaml:"patch_archive_url_format"`
 }
 
 type Secrets struct {

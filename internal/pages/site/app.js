@@ -53,9 +53,10 @@ function runLabel(r) {
   return r.workflow || r.file || "workflow";
 }
 
-function archiveLink(msgid) {
-  if (!index.archive_url_format || !msgid) return null;
-  return index.archive_url_format.replace("{}", encodeURIComponent(msgid.replace(/^<|>$/g, "")));
+function archiveLink(msgid, format) {
+  format = format || index.archive_url_format;
+  if (!format || !msgid) return null;
+  return format.replace("{}", encodeURIComponent(msgid.replace(/^<|>$/g, "")));
 }
 
 function renderPatch(s, p) {
@@ -73,6 +74,8 @@ function renderPatch(s, p) {
     el("span", { class: "badge " + p.status }, p.status), " ",
     link(pwLink, "pw" + p.id), " ",
     el("span", { class: "pname" }, p.name || ""),
+    ...(archiveLink(p.msgid, index.patch_archive_url_format)
+      ? [" ", link(archiveLink(p.msgid, index.patch_archive_url_format), "email")] : []),
     p.sha ? el("span", { class: "muted" }, " " + p.sha.slice(0, 12)) : null,
     p.failure ? el("div", { class: "error" }, p.failure.op + ": " + p.failure.last_error) : null,
     runs);

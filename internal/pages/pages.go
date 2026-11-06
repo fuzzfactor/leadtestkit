@@ -35,6 +35,7 @@ type Index struct {
 	TestRepo         string  `json:"test_repo"`
 	GitHost          string  `json:"git_host"`
 	ArchiveURLFormat string  `json:"archive_url_format,omitempty"`
+	PatchURLFormat   string  `json:"patch_archive_url_format,omitempty"`
 	Mode             Mode    `json:"mode"`
 	Queue            int     `json:"queue"`
 	Months           []Month `json:"months"`
@@ -65,6 +66,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 		TestRepo:         cfg.TestRepo.Repo,
 		GitHost:          cfg.TestRepo.GitHost,
 		ArchiveURLFormat: cfg.Pages.ArchiveURLFormat,
+		PatchURLFormat:   cfg.Pages.PatchArchiveURLFormat,
 		Mode:             Mode{Push: cfg.Mode.Push, Checks: cfg.Mode.Checks, Email: cfg.Mode.Email},
 		Queue:            len(st.Queue),
 		Months:           []Month{},
