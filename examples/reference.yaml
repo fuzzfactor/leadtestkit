@@ -318,6 +318,13 @@ runner:
   loop_duration: 13m
   loop_interval: 3m
 
+  # A step that is still running after loop_duration is allowed to
+  # finish, which can take long when Patchwork is slow.  At hard_stop
+  # the work in progress is cancelled and the state is saved.  Keep it
+  # well below timeout-minutes of the workflow (60), which kills the
+  # job without saving anything.
+  hard_stop: 40m
+
   # Author of the state commits.
   commit_author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
 

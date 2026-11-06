@@ -241,7 +241,7 @@ func cmdRun(args []string) error {
 	interval := cfg.Runner.LoopInterval.D()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, duration+10*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, cfg.Runner.HardStop.D())
 	defer cancel()
 
 	deadline := time.Now().Add(duration)

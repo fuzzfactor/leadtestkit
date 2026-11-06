@@ -235,6 +235,7 @@ type Rechecks struct {
 
 type Runner struct {
 	LoopDuration Duration `yaml:"loop_duration"`
+	HardStop     Duration `yaml:"hard_stop"`
 	LoopInterval Duration `yaml:"loop_interval"`
 	CommitAuthor string   `yaml:"commit_author"`
 }
@@ -305,6 +306,7 @@ func defaults() Config {
 		Rechecks:  Rechecks{Enabled: true, Window: Duration(30 * 24 * time.Hour)},
 		Runner: Runner{
 			LoopDuration: Duration(13 * time.Minute),
+			HardStop:     Duration(40 * time.Minute),
 			LoopInterval: Duration(3 * time.Minute),
 			CommitAuthor: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
 		},
@@ -566,6 +568,9 @@ func (c *Config) validate() error {
 	}
 	if c.Runner.LoopInterval <= 0 || c.Runner.LoopDuration < 0 {
 		add("runner: loop_interval must be positive")
+	}
+	if c.Runner.HardStop < c.Runner.LoopDuration {
+		add("runner.hard_stop must not be shorter than runner.loop_duration")
 	}
 	if !commitAuthorRe.MatchString(c.Runner.CommitAuthor) {
 		add("runner.commit_author must be \"Name <email>\"")

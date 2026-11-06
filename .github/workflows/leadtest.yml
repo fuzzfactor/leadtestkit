@@ -26,7 +26,9 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Only a safety net: the bot stops itself at runner.hard_stop and
+    # saves its state, which a killed job cannot do.
+    timeout-minutes: 60
     outputs:
       configured: ${{ steps.check.outputs.configured }}
       pages: ${{ steps.pages.outputs.pages }}
