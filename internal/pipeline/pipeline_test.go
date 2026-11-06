@@ -584,12 +584,25 @@ func TestGC(t *testing.T) {
 	}
 }
 
-func TestHasRecheck(t *testing.T) {
+func TestParseRecheck(t *testing.T) {
 	labels := []string{"github-robot"}
-	if !HasRecheck("x\nRecheck-request: lab, github-robot\n", labels) ||
-		HasRecheck("> Recheck-request: github-robot\n", labels) ||
-		HasRecheck("Recheck-request: github-robot-x\n", labels) {
-		t.Error("HasRecheck")
+	tests := []struct {
+		content string
+		all     bool
+		names   string
+	}{
+		{"x\nRecheck-request: lab, github-robot\n", true, "[lab]"},
+		{"> Recheck-request: github-robot\n", false, "[]"},
+		{"Recheck-request: GitHub-Robot\n", true, "[]"},
+		{"Recheck-request: github-robot-_Build_and_Test, iol-unit\n", false,
+			"[github-robot-_Build_and_Test iol-unit]"},
+		{"Lorem ipsum.\n", false, "[]"},
+	}
+	for _, tt := range tests {
+		all, names := ParseRecheck(tt.content, labels)
+		if all != tt.all || fmt.Sprint(names) != tt.names {
+			t.Errorf("%q: all=%v names=%v", tt.content, all, names)
+		}
 	}
 }
 
@@ -823,5 +836,105 @@ func TestRerunAllJobs(t *testing.T) {
 	e.step()
 	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{ok, failed}) || fmt.Sprint(e.gh.failedOnly) != "[false false]" {
 		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
+	}
+}
+
+// requestRecheck adds a Recheck-request comment to the patch of a series
+// and marks its comments for fetching, as the dev list scan would.
+func requestRecheck(e *env, seriesID int, line string) {
+	pt := e.series(seriesID).Patches[0]
+	e.pw.comments[pt.ID] = append(e.pw.comments[pt.ID],
+		pw.Comment{ID: len(e.pw.comments[pt.ID]) + 1, Content: "Thanks.\n\nRecheck-request: " + line + "\n"})
+	pt.CommentsPending = true
+}
+
+func TestRecheckByCheckName(t *testing.T) {
+	e := newEnv(t, "")
+	ok, failed := testedPatch(t, e, 270)
+	requestRecheck(e, 270, "github-robot-_Build")
+	e.step()
+	// An explicitly named run is rerun even though it succeeded, as a
+	// whole, since it has no failed jobs.
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{ok}) || fmt.Sprint(e.gh.failedOnly) != "[false]" {
+		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
+	}
+	pt := e.series(270).Patches[0]
+	if r := pt.Run(state.RunPush, "Test"); r.ID != failed || r.Result != state.ResultFail {
+		t.Errorf("unrequested run changed: %+v", r)
+	}
+	if pt.Recheck || pt.RecheckChecks != nil || pt.CommentsSeen != 1 {
+		t.Errorf("patch = %+v", pt)
+	}
+}
+
+func TestRecheckSeveralNames(t *testing.T) {
+	e := newEnv(t, "")
+	ok, failed := testedPatch(t, e, 280)
+	requestRecheck(e, 280, "iol-unit-testing, github-robot-_Test github-robot-_build")
+	e.step()
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{ok, failed}) ||
+		fmt.Sprint(e.gh.failedOnly) != "[false true]" {
+		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
+	}
+}
+
+func TestRecheckUnknownNameIgnored(t *testing.T) {
+	e := newEnv(t, "")
+	testedPatch(t, e, 290)
+	requestRecheck(e, 290, "iol-unit-testing github-robot-_Lorem")
+	e.step()
+	if len(e.gh.reruns) != 0 || e.series(290).Status != state.SeriesDone {
+		t.Fatalf("reruns = %v", e.gh.reruns)
+	}
+}
+
+func TestRecheckCustomWorkflows(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Workflows.Custom = true
+	e.cfg.Report.ApplySuccess = false
+	e.gh.files["checkpatch.yml"] = "on: workflow_dispatch\n"
+	e.gh.files["perf.yml"] = "on: workflow_dispatch\n"
+	e.pw.addSeries(300, 1, "lorem", e.now)
+	e.step()
+	e.gh.dispatched = []gh.WorkflowRun{{ID: 7000, Name: "Checkpatch",
+		DisplayTitle: "leadtest 300-30001-checkpatch-1", Status: "completed", Conclusion: "failure",
+		RunAttempt: 1}}
+	e.gh.finishRun(e.gh.startRuns("series_300", "sha-30001", "Build")[0], "success")
+	e.step()
+	// perf.yml never starts and is reported as a warning.
+	e.advance(61 * time.Minute)
+	e.step()
+	e.advance(11 * time.Minute)
+	e.step()
+	if r := runByFile(e.series(300).Patches[0], "perf.yml"); r.Result != state.ResultWarning {
+		t.Fatalf("perf run = %+v", r)
+	}
+	if s := e.series(300); s.Status != state.SeriesDone {
+		t.Fatalf("series = %+v", s)
+	}
+
+	requestRecheck(e, 300, "github-robot-_Checkpatch github-robot-_perf.yml")
+	e.step()
+	if fmt.Sprint(e.gh.reruns) != "[7000]" {
+		t.Fatalf("reruns = %v", e.gh.reruns)
+	}
+	last := e.gh.dispatches[len(e.gh.dispatches)-1]
+	if len(e.gh.dispatches) != 3 || last["file"] != "perf.yml" || last["correlation_id"] != "300-30001-perf-2" {
+		t.Fatalf("dispatches = %v", e.gh.dispatches)
+	}
+	pt := e.series(300).Patches[0]
+	if r := pt.Run(state.RunPush, "Build"); r.Result != state.ResultSuccess {
+		t.Errorf("Build changed: %+v", r)
+	}
+	if r := runByFile(pt, "perf.yml"); r.Status != "requested" || r.Result != "" {
+		t.Errorf("perf run = %+v", r)
+	}
+}
+
+func TestNextCorrelationID(t *testing.T) {
+	for in, want := range map[string]string{"1-2-x-1": "1-2-x-2", "1-2-x-9": "1-2-x-10", "odd": "odd-2"} {
+		if got := nextCorrelationID(in); got != want {
+			t.Errorf("%q: got %q", in, got)
+		}
 	}
 }

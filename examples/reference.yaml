@@ -309,8 +309,12 @@ workflows:
   rerun_jobs: failed
 
 rechecks:
-  # Rerun the workflows of a patch on a "Recheck-request: <label>" line
-  # in a reply to it (see workflows.rerun_jobs).
+  # Rerun workflows on "Recheck-request:" lines in replies to a patch.
+  # A label (see below) reruns all failed runs of the patch (see
+  # workflows.rerun_jobs).  A Patchwork check name, for example
+  # github-robot-_Build_and_Test or github-robot-_Checkpatch, reruns
+  # that run, even if it succeeded.  A custom workflow that never
+  # started is dispatched again.  Names of other labs are ignored.
   enabled: true
 
   # Labels accepted in Recheck-request lines.  Empty means report.label.

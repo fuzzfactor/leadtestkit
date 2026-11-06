@@ -143,6 +143,9 @@ and on a patch:
 
 - ``"recheck": true`` reruns its failed workflows (all of them with
   ``workflows.rerun_jobs: all``);
+- ``"recheck_checks": ["github-robot-_Build_and_Test"]`` reruns the runs
+  with these Patchwork check names, like a ``Recheck-request:`` with
+  the check name;
 - ``"retry": true`` retries failed operations.
 
 The workflow can also be started manually with *Run workflow*, for a

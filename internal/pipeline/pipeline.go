@@ -265,6 +265,7 @@ func resetSeries(s *state.Series) {
 		pt.Failure = nil
 		pt.Runs = nil
 		pt.Recheck = false
+		pt.RecheckChecks = nil
 	}
 }
 

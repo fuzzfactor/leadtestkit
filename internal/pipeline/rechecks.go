@@ -7,11 +7,13 @@ import (
 	"context"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"leadtestkit/internal/archive"
 	"leadtestkit/internal/pw"
+	"leadtestkit/internal/report"
 	"leadtestkit/internal/state"
 )
 
@@ -19,19 +21,30 @@ const commentEvents = "patch-comment-created"
 
 var recheckRe = regexp.MustCompile(`(?m)^Recheck-request:[ \t]*(.+)$`)
 
-func HasRecheck(content string, labels []string) bool {
+// ParseRecheck returns whether a comment requests a recheck by label,
+// and the other tokens of its Recheck-request lines, which may be
+// Patchwork check names like "github-robot-_Build_and_Test".
+func ParseRecheck(content string, labels []string) (bool, []string) {
+	all := false
+	var names []string
 	for _, m := range recheckRe.FindAllStringSubmatch(content, -1) {
 		for _, tok := range strings.FieldsFunc(m[1], func(r rune) bool {
 			return r == ',' || r == ' ' || r == '\t'
 		}) {
+			label := false
 			for _, l := range labels {
 				if strings.EqualFold(tok, l) {
-					return true
+					label = true
 				}
+			}
+			if label {
+				all = true
+			} else {
+				names = append(names, tok)
 			}
 		}
 	}
-	return false
+	return all, names
 }
 
 type tracked struct {
@@ -92,14 +105,22 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 				continue
 			}
 			t.patch.CommentsSeen = c.ID
-			if HasRecheck(c.Content, labels) {
-				p.log().Info("recheck requested", "patch", id, "comment", c.ID)
-				t.patch.Recheck = true
+			all, names := ParseRecheck(c.Content, labels)
+			checks := p.matchChecks(t.patch, names)
+			if all || len(checks) > 0 {
+				p.log().Info("recheck requested", "patch", id, "comment", c.ID,
+					"all", all, "checks", strings.Join(checks, ","))
+			}
+			t.patch.Recheck = t.patch.Recheck || all
+			for _, c := range checks {
+				if !containsFold(t.patch.RecheckChecks, c) {
+					t.patch.RecheckChecks = append(t.patch.RecheckChecks, c)
+				}
 			}
 		}
 	}
 	for _, id := range ids {
-		if t := patches[id]; t.patch.Recheck && t.patch.Failure.Due(now) {
+		if t := patches[id]; (t.patch.Recheck || len(t.patch.RecheckChecks) > 0) && t.patch.Failure.Due(now) {
 			p.doRecheck(ctx, t.series, t.patch)
 		}
 	}
@@ -154,44 +175,100 @@ func (p *Pipeline) commentsFromArchive(ctx context.Context, patches map[int]trac
 	}
 }
 
+func containsFold(list []string, s string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func rerunnable(r *state.Run) bool {
+	return r.Kind == state.RunPush || r.Kind == state.RunDispatch
+}
+
+// matchChecks keeps the names that are check names of runs of the patch,
+// as posted to Patchwork; other labs' names are ignored.
+func (p *Pipeline) matchChecks(pt *state.Patch, names []string) []string {
+	var out []string
+	for _, r := range pt.Runs {
+		if !rerunnable(r) {
+			continue
+		}
+		check := report.Context(p.label(r))
+		if containsFold(names, check) && !containsFold(out, check) {
+			out = append(out, check)
+		}
+	}
+	return out
+}
+
 func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Patch) {
 	now := p.now()
-	var rerun []*state.Run
-	failedOnly := p.Cfg.Workflows.RerunJobs == "failed"
-	for _, r := range pt.Runs {
-		if (r.Kind != state.RunPush && r.Kind != state.RunDispatch) || r.ID == 0 || r.Status != "completed" {
-			continue
-		}
-		if failedOnly && r.Result == state.ResultSuccess {
-			continue
-		}
-		rerun = append(rerun, r)
-	}
-	if len(rerun) == 0 {
-		p.log().Info("nothing to recheck", "patch", pt.ID)
+	done := func() {
 		pt.Recheck = false
+		pt.RecheckChecks = nil
+	}
+	failedOnly := p.Cfg.Workflows.RerunJobs == "failed"
+	var rerun, redispatch []*state.Run
+	explicit := map[*state.Run]bool{}
+	for _, r := range pt.Runs {
+		if !rerunnable(r) || r.Status != "completed" {
+			continue
+		}
+		explicit[r] = containsFold(pt.RecheckChecks, report.Context(p.label(r)))
+		if !explicit[r] && (!pt.Recheck || failedOnly && r.Result == state.ResultSuccess) {
+			continue
+		}
+		switch {
+		case r.ID > 0:
+			rerun = append(rerun, r)
+		case r.Kind == state.RunDispatch:
+			// The workflow never started, so there is no run to restart.
+			redispatch = append(redispatch, r)
+		}
+	}
+	if len(rerun)+len(redispatch) == 0 {
+		p.log().Info("nothing to recheck", "patch", pt.ID)
+		done()
 		return
 	}
 	if !p.Cfg.Mode.PushLive() {
-		p.log().Info("would rerun workflows", "patch", pt.ID, "runs", len(rerun))
-		pt.Recheck = false
+		p.log().Info("would rerun workflows", "patch", pt.ID, "runs", len(rerun)+len(redispatch))
+		done()
 		return
 	}
+	reset := func(r *state.Run) {
+		r.Status = "requested"
+		r.Result, r.Conclusion, r.Completed, r.Details = "", "", "", ""
+		r.Pending, r.Final = state.Report{}, state.Report{}
+		r.AutoReruns = 0
+		r.Failure = nil
+		r.Updated = state.FormatTime(now)
+	}
 	for _, r := range rerun {
-		if err := p.rerun(ctx, r.ID); err != nil {
+		var err error
+		if explicit[r] && r.Result == state.ResultSuccess {
+			err = p.GH.Rerun(ctx, r.ID, false)
+		} else {
+			err = p.rerun(ctx, r.ID)
+		}
+		if err != nil {
 			if p.fail(&pt.Failure, "recheck", err) {
-				pt.Recheck = false
+				done()
 				pt.Failure = nil
 				p.errorf("patch %d: giving up rerunning workflows: %v", pt.ID, err)
 			}
 			return
 		}
 		r.MinAttempt = r.Attempt
-		r.Status = "requested"
-		r.Result, r.Conclusion, r.Completed, r.Details = "", "", "", ""
-		r.Pending, r.Final = state.Report{}, state.Report{}
-		r.AutoReruns = 0
-		r.Updated = state.FormatTime(now)
+		reset(r)
+	}
+	for _, r := range redispatch {
+		r.CorrelationID = nextCorrelationID(r.CorrelationID)
+		reset(r)
+		r.Status = "dispatching"
 	}
 	var keep []*state.Run
 	for _, r := range pt.Runs {
@@ -201,7 +278,7 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 	}
 	pt.Runs = keep
 	pt.Failure = nil
-	pt.Recheck = false
+	done()
 	pt.Status = state.PatchPushed
 	pt.Pushed = state.FormatTime(now)
 	if !s.Active() || s.Status != state.SeriesTesting {
@@ -214,6 +291,19 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 		s.Reason = ""
 		s.Finished = ""
 	}
+	p.sendDispatches(ctx, s, pt)
 	p.Stats.Rechecks++
-	p.log().Info("workflows rerun", "series", s.ID, "patch", pt.ID, "runs", len(rerun))
+	p.log().Info("workflows rerun", "series", s.ID, "patch", pt.ID, "runs", len(rerun),
+		"dispatched", len(redispatch))
+}
+
+// nextCorrelationID bumps the attempt suffix, so that a new dispatch
+// gets a run name of its own.
+func nextCorrelationID(id string) string {
+	i := strings.LastIndexByte(id, '-')
+	n, err := strconv.Atoi(id[i+1:])
+	if i < 0 || err != nil {
+		return id + "-2"
+	}
+	return id[:i+1] + strconv.Itoa(n+1)
 }

@@ -141,12 +141,14 @@ type Patch struct {
 	CommentsSeen    int  `json:"comments_seen,omitempty"`
 	CommentsPending bool `json:"comments_pending,omitempty"`
 
-	// Recheck requests a rerun of all runs, from a Recheck-request
+	// Recheck requests a rerun of the failed runs and RecheckChecks of
+	// the runs with these Patchwork check names, from a Recheck-request
 	// comment or a human.
-	Recheck bool     `json:"recheck,omitempty"`
-	Retry   bool     `json:"retry,omitempty"`
-	Failure *Failure `json:"failure,omitempty"`
-	Runs    []*Run   `json:"runs,omitempty"`
+	Recheck       bool     `json:"recheck,omitempty"`
+	RecheckChecks []string `json:"recheck_checks,omitempty"`
+	Retry         bool     `json:"retry,omitempty"`
+	Failure       *Failure `json:"failure,omitempty"`
+	Runs          []*Run   `json:"runs,omitempty"`
 }
 
 type Run struct {
