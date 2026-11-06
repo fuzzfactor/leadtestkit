@@ -4,20 +4,20 @@
 //
 // Derived from leadlight api/mailarchive.go (commit 1f9d0e7), modified.
 
-package pw
+package archive
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/net/html"
+
+	"leadtestkit/internal/httpx"
 )
 
 type ArchiveMessage struct {
@@ -25,33 +25,41 @@ type ArchiveMessage struct {
 	Subject string
 }
 
-func BuildArchiveURL(baseURL string, year int, month time.Month) string {
-	return fmt.Sprintf("%s%d-%s/date.html",
-		strings.TrimRight(baseURL, "/")+"/",
-		year, month.String())
+// Pipermail is a mailman 2 archive, e.g.
+// https://mail.example.org/pipermail/dev/.
+type Pipermail struct {
+	http *httpx.Client
+	base string
 }
 
-func (c *Client) FetchArchiveMessages(ctx context.Context, pageURL string) ([]ArchiveMessage, error) {
-	resp, err := c.doExternalRequest(ctx, http.MethodGet, pageURL, nil)
+func NewPipermail(baseURL string, hc *httpx.Client) *Pipermail {
+	return &Pipermail{http: hc, base: strings.TrimRight(baseURL, "/") + "/"}
+}
+
+// MonthKey is the pipermail directory name, e.g. "2026-March".
+func MonthKey(year int, month time.Month) string {
+	return fmt.Sprintf("%d-%s", year, month.String())
+}
+
+func BuildArchiveURL(baseURL string, year int, month time.Month) string {
+	return strings.TrimRight(baseURL, "/") + "/" + MonthKey(year, month) + "/date.html"
+}
+
+func (p *Pipermail) MessageURL(month string, number int) string {
+	return fmt.Sprintf("%s%s/%d.html", p.base, month, number)
+}
+
+// FetchMonth lists the messages of one month.  A missing month (no
+// mail yet) is an empty list, not an error.
+func (p *Pipermail) FetchMonth(ctx context.Context, year int, month time.Month) ([]ArchiveMessage, error) {
+	resp, err := p.http.Get(ctx, BuildArchiveURL(p.base, year, month))
+	if httpx.IsNotFound(err) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("HTTP %d fetching archive", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if bytes.Contains(body, []byte("not a bot")) {
-		return nil, fmt.Errorf("archive is not accessible")
-	}
-
-	return parseArchiveMessages(body)
+	return parseArchiveMessages(resp.Body)
 }
 
 var archiveMsgRe = regexp.MustCompile(`(?i)<LI><A HREF="(\d+)\.html">([^<]+)`)
@@ -64,11 +72,7 @@ func parseArchiveMessages(body []byte) ([]ArchiveMessage, error) {
 		if err != nil {
 			continue
 		}
-		subject := cleanArchiveSubject(string(m[2]))
-		msgs = append(msgs, ArchiveMessage{
-			Number:  num,
-			Subject: subject,
-		})
+		msgs = append(msgs, ArchiveMessage{Number: num, Subject: cleanArchiveSubject(string(m[2]))})
 	}
 	return msgs, nil
 }
@@ -78,7 +82,74 @@ func cleanArchiveSubject(s string) string {
 	if err != nil {
 		return strings.TrimSpace(s)
 	}
-	return strings.TrimSpace(textContent(doc))
+	return strings.Join(strings.Fields(textContent(doc)), " ")
+}
+
+type Message struct {
+	URL       string
+	Subject   string
+	MessageID string
+	Date      string
+	// Body is the plain text of the article.  Links holds every href
+	// found in it, since pipermail turns URLs into anchors.
+	Body  string
+	Links []string
+}
+
+func (p *Pipermail) FetchMessage(ctx context.Context, msgURL string) (*Message, error) {
+	resp, err := p.http.Get(ctx, msgURL)
+	if err != nil {
+		return nil, err
+	}
+	m, err := ParseMessagePage(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", msgURL, err)
+	}
+	m.URL = msgURL
+	return m, nil
+}
+
+var (
+	h1Re         = regexp.MustCompile(`(?is)<H1>(.*?)</H1>`)
+	inReplyToRe  = regexp.MustCompile(`(?i)[?&]In-Reply-To=([^"&>\s]+)`)
+	dateRe       = regexp.MustCompile(`(?is)<I>([^<]*)</I>`)
+	articleRe    = regexp.MustCompile(`(?is)<!--beginarticle-->(.*?)<!--endarticle-->`)
+	hrefRe       = regexp.MustCompile(`(?i)href="([^"]+)"`)
+	beginArticle = "<!--beginarticle-->"
+)
+
+// ParseMessagePage parses a pipermail article page.  The mailto reply
+// link carries the message's own Message-ID as In-Reply-To.
+func ParseMessagePage(page []byte) (*Message, error) {
+	art := articleRe.FindSubmatch(page)
+	if art == nil {
+		return nil, fmt.Errorf("no article body")
+	}
+	head := string(page)
+	if i := strings.Index(head, beginArticle); i >= 0 {
+		head = head[:i]
+	}
+	m := &Message{}
+	if h := h1Re.FindStringSubmatch(head); h != nil {
+		m.Subject = cleanArchiveSubject(h[1])
+	}
+	if r := inReplyToRe.FindStringSubmatch(head); r != nil {
+		if id, err := url.QueryUnescape(r[1]); err == nil {
+			m.MessageID = strings.TrimSpace(id)
+		}
+	}
+	if d := dateRe.FindStringSubmatch(head); d != nil {
+		m.Date = strings.TrimSpace(html.UnescapeString(d[1]))
+	}
+	for _, h := range hrefRe.FindAllSubmatch(art[1], -1) {
+		m.Links = append(m.Links, html.UnescapeString(string(h[1])))
+	}
+	doc, err := html.Parse(strings.NewReader("<pre>" + string(art[1])))
+	if err != nil {
+		return nil, err
+	}
+	m.Body = strings.TrimLeft(textContent(doc), "\n")
+	return m, nil
 }
 
 var bracketPrefixRe = regexp.MustCompile(`^\[[^\]]*\]\s*`)
@@ -99,29 +170,26 @@ func extractVersion(subject string) string {
 	if i < 0 {
 		return ""
 	}
-	// If there's a '(' before the first '[', the bracket is likely
-	// inside a parenthetical like "(was: [PATCH v2] ...)" — don't
-	// trust it for version extraction.
+	// A '(' before the first '[' means the bracket is likely inside a
+	// parenthetical like "(was: [PATCH v2] ...)".
 	if strings.Contains(s[:i], "(") {
 		return ""
 	}
 	s = s[i:]
 	for strings.HasPrefix(s, "[") {
-		close := strings.Index(s, "]")
-		if close < 0 {
+		end := strings.Index(s, "]")
+		if end < 0 {
 			break
 		}
-		bracket := s[1:close]
-		if m := versionInBracketRe.FindString(bracket); m != "" {
+		if m := versionInBracketRe.FindString(s[1:end]); m != "" {
 			return strings.ToLower(m)
 		}
-		s = strings.TrimSpace(s[close+1:])
+		s = strings.TrimSpace(s[end+1:])
 	}
 	return ""
 }
 
-// versionsMatch checks if an archive message version matches a patch
-// version. Unversioned patches are implicitly v1.
+// versionsMatch treats unversioned patches as v1.
 func versionsMatch(msgVersion, patchVersion string) bool {
 	if msgVersion == patchVersion {
 		return true
@@ -129,10 +197,7 @@ func versionsMatch(msgVersion, patchVersion string) bool {
 	if msgVersion == "v1" && patchVersion == "" {
 		return true
 	}
-	if patchVersion == "v1" && msgVersion == "" {
-		return true
-	}
-	return false
+	return patchVersion == "v1" && msgVersion == ""
 }
 
 func ExtractPatchCore(s string) string {
@@ -194,12 +259,8 @@ func MatchPatchSubjects(msgs []ArchiveMessage, patchNames map[int]string) []int 
 	}
 	patches := map[int]patchInfo{}
 	for id, name := range patchNames {
-		c := ExtractPatchCore(name)
-		if c != "" {
-			patches[id] = patchInfo{
-				core:    c,
-				version: extractVersion(name),
-			}
+		if c := ExtractPatchCore(name); c != "" {
+			patches[id] = patchInfo{core: c, version: extractVersion(name)}
 		}
 	}
 
@@ -210,10 +271,9 @@ func MatchPatchSubjects(msgs []ArchiveMessage, patchNames map[int]string) []int 
 			if !subjectMatch(p.core, msg.Subject) {
 				continue
 			}
-			// If the archive message has no extractable version,
-			// match all versions to avoid false negatives.
-			if msgVersion == "" ||
-				versionsMatch(msgVersion, p.version) {
+			// Without an extractable version, match all versions to
+			// avoid false negatives.
+			if msgVersion == "" || versionsMatch(msgVersion, p.version) {
 				matched[id] = true
 			}
 		}

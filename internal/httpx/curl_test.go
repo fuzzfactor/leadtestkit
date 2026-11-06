@@ -4,14 +4,16 @@
 //
 // Derived from leadlight api/curl_test.go (commit 1f9d0e7), modified.
 
-package pw
+package httpx
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseCurlResponse_Simple(t *testing.T) {
@@ -127,10 +129,10 @@ func TestExecCurl_Integration(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL+"/test", nil)
-	req.Header.Set("User-Agent", "leadlight/1.0")
+	req.Header.Set("User-Agent", "leadtestkit/1.0")
 	req.Header.Set("Accept", "*/*")
 
-	resp, err := execCurl(req, false)
+	resp, err := execCurl(context.Background(), req, nil, false, 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,18 +161,66 @@ func TestExecCurl_SkipUA(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL+"/test", nil)
-	req.Header.Set("User-Agent", "leadlight/1.0")
+	req.Header.Set("User-Agent", "leadtestkit/1.0")
 
-	resp, err := execCurl(req, true)
+	resp, err := execCurl(context.Background(), req, nil, true, 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 
-	if strings.Contains(gotUA, "leadlight") {
-		t.Errorf("User-Agent should not contain leadlight when skipUA=true, got %q", gotUA)
+	if strings.Contains(gotUA, "leadtestkit") {
+		t.Errorf("User-Agent should not contain leadtestkit when skipUA=true, got %q", gotUA)
 	}
 	if gotUA == "" {
 		t.Error("curl should send its own default User-Agent")
+	}
+}
+
+func TestParseCurlResponse_BodyWithStatusLikeLine(t *testing.T) {
+	raw := "HTTP/1.1 200 OK\r\n" +
+		"Content-Type: text/plain\r\n" +
+		"\r\n" +
+		"first line\nHTTP/1.1 500 lorem\n\nlast"
+
+	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	resp, err := parseCurlResponse([]byte(raw), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || string(body) != "first line\nHTTP/1.1 500 lorem\n\nlast" {
+		t.Errorf("status = %d body = %q", resp.StatusCode, body)
+	}
+}
+
+func TestParseCurlResponse_Continue(t *testing.T) {
+	raw := "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 201 Created\r\n\r\n{}"
+	req, _ := http.NewRequest("POST", "http://example.com", nil)
+	resp, err := parseCurlResponse([]byte(raw), req)
+	if err != nil || resp.StatusCode != 201 {
+		t.Fatalf("resp=%v err=%v", resp, err)
+	}
+}
+
+func TestCurlConfigKeepsSecretsOutOfArgv(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://example.com/api/?q=1", nil)
+	req.Header.Set("Authorization", "Token lorem")
+	req.Header.Set("User-Agent", "leadtestkit/1.0")
+	cfg := curlConfig(req, []byte(`{"a":"b\"c"}`), true, 30*time.Second)
+	want := []string{
+		`header = "Authorization: Token lorem"`,
+		`data-binary = "{\"a\":\"b\\\"c\"}"`,
+		`url = "https://example.com/api/?q=1"`,
+		`request = "POST"`,
+		"max-time = 30",
+	}
+	for _, w := range want {
+		if !strings.Contains(cfg, w) {
+			t.Errorf("config missing %q:\n%s", w, cfg)
+		}
+	}
+	if strings.Contains(cfg, "User-Agent") {
+		t.Errorf("skipUA config contains User-Agent:\n%s", cfg)
 	}
 }

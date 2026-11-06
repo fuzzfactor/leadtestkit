@@ -4,14 +4,18 @@
 //
 // Derived from leadlight api/mailarchive_test.go (commit 1f9d0e7), modified.
 
-package pw
+package archive
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"leadtestkit/internal/httpx"
 )
 
 func TestBuildArchiveURL(t *testing.T) {
@@ -282,20 +286,27 @@ func TestLongestCommonSubstring(t *testing.T) {
 	}
 }
 
-func TestFetchArchiveMessages(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(testPipermailHTML))
-		}))
+func testPipermail(t *testing.T, h http.HandlerFunc) (*Pipermail, *httptest.Server) {
+	t.Helper()
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
+	hc := httpx.New(httpx.Options{
+		HTTPClient: srv.Client(),
+		CurlFirst:  true,
+		Logger:     slog.New(slog.DiscardHandler),
+		Sleep:      func(ctx context.Context, d time.Duration) error { return nil },
+	})
+	return NewPipermail(srv.URL+"/pipermail/dev/", hc), srv
+}
 
-	c := &Client{
-		httpClient: srv.Client(),
-		minDelay:   10 * time.Millisecond,
-	}
-
-	msgs, err := c.FetchArchiveMessages(
-		context.Background(), srv.URL+"/date.html")
+func TestFetchMonth(t *testing.T) {
+	p, _ := testPipermail(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/pipermail/dev/2026-March/date.html" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		w.Write([]byte(testPipermailHTML))
+	})
+	msgs, err := p.FetchMonth(context.Background(), 2026, time.March)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,22 +315,95 @@ func TestFetchArchiveMessages(t *testing.T) {
 	}
 }
 
-func TestFetchArchiveMessages_BotChallenge(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("Making sure you're not a bot!"))
-		}))
-	t.Cleanup(srv.Close)
-
-	c := &Client{
-		httpClient: srv.Client(),
-		minDelay:   10 * time.Millisecond,
+func TestFetchMonthMissing(t *testing.T) {
+	p, _ := testPipermail(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+	})
+	msgs, err := p.FetchMonth(context.Background(), 2026, time.April)
+	if err != nil || len(msgs) != 0 {
+		t.Fatalf("msgs=%v err=%v", msgs, err)
 	}
+}
 
-	_, err := c.FetchArchiveMessages(
-		context.Background(), srv.URL+"/date.html")
-	if err == nil {
+func TestFetchMonthBotChallenge(t *testing.T) {
+	p, _ := testPipermail(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Making sure you're not a bot!"))
+	})
+	if _, err := p.FetchMonth(context.Background(), 2026, time.March); err == nil {
 		t.Error("expected error for bot challenge page")
+	}
+}
+
+const testArticleHTML = `<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [lorem-build] |fail| pw2052 [lorem-dev] ipsum: Dolor sit.
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:lorem-build%40lists.example.org?Subject=Re%3A%20%5Blorem-build%5D&In-Reply-To=%3C20260302.abc%40robot.example.org%3E">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[lorem-build] |fail| pw2052 [lorem-dev] ipsum: Dolor &amp; sit.</H1>
+    <B>robot at robot.example.org</B>
+    <A HREF="mailto:lorem-build%40lists.example.org?Subject=Re%3A&In-Reply-To=%3C20260302.abc%40robot.example.org%3E"
+       TITLE="[lorem-build] |fail| pw2052">robot at robot.example.org
+       </A><BR>
+    <I>Mon Mar  2 10:00:00 UTC 2026</I>
+    <HR>
+<!--beginarticle-->
+<PRE>Test-Label: lorem-robot: Build and Test
+Test-Status: fail
+<A HREF="https://pw.example.org/patch/2052/">https://pw.example.org/patch/2052/</A>
+
+_lorem build: failed_
+Build URL: <A HREF="https://ci.example.org/runs/1">https://ci.example.org/runs/1</A>
+a &lt;b&gt; c
+</PRE>
+
+<!--endarticle-->
+    <HR>
+</BODY></HTML>`
+
+func TestParseMessagePage(t *testing.T) {
+	m, err := ParseMessagePage([]byte(testArticleHTML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Subject != "[lorem-build] |fail| pw2052 [lorem-dev] ipsum: Dolor & sit." {
+		t.Errorf("Subject = %q", m.Subject)
+	}
+	if m.MessageID != "<20260302.abc@robot.example.org>" {
+		t.Errorf("MessageID = %q", m.MessageID)
+	}
+	if m.Date != "Mon Mar  2 10:00:00 UTC 2026" {
+		t.Errorf("Date = %q", m.Date)
+	}
+	if !strings.HasPrefix(m.Body, "Test-Label: lorem-robot: Build and Test\nTest-Status: fail\n"+
+		"https://pw.example.org/patch/2052/\n") || !strings.Contains(m.Body, "a <b> c") {
+		t.Errorf("Body = %q", m.Body)
+	}
+	if len(m.Links) != 2 || m.Links[0] != "https://pw.example.org/patch/2052/" {
+		t.Errorf("Links = %q", m.Links)
+	}
+}
+
+func TestParseMessagePageNoArticle(t *testing.T) {
+	if _, err := ParseMessagePage([]byte("<html>nothing</html>")); err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestFetchMessage(t *testing.T) {
+	p, srv := testPipermail(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(testArticleHTML))
+	})
+	u := p.MessageURL("2026-March", 123)
+	if u != srv.URL+"/pipermail/dev/2026-March/123.html" {
+		t.Errorf("MessageURL = %q", u)
+	}
+	m, err := p.FetchMessage(context.Background(), u)
+	if err != nil || m.URL != u {
+		t.Fatalf("m=%v err=%v", m, err)
 	}
 }
 
