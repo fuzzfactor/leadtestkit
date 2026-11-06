@@ -58,8 +58,8 @@ const testPipermailHTML = `<!DOCTYPE HTML>
 </A><A NAME="430800">&nbsp;</A>
 <I>Sit Amet</I>
 
-<LI><A HREF="430850.html">[ovs-dev] [syzbot ci] Re: Lorem ipsum dolor sit amet
-</A><A NAME="430850">&nbsp;</A>
+<LI><A HREF="030850.html">[ovs-dev] [syzbot ci] Re: Lorem ipsum dolor sit amet
+</A><A NAME="030850">&nbsp;</A>
 <I>Syzbot</I>
 
 </ul>
@@ -87,7 +87,7 @@ func TestParseArchiveMessages(t *testing.T) {
 		t.Errorf("[2].Number = %d", msgs[2].Number)
 	}
 
-	if msgs[3].Number != 430850 {
+	if msgs[3].Number != 30850 {
 		t.Errorf("[3].Number = %d", msgs[3].Number)
 	}
 }
@@ -397,8 +397,8 @@ func TestFetchMessage(t *testing.T) {
 	p, srv := testPipermail(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(testArticleHTML))
 	})
-	u := p.MessageURL("2026-March", 123)
-	if u != srv.URL+"/pipermail/dev/2026-March/123.html" {
+	u := p.MessageURL("2026-March", 60006)
+	if u != srv.URL+"/pipermail/dev/2026-March/060006.html" {
 		t.Errorf("MessageURL = %q", u)
 	}
 	m, err := p.FetchMessage(context.Background(), u)

@@ -207,6 +207,7 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	for _, ch := range checks {
 		if ch.TargetURL != nil && stripScheme(*ch.TargetURL) == stripScheme(msgURL) {
+			p.log().Debug("check already posted", "url", msgURL, "patch", patchID)
 			return errSkip
 		}
 	}

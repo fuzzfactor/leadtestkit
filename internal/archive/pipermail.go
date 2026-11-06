@@ -45,8 +45,9 @@ func BuildArchiveURL(baseURL string, year int, month time.Month) string {
 	return strings.TrimRight(baseURL, "/") + "/" + MonthKey(year, month) + "/date.html"
 }
 
+// MessageURL follows mailman 2, which pads message numbers to six digits.
 func (p *Pipermail) MessageURL(month string, number int) string {
-	return fmt.Sprintf("%s%s/%d.html", p.base, month, number)
+	return fmt.Sprintf("%s%s/%06d.html", p.base, month, number)
 }
 
 // FetchMonth lists the messages of one month.  A missing month (no
