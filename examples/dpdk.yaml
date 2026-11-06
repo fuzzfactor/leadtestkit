@@ -1,0 +1,91 @@
+# LeadTestKit configuration for DPDK.
+#
+# Copy this file to config.yaml on the `state` branch of your
+# leadtestkit fork.  Secrets are not configured here; see SETUP.rst.
+
+enabled: true
+name: DPDK
+
+patchwork:
+  api_url: https://patches.dpdk.org/api/1.3
+  project: dpdk
+  min_delay: 5s
+
+upstream:
+  git_url: https://github.com/DPDK/dpdk.git
+  default_branch: main
+
+test_repo:
+  repo: ovsrobot/dpdk
+
+# dpdk.org moves test-report mails into patchwork itself, so reports
+# are only emailed (pending included) and the archive is not ingested.
+report:
+  style: dpdk
+  to: test-report@dpdk.org
+  from: "LeadTestKit Robot <robot@example.org>"
+  label: github-robot
+  apply_label: apply-robot
+  cc_submitter: false
+  pending_check: false
+
+archive:
+  reports_url: https://mails.dpdk.org/archives/test-report/
+  dev_url: https://mails.dpdk.org/archives/dev/
+  ingest: false
+
+smtp:
+  host: smtp.example.org
+  port: 587
+  security: starttls
+
+mode:
+  push: live
+  checks: log
+  email: test
+  allowed_recipients:
+    - test-report@dpdk.org
+
+rules:
+  skip:
+    - subject: '\bRFC\b'
+      reason: RFC
+  base:
+    - type: maintainers
+      file: MAINTAINERS
+      trees:
+        dpdk-next-net:
+          git_url: https://dpdk.org/git/next/dpdk-next-net
+          branch: main
+        dpdk-next-net-intel:
+          git_url: https://dpdk.org/git/next/dpdk-next-net-intel
+          branch: main
+        dpdk-next-net-mlx:
+          git_url: https://dpdk.org/git/next/dpdk-next-net-mlx
+          branch: main
+        dpdk-next-virtio:
+          git_url: https://dpdk.org/git/next/dpdk-next-virtio
+          branch: main
+        dpdk-next-crypto:
+          git_url: https://dpdk.org/git/next/dpdk-next-crypto
+          branch: main
+        dpdk-next-eventdev:
+          git_url: https://dpdk.org/git/next/dpdk-next-eventdev
+          branch: main
+  supersede: true
+
+limits:
+  max_queued_jobs: 20
+  max_inflight_patches: 10
+  per_author_min: 2
+  per_author_max_share: 0.5
+  jobs_per_patch: 15
+
+rechecks:
+  enabled: true
+  labels: [github-robot]
+
+pages:
+  enabled: true
+  title: DPDK CI
+  archive_url_format: "https://inbox.dpdk.org/test-report/{}/"

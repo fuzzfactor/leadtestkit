@@ -1,0 +1,79 @@
+# LeadTestKit configuration for Open vSwitch.
+#
+# Copy this file to config.yaml on the `state` branch of your
+# leadtestkit fork.  Secrets are not configured here; see SETUP.rst.
+
+enabled: true
+name: Open vSwitch
+
+patchwork:
+  api_url: https://patchwork.ozlabs.org/api/1.2
+  project: openvswitch
+  min_delay: 5s
+
+upstream:
+  git_url: https://github.com/openvswitch/ovs.git
+  default_branch: main
+
+test_repo:
+  repo: ovsrobot/ovs
+
+report:
+  style: ovs
+  to: ovs-build@openvswitch.org
+  from: "LeadTestKit Robot <robot@example.org>"
+  label: github-robot
+  apply_label: apply-robot
+  cc_submitter: true
+
+archive:
+  reports_url: https://mail.openvswitch.org/pipermail/ovs-build/
+  dev_url: https://mail.openvswitch.org/pipermail/ovs-dev/
+  ingest: true
+
+smtp:
+  host: smtp.example.org
+  port: 587
+  security: starttls
+
+# Start in test mode: checks are only logged, emails are marked so that
+# other bots ignore them and only go to allowed_recipients.
+mode:
+  push: live
+  checks: log
+  email: test
+  allowed_recipients:
+    - ovs-build@openvswitch.org
+
+rules:
+  skip:
+    - subject: '\bRFC\b'
+      reason: RFC
+    - subject: '\bnet-next\b'
+      reason: kernel patch
+  base:
+    - type: subject
+      match: '\b(branch-\d+\.\d+)\b'
+      branch: '$1'
+    - type: subject
+      match: '\b(dpdk-latest|dpdk-hwol)\b'
+      branch: '$1'
+  supersede: true
+
+limits:
+  max_queued_jobs: 20
+  max_inflight_patches: 10
+  per_author_min: 2
+  per_author_max_share: 0.5
+  jobs_per_patch: 20
+
+workflows:
+  custom: false
+
+rechecks:
+  enabled: true
+  labels: [github-robot]
+
+pages:
+  enabled: true
+  title: Open vSwitch CI

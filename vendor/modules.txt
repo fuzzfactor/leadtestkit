@@ -1,3 +1,6 @@
+# go.yaml.in/yaml/v3 v3.0.6
+## explicit; go 1.16
+go.yaml.in/yaml/v3
 # golang.org/x/net v0.34.0
 ## explicit; go 1.18
 golang.org/x/net/html
