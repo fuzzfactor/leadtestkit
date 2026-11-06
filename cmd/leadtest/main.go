@@ -83,6 +83,9 @@ func cmdValidate(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := st.CheckInstance(instance(cfg)); err != nil {
+		return err
+	}
 	months, err := st.HistoryMonths()
 	if err != nil {
 		return err
@@ -215,6 +218,9 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := st.CheckInstance(instance(cfg)); err != nil {
+		return err
+	}
 	p, err := buildPipeline(cfg, st, *workDir, log)
 	if err != nil {
 		return err
@@ -269,6 +275,14 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("saving state: %w", cpErr)
 	}
 	return nil
+}
+
+func instance(cfg *config.Config) state.Instance {
+	return state.Instance{
+		Patchwork: cfg.PatchworkWebURL(),
+		Project:   cfg.Patchwork.Project,
+		TestRepo:  cfg.TestRepo.GitHost + "/" + cfg.TestRepo.Repo,
+	}
 }
 
 func buildPipeline(cfg *config.Config, st *state.Store, workDir string, log *slog.Logger) (*pipeline.Pipeline, error) {

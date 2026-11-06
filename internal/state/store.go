@@ -22,6 +22,7 @@ const (
 )
 
 type queueFile struct {
+	Schema int       `json:"schema"`
 	Series []*Series `json:"series"`
 }
 
@@ -46,12 +47,9 @@ func newMeta() *Meta {
 func Load(dir string) (*Store, error) {
 	s := &Store{Dir: dir, history: map[string][]*Series{}, dirty: map[string]bool{}}
 	s.Meta = newMeta()
-	if err := readJSON(filepath.Join(dir, MetaFile), s.Meta); err != nil &&
+	if _, err := readState(filepath.Join(dir, MetaFile), kindMeta, s.Meta); err != nil &&
 		!errors.Is(err, os.ErrNotExist) {
 		return nil, err
-	}
-	if s.Meta.Schema > SchemaVersion {
-		return nil, fmt.Errorf("state schema %d is newer than supported %d", s.Meta.Schema, SchemaVersion)
 	}
 	s.Meta.Schema = SchemaVersion
 	if s.Meta.Events == nil {
@@ -61,7 +59,7 @@ func Load(dir string) (*Store, error) {
 		s.Meta.Archives = map[string]*ArchiveCursor{}
 	}
 	var q queueFile
-	if err := readJSON(filepath.Join(dir, QueueFile), &q); err != nil &&
+	if _, err := readState(filepath.Join(dir, QueueFile), kindSeries, &q); err != nil &&
 		!errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -70,19 +68,6 @@ func Load(dir string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
-}
-
-func readJSON(path string, v any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("%s: %w", filepath.Base(path), err)
-	}
-	return nil
 }
 
 var validSeriesStatus = map[string]bool{
@@ -167,13 +152,14 @@ func (s *Store) Save() error {
 	if err := writeJSON(filepath.Join(s.Dir, MetaFile), s.Meta); err != nil {
 		return err
 	}
-	if err := writeJSON(filepath.Join(s.Dir, QueueFile), queueFile{Series: s.Queue}); err != nil {
+	if err := writeJSON(filepath.Join(s.Dir, QueueFile),
+		queueFile{Schema: SchemaVersion, Series: s.Queue}); err != nil {
 		return err
 	}
 	for month := range s.dirty {
 		list := s.history[month]
 		sortSeries(list)
-		if err := writeJSON(s.historyPath(month), queueFile{Series: list}); err != nil {
+		if err := writeJSON(s.historyPath(month), queueFile{Schema: SchemaVersion, Series: list}); err != nil {
 			return err
 		}
 	}
@@ -229,8 +215,12 @@ func (s *Store) History(month string) ([]*Series, error) {
 		return list, nil
 	}
 	var h queueFile
-	if err := readJSON(s.historyPath(month), &h); err != nil && !errors.Is(err, os.ErrNotExist) {
+	migrated, err := readState(s.historyPath(month), kindSeries, &h)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
+	}
+	if migrated {
+		s.dirty[month] = true
 	}
 	if err := validate(month, h.Series); err != nil {
 		return nil, err

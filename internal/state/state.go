@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-const SchemaVersion = 1
-
 const (
 	SeriesNew     = "new"
 	SeriesQueued  = "queued"
@@ -58,6 +56,7 @@ type Meta struct {
 	// DiscoveryStart is when the bot first looked for series; older
 	// series are only tested within limits.initial_backfill of it.
 	DiscoveryStart string                    `json:"discovery_start,omitempty"`
+	Instance       *Instance                 `json:"instance,omitempty"`
 	Events         map[string]int            `json:"events"`
 	Archives       map[string]*ArchiveCursor `json:"archives"`
 	Stats          Stats                     `json:"stats"`

@@ -26,6 +26,7 @@ type Month struct {
 }
 
 type Index struct {
+	Schema           int     `json:"schema"`
 	Title            string  `json:"title"`
 	Name             string  `json:"name"`
 	Generated        string  `json:"generated"`
@@ -48,6 +49,7 @@ type Mode struct {
 }
 
 type seriesFile struct {
+	Schema int             `json:"schema"`
 	Series []*state.Series `json:"series"`
 }
 
@@ -57,6 +59,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 	}
 	data := filepath.Join(out, "data")
 	idx := Index{
+		Schema:           state.SchemaVersion,
 		Title:            cfg.Pages.Title,
 		Name:             cfg.Name,
 		Generated:        state.FormatTime(now),
@@ -75,7 +78,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 	if queue == nil {
 		queue = []*state.Series{}
 	}
-	if err := writeJSON(filepath.Join(data, "queue.json"), seriesFile{Series: queue}); err != nil {
+	if err := writeJSON(filepath.Join(data, "queue.json"), seriesFile{Schema: state.SchemaVersion, Series: queue}); err != nil {
 		return err
 	}
 	months, err := st.HistoryMonths()
@@ -92,7 +95,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 			n += len(s.Patches)
 		}
 		idx.Months = append(idx.Months, Month{Month: m, Series: len(list), Patches: n})
-		if err := writeJSON(filepath.Join(data, "history", m+".json"), seriesFile{Series: list}); err != nil {
+		if err := writeJSON(filepath.Join(data, "history", m+".json"), seriesFile{Schema: state.SchemaVersion, Series: list}); err != nil {
 			return err
 		}
 	}

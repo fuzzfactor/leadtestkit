@@ -157,3 +157,19 @@ fewer than ``max_queued_jobs`` jobs wait for a runner and fewer than
 never gets more than ``per_author_max_share`` of the in-flight patches
 while others are waiting.  The pages and the job summary show the
 queue, so the limits can be tuned from real data.
+
+
+6. Upgrading
+------------
+
+To upgrade, sync your fork with the upstream leadtestkit repository.
+Every state file records its ``schema`` version, and a newer leadtest
+upgrades older files automatically as it reads them.  An older leadtest
+refuses state written by a newer one with a clear error, so roll back
+the state branch too if you roll back the code.
+
+``meta.json`` records the Patchwork instance, project and test
+repository the state belongs to.  If ``config.yaml`` changes any of
+them, the bot stops with an error instead of mixing up two instances;
+update or remove ``"instance"`` in ``meta.json`` if the change is
+intended.
