@@ -223,6 +223,8 @@ type Workflows struct {
 	// per series, on the last patch.
 	CustomPerSeries []string `yaml:"custom_per_series"`
 	RerunCancelled  bool     `yaml:"rerun_cancelled"`
+	// RerunJobs is "failed" (GitHub's "Re-run failed jobs") or "all".
+	RerunJobs string `yaml:"rerun_jobs"`
 }
 
 type Rechecks struct {
@@ -302,7 +304,7 @@ func defaults() Config {
 			BranchRetention:    Duration(30 * 24 * time.Hour),
 			HistoryWindow:      Duration(30 * 24 * time.Hour),
 		},
-		Workflows: Workflows{RerunCancelled: true},
+		Workflows: Workflows{RerunCancelled: true, RerunJobs: "failed"},
 		Rechecks:  Rechecks{Enabled: true, Window: Duration(30 * 24 * time.Hour)},
 		Runner: Runner{
 			LoopDuration: Duration(13 * time.Minute),
@@ -571,6 +573,11 @@ func (c *Config) validate() error {
 	}
 	if c.Runner.HardStop < c.Runner.LoopDuration {
 		add("runner.hard_stop must not be shorter than runner.loop_duration")
+	}
+	switch c.Workflows.RerunJobs {
+	case "failed", "all":
+	default:
+		add("workflows.rerun_jobs must be failed or all")
 	}
 	if !commitAuthorRe.MatchString(c.Runner.CommitAuthor) {
 		add("runner.commit_author must be \"Name <email>\"")

@@ -157,10 +157,15 @@ func (p *Pipeline) commentsFromArchive(ctx context.Context, patches map[int]trac
 func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Patch) {
 	now := p.now()
 	var rerun []*state.Run
+	failedOnly := p.Cfg.Workflows.RerunJobs == "failed"
 	for _, r := range pt.Runs {
-		if (r.Kind == state.RunPush || r.Kind == state.RunDispatch) && r.ID > 0 && r.Status == "completed" {
-			rerun = append(rerun, r)
+		if (r.Kind != state.RunPush && r.Kind != state.RunDispatch) || r.ID == 0 || r.Status != "completed" {
+			continue
 		}
+		if failedOnly && r.Result == state.ResultSuccess {
+			continue
+		}
+		rerun = append(rerun, r)
 	}
 	if len(rerun) == 0 {
 		p.log().Info("nothing to recheck", "patch", pt.ID)
@@ -173,7 +178,7 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 		return
 	}
 	for _, r := range rerun {
-		if err := p.GH.Rerun(ctx, r.ID, false); err != nil {
+		if err := p.rerun(ctx, r.ID); err != nil {
 			if p.fail(&pt.Failure, "recheck", err) {
 				pt.Recheck = false
 				pt.Failure = nil

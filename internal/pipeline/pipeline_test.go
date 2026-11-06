@@ -251,8 +251,8 @@ func TestCancelledRunIsRerunOnce(t *testing.T) {
 	ids := e.gh.startRuns("series_60", "sha-6001", "Build")
 	e.gh.finishRun(ids[0], "cancelled")
 	e.step()
-	if len(e.gh.reruns) != 1 {
-		t.Fatalf("reruns = %v", e.gh.reruns)
+	if len(e.gh.reruns) != 1 || !e.gh.failedOnly[0] {
+		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
 	}
 	r := e.series(60).Patches[0].Run(state.RunPush, "Build")
 	if r.Result != "" || r.MinAttempt != 1 {
@@ -757,5 +757,71 @@ func TestRetryAppliesAgain(t *testing.T) {
 	if e.repo.applies != 2 || s.Patches[0].SHA != "sha-23001.2" || s.Reapply ||
 		e.gh.branches["series_230"] != "sha-23001.2" {
 		t.Fatalf("series = %+v patch = %+v", s, s.Patches[0])
+	}
+}
+
+// testedPatch returns a done patch with a successful and a failed run.
+func testedPatch(t *testing.T, e *env, id int) (ok, failed int64) {
+	t.Helper()
+	e.cfg.Report.ApplySuccess = false
+	e.pw.addSeries(id, 1, "lorem", e.now)
+	e.step()
+	sha := fmt.Sprintf("sha-%d01", id)
+	ids := e.gh.startRuns(fmt.Sprintf("series_%d", id), sha, "Build", "Test")
+	e.gh.finishRun(ids[0], "success")
+	e.gh.finishRun(ids[1], "failure")
+	e.step()
+	e.advance(11 * time.Minute)
+	e.step()
+	if s := e.series(id); s.Status != state.SeriesDone {
+		t.Fatalf("series = %+v", s)
+	}
+	return ids[0], ids[1]
+}
+
+func TestRecheckRerunsOnlyFailedJobs(t *testing.T) {
+	e := newEnv(t, "")
+	ok, failed := testedPatch(t, e, 240)
+	s := e.series(240)
+	s.Patches[0].Recheck = true
+	sent := len(e.mail.sent)
+	e.step()
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{failed}) || fmt.Sprint(e.gh.failedOnly) != "[true]" {
+		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
+	}
+	pt := e.series(240).Patches[0]
+	if r := pt.Run(state.RunPush, "Build"); r.ID != ok || r.Result != state.ResultSuccess ||
+		r.Final.Email != state.StepSent {
+		t.Errorf("successful run must be kept: %+v", r)
+	}
+	e.gh.restartRun(failed)
+	e.gh.finishRun(failed, "success")
+	e.step()
+	e.advance(11 * time.Minute)
+	e.step()
+	if len(e.mail.sent) != sent+1 || e.series(240).Status != state.SeriesDone {
+		t.Fatalf("sent = %d, want %d; series = %+v", len(e.mail.sent), sent+1, e.series(240))
+	}
+}
+
+func TestRerunFallsBackToAllJobs(t *testing.T) {
+	e := newEnv(t, "")
+	_, failed := testedPatch(t, e, 250)
+	e.gh.refuseFailedOnly = true
+	e.series(250).Patches[0].Recheck = true
+	e.step()
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{failed}) || fmt.Sprint(e.gh.failedOnly) != "[false]" {
+		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
+	}
+}
+
+func TestRerunAllJobs(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Workflows.RerunJobs = "all"
+	ok, failed := testedPatch(t, e, 260)
+	e.series(260).Patches[0].Recheck = true
+	e.step()
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{ok, failed}) || fmt.Sprint(e.gh.failedOnly) != "[false false]" {
+		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
 	}
 }

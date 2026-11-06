@@ -147,7 +147,7 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 		return
 	}
 	if wr.Conclusion == "cancelled" && p.Cfg.Workflows.RerunCancelled && r.AutoReruns < 1 {
-		err := p.GH.Rerun(ctx, wr.ID, false)
+		err := p.rerun(ctx, wr.ID)
 		if err == nil {
 			p.log().Info("rerunning cancelled run", "series", s.ID, "patch", pt.ID, "run", wr.ID)
 			r.AutoReruns++

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"leadtestkit/internal/archive"
 	"leadtestkit/internal/config"
 	"leadtestkit/internal/gh"
+	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/logx"
 	"leadtestkit/internal/mail"
 	"leadtestkit/internal/pw"
@@ -268,6 +270,20 @@ func resetSeries(s *state.Series) {
 
 func (p *Pipeline) fail(f **state.Failure, op string, err error) bool {
 	return state.RecordFailure(f, op, err, p.now(), p.Cfg.Limits.RetryDeadline.D())
+}
+
+// GitHub refuses a failed-jobs rerun when there is nothing to rerun that
+// way; the whole run is restarted then.
+func (p *Pipeline) rerun(ctx context.Context, runID int64) error {
+	if p.Cfg.Workflows.RerunJobs != "failed" {
+		return p.GH.Rerun(ctx, runID, false)
+	}
+	err := p.GH.Rerun(ctx, runID, true)
+	if code := httpx.StatusCode(err); code == http.StatusForbidden || code == http.StatusUnprocessableEntity {
+		p.log().Info("failed jobs cannot be rerun, rerunning the whole run", "run", runID, "err", err)
+		return p.GH.Rerun(ctx, runID, false)
+	}
+	return err
 }
 
 func (p *Pipeline) branchURL(branch string) string {

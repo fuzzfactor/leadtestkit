@@ -302,9 +302,15 @@ workflows:
   # Rerun a cancelled run once before reporting it as a warning.
   rerun_cancelled: true
 
+  # How runs are restarted, for cancelled runs and for rechecks.
+  # "failed": GitHub's "Re-run failed jobs", which also reruns cancelled
+  #           jobs; a recheck then leaves successful runs alone.
+  # "all":    rerun every job of every completed run.
+  rerun_jobs: failed
+
 rechecks:
   # Rerun the workflows of a patch on a "Recheck-request: <label>" line
-  # in a reply to it.
+  # in a reply to it (see workflows.rerun_jobs).
   enabled: true
 
   # Labels accepted in Recheck-request lines.  Empty means report.label.

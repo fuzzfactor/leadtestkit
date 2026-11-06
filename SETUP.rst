@@ -141,7 +141,8 @@ your changes.  Useful fields on a series:
 
 and on a patch:
 
-- ``"recheck": true`` reruns its workflows;
+- ``"recheck": true`` reruns its failed workflows (all of them with
+  ``workflows.rerun_jobs: all``);
 - ``"retry": true`` retries failed operations.
 
 The workflow can also be started manually with *Run workflow*, for a

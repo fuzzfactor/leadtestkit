@@ -195,20 +195,22 @@ func (f *fakePW) addSeries(id, n int, submitter string, date time.Time) {
 }
 
 type fakeGH struct {
-	branches   map[string]string
-	setBranch  int
-	runs       map[string][]gh.WorkflowRun
-	dispatched []gh.WorkflowRun
-	jobs       map[int64][]gh.Job
-	logs       map[int64]string
-	active     []gh.WorkflowRun
-	reruns     []int64
-	dispatches []map[string]string
-	refs       map[string]string
-	deleted    []string
-	files      map[string]string
-	fail       map[string]int
-	nextRun    int64
+	branches         map[string]string
+	setBranch        int
+	runs             map[string][]gh.WorkflowRun
+	dispatched       []gh.WorkflowRun
+	jobs             map[int64][]gh.Job
+	logs             map[int64]string
+	active           []gh.WorkflowRun
+	reruns           []int64
+	failedOnly       []bool
+	refuseFailedOnly bool
+	dispatches       []map[string]string
+	refs             map[string]string
+	deleted          []string
+	files            map[string]string
+	fail             map[string]int
+	nextRun          int64
 }
 
 func newFakeGH() *fakeGH {
@@ -284,7 +286,11 @@ func (f *fakeGH) Rerun(ctx context.Context, id int64, failedOnly bool) error {
 	if err := f.maybeFail("rerun"); err != nil {
 		return err
 	}
+	if failedOnly && f.refuseFailedOnly {
+		return &httpx.StatusError{Code: 403}
+	}
 	f.reruns = append(f.reruns, id)
+	f.failedOnly = append(f.failedOnly, failedOnly)
 	return nil
 }
 
