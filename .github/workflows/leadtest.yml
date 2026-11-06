@@ -44,17 +44,17 @@ jobs:
             echo "::notice::No state branch, nothing to do.  See SETUP.rst."
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.check.outputs.configured == 'true'
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.check.outputs.configured == 'true'
         with:
           ref: state
           path: state
           fetch-depth: 1
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         if: steps.check.outputs.configured == 'true'
         with:
           go-version-file: go.mod
@@ -65,7 +65,7 @@ jobs:
 
       - name: Restore the work repository
         if: steps.check.outputs.configured == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/leadtest-work
           key: leadtest-work-${{ github.run_id }}
@@ -87,7 +87,7 @@ jobs:
         if: always() && steps.check.outputs.configured == 'true'
         run: ./leadtest render-pages --state state --out _site
 
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         if: always() && steps.pages.outputs.pages == 'true'
         with:
           path: _site
@@ -105,4 +105,4 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
