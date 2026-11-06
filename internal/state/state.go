@@ -54,6 +54,7 @@ const (
 	StepSending = "sending"
 	StepSent    = "sent"
 	StepSkipped = "skipped"
+	StepFailed  = "failed"
 )
 
 type Meta struct {
@@ -114,8 +115,10 @@ type Series struct {
 	Branch    string `json:"branch,omitempty"`
 
 	Discovered string `json:"discovered"`
-	Started    string `json:"started,omitempty"`
-	Finished   string `json:"finished,omitempty"`
+	// Checked is when an incomplete series was last looked at.
+	Checked  string `json:"checked,omitempty"`
+	Started  string `json:"started,omitempty"`
+	Finished string `json:"finished,omitempty"`
 
 	Failure *Failure `json:"failure,omitempty"`
 	Patches []*Patch `json:"patches"`
@@ -133,6 +136,9 @@ type Patch struct {
 	// CommentsSeen is the highest comment ID checked for rechecks.
 	CommentsSeen int `json:"comments_seen,omitempty"`
 
+	// Recheck requests a rerun of all runs, from a Recheck-request
+	// comment or a human.
+	Recheck bool     `json:"recheck,omitempty"`
 	Retry   bool     `json:"retry,omitempty"`
 	Failure *Failure `json:"failure,omitempty"`
 	Runs    []*Run   `json:"runs,omitempty"`
@@ -276,5 +282,5 @@ func (p *Patch) RunByCorrelation(id string) *Run {
 // fully handled.
 func (r *Run) Settled() bool {
 	return r.Result != "" && r.Status == "completed" &&
-		(r.Final.Email == StepSent || r.Final.Email == StepSkipped)
+		(r.Final.Email == StepSent || r.Final.Email == StepSkipped || r.Final.Email == StepFailed)
 }

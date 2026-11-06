@@ -108,6 +108,7 @@ type Report struct {
 	// CcSubmitter adds the series submitter on non-success reports.
 	CcSubmitter  bool `yaml:"cc_submitter"`
 	PendingEmail bool `yaml:"pending_email"`
+	ApplySuccess bool `yaml:"apply_success"`
 	PendingCheck bool `yaml:"pending_check"`
 	LogLines     int  `yaml:"log_lines"`
 	MaxLogJobs   int  `yaml:"max_log_jobs"`
@@ -268,6 +269,7 @@ func defaults() Config {
 			BuildPrefix:  "github build",
 			CcSubmitter:  true,
 			PendingEmail: true,
+			ApplySuccess: true,
 			PendingCheck: true,
 			LogLines:     25,
 			MaxLogJobs:   5,
