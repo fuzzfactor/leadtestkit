@@ -165,7 +165,7 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 	if r.Pending.Email == "" {
 		r.Pending.Email = state.StepSkipped
 	}
-	p.log().Info("run completed", "series", s.ID, "patch", pt.ID, "workflow", r.Workflow,
+	p.log().Info("run completed", "series", s.ID, "patch", pt.ID, "name", pt.Name, "workflow", r.Workflow,
 		"conclusion", wr.Conclusion)
 }
 
@@ -274,7 +274,7 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	}
 	pt.Status = state.PatchDone
 	p.recordJobs(ctx, pt)
-	p.log().Info("patch done", "series", s.ID, "patch", pt.ID)
+	p.log().Info("patch done", "series", s.ID, "patch", pt.ID, "name", pt.Name)
 }
 
 // recordJobs keeps a moving average of jobs per patch, which the

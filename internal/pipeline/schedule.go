@@ -145,7 +145,7 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 			s.Finish(state.SeriesError, "push: "+pt.Failure.LastError, now)
 			p.errorf("series %d: giving up pushing patch %d: %v", s.ID, pt.ID, err)
 		} else {
-			p.log().Warn("push failed", "series", s.ID, "patch", pt.ID, "err", err)
+			p.log().Warn("push failed", "series", s.ID, "patch", pt.ID, "name", pt.Name, "err", err)
 		}
 	}
 	// After a lost state the branch may already be at this or a later
@@ -167,7 +167,7 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 			for _, x := range ordered[:head+1] {
 				if x.Status == state.PatchApplied {
 					p.markPushed(ctx, s, x, now)
-					p.log().Info("patch already pushed", "series", s.ID, "patch", x.ID)
+					p.log().Info("patch already pushed", "series", s.ID, "patch", x.ID, "name", x.Name)
 				}
 			}
 			return
@@ -178,7 +178,8 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 		return
 	}
 	p.Stats.Pushed++
-	p.log().Info("patch pushed", "series", s.ID, "patch", pt.ID, "branch", s.Branch, "sha", pt.SHA)
+	p.log().Info("patch pushed", "series", s.ID, "patch", pt.ID, "name", pt.Name, "branch", s.Branch,
+		"sha", pt.SHA)
 	p.markPushed(ctx, s, pt, now)
 }
 
@@ -204,7 +205,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 			p.errorf("series %d: giving up (%s): %v", s.ID, op, err)
 			return
 		}
-		p.log().Warn("series preparation failed", "series", s.ID, "op", op, "err", err)
+		p.log().Warn("series preparation failed", "series", s.ID, "name", s.Name, "op", op, "err", err)
 	}
 
 	patches := sortedPatches(s)
@@ -327,7 +328,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 			pt.Status = state.PatchNotApplied
 		}
 	}
-	p.log().Info("series applied", "series", s.ID, "base", base.Branch, "sha", base.SHA,
+	p.log().Info("series applied", "series", s.ID, "name", s.Name, "base", base.Branch, "sha", base.SHA,
 		"applied", len(shas), "reused", len(reused), "failed_index", failed)
 }
 

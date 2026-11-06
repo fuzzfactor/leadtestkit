@@ -196,10 +196,15 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 		}
 		patchID = found[0].ID
 	}
-	if ok, err := p.ourPatch(ctx, patchID); err != nil {
+	ok, name, err := p.ourPatch(ctx, patchID)
+	if err != nil {
 		return err
-	} else if !ok {
-		p.log().Debug("report for another project", "url", msgURL, "patch", patchID)
+	}
+	if name == "" {
+		name = m.Subject
+	}
+	if !ok {
+		p.log().Debug("report for another project", "url", msgURL, "patch", patchID, "name", name)
 		return errSkip
 	}
 	checks, err := p.PW.GetPatchChecks(ctx, patchID)
@@ -208,7 +213,7 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	for _, ch := range checks {
 		if ch.TargetURL != nil && stripScheme(*ch.TargetURL) == stripScheme(msgURL) {
-			p.log().Debug("check already posted", "url", msgURL, "patch", patchID)
+			p.log().Debug("check already posted", "url", msgURL, "patch", patchID, "name", name)
 			return errSkip
 		}
 	}
@@ -220,40 +225,43 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	p.Stats.Ingested++
 	if !p.Cfg.Mode.PostChecks() {
-		p.log().Info("would post check", "patch", patchID, "state", chk.State, "context", chk.Context,
+		p.log().Info("would post check", "patch", patchID, "name", name, "state", chk.State,
+			"context", chk.Context,
 			"target_url", chk.TargetURL, "description", chk.Description)
 		return nil
 	}
 	if err := p.PW.CreateCheck(ctx, patchID, chk); err != nil {
 		if code := httpx.StatusCode(err); code >= 400 && code < 500 && code != http.StatusTooManyRequests {
-			p.log().Warn("check rejected", "patch", patchID, "context", chk.Context, "err", err)
+			p.log().Warn("check rejected", "patch", patchID, "name", name, "context", chk.Context,
+				"err", err)
 			return errSkip
 		}
 		return err
 	}
 	p.Stats.Checks++
-	p.log().Info("check posted", "patch", patchID, "state", chk.State, "context", chk.Context)
+	p.log().Info("check posted", "patch", patchID, "name", name, "state", chk.State,
+		"context", chk.Context)
 	return nil
 }
 
 // ourPatch reports whether a patch belongs to the configured project.
 // Reports lists may be shared between projects with global patch IDs.
-func (p *Pipeline) ourPatch(ctx context.Context, id int) (bool, error) {
+func (p *Pipeline) ourPatch(ctx context.Context, id int) (bool, string, error) {
 	recent, err := p.Store.Recent(p.now(), p.Cfg.Limits.HistoryWindow.D())
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	if _, pt := state.FindPatch(recent, id); pt != nil {
-		return true, nil
+		return true, pt.Name, nil
 	}
 	d, err := p.PW.GetPatch(ctx, id)
 	if httpx.IsNotFound(err) {
-		return false, nil
+		return false, "", nil
 	}
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	proj := p.Cfg.Patchwork.Project
 	return strings.EqualFold(d.Project.LinkName, proj) || strings.EqualFold(d.Project.Name, proj) ||
-		strings.EqualFold(d.Project.ListID, proj), nil
+		strings.EqualFold(d.Project.ListID, proj), d.Name, nil
 }

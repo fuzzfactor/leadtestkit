@@ -108,7 +108,7 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 			all, names := ParseRecheck(c.Content, labels)
 			checks := p.matchChecks(t.patch, names)
 			if all || len(checks) > 0 {
-				p.log().Info("recheck requested", "patch", id, "comment", c.ID,
+				p.log().Info("recheck requested", "patch", id, "name", t.patch.Name, "comment", c.ID,
 					"all", all, "checks", strings.Join(checks, ","))
 			}
 			t.patch.Recheck = t.patch.Recheck || all
@@ -297,7 +297,7 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 	}
 	p.sendDispatches(ctx, s, pt)
 	p.Stats.Rechecks++
-	p.log().Info("workflows rerun", "series", s.ID, "patch", pt.ID, "runs", len(rerun),
+	p.log().Info("workflows rerun", "series", s.ID, "patch", pt.ID, "name", pt.Name, "runs", len(rerun),
 		"dispatched", len(redispatch))
 }
 

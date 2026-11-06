@@ -83,11 +83,11 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series, pt *state
 				Description: p.description(r, state.ResultPending),
 			}
 			if !p.Cfg.Mode.PostChecks() {
-				p.log().Info("would post check", "patch", pt.ID, "state", chk.State,
+				p.log().Info("would post check", "patch", pt.ID, "name", pt.Name, "state", chk.State,
 					"context", chk.Context, "target_url", chk.TargetURL)
 				r.Pending.Check = state.StepLogged
 			} else if err := p.PW.CreateCheck(ctx, pt.ID, chk); err != nil {
-				p.log().Warn("pending check failed", "patch", pt.ID, "err", err)
+				p.log().Warn("pending check failed", "patch", pt.ID, "name", pt.Name, "err", err)
 				if p.fail(&r.Failure, "pending check", err) {
 					r.Pending.Check = state.StepFailed
 					r.Failure = nil
@@ -106,7 +106,7 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series, pt *state
 		}
 		id, err := p.sendReport(ctx, s, pt, r, state.ResultPending, "pending", "")
 		if err != nil {
-			p.log().Warn("pending email failed", "patch", pt.ID, "err", err)
+			p.log().Warn("pending email failed", "patch", pt.ID, "name", pt.Name, "err", err)
 			if p.fail(&r.Failure, "pending email", err) {
 				r.Pending.Email = state.StepFailed
 				r.Failure = nil
@@ -149,7 +149,7 @@ func (p *Pipeline) reportFinal(ctx context.Context, s *state.Series, pt *state.P
 	}
 	id, err := p.sendReport(ctx, s, pt, r, r.Result, "final", extra)
 	if err != nil {
-		p.log().Warn("report email failed", "patch", pt.ID, "err", err)
+		p.log().Warn("report email failed", "patch", pt.ID, "name", pt.Name, "err", err)
 		if p.fail(&r.Failure, "report email", err) {
 			r.Final.Email = state.StepFailed
 			p.errorf("patch %d: giving up sending report for %s: %v", pt.ID, p.label(r), err)
@@ -179,7 +179,7 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 	id := report.MessageID(p.Cfg.Report.MessageIDDomain, s.ID, pt.ID, label,
 		fmt.Sprintf("%s.%d", kind, generation), max(r.Attempt, 1))
 	if p.Cfg.Mode.EmailOff() {
-		p.log().Info("email disabled, not sending report", "patch", pt.ID, "label", label,
+		p.log().Info("email disabled, not sending report", "patch", pt.ID, "name", pt.Name, "label", label,
 			"result", result, "kind", kind)
 		return id, nil
 	}
@@ -217,7 +217,8 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 		return "", err
 	}
 	p.Stats.Emails++
-	p.log().Info("report sent", "patch", pt.ID, "label", label, "result", result, "kind", kind)
+	p.log().Info("report sent", "patch", pt.ID, "name", pt.Name, "label", label, "result", result,
+		"kind", kind)
 	return id, nil
 }
 

@@ -120,7 +120,7 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		s.Failure = nil
 		p.fill(s, ps)
 		if reason := p.skipReason(s, ps, now); reason != "" {
-			p.log().Info("series skipped", "series", s.ID, "reason", reason)
+			p.log().Info("series skipped", "series", s.ID, "name", s.Name, "reason", reason)
 			s.Finish(state.SeriesSkipped, reason, now)
 			continue
 		}
@@ -223,7 +223,7 @@ func (p *Pipeline) supersede(s *state.Series, now time.Time) {
 			!strings.EqualFold(o.Submitter.Email, s.Submitter.Email) || baseName(o.Name) != name {
 			continue
 		}
-		p.log().Info("series superseded", "series", o.ID, "by", s.ID)
+		p.log().Info("series superseded", "series", o.ID, "name", o.Name, "by", s.ID)
 		o.Finish(state.SeriesSkipped, "superseded by a newer version", now)
 	}
 }

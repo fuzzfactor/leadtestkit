@@ -74,7 +74,7 @@ func (p *Pipeline) finish(ctx context.Context) {
 			}
 			if done {
 				s.Finish(state.SeriesDone, "", now)
-				p.log().Info("series done", "series", s.ID)
+				p.log().Info("series done", "series", s.ID, "name", s.Name)
 			}
 		}
 		if s.Active() {
