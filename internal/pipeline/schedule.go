@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"leadtestkit/internal/maint"
 	"leadtestkit/internal/pw"
@@ -139,20 +140,52 @@ func (p *Pipeline) pushable(s *state.Series) []*state.Patch {
 
 func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 	now := p.now()
-	if err := p.GH.SetBranch(ctx, s.Branch, pt.SHA); err != nil {
+	pushFailed := func(err error) {
 		if p.fail(&pt.Failure, "push", err) {
 			s.Finish(state.SeriesError, "push: "+pt.Failure.LastError, now)
 			p.errorf("series %d: giving up pushing patch %d: %v", s.ID, pt.ID, err)
 		} else {
 			p.log().Warn("push failed", "series", s.ID, "patch", pt.ID, "err", err)
 		}
+	}
+	// After a lost state the branch may already be at this or a later
+	// patch; moving it would start the workflows again.
+	cur, err := p.GH.RefSHA(ctx, "heads/"+s.Branch)
+	if err != nil {
+		pushFailed(err)
 		return
 	}
+	if cur != "" {
+		ordered := sortedPatches(s)
+		head := -1
+		for i, x := range ordered {
+			if x.SHA == cur {
+				head = i
+			}
+		}
+		if head >= 0 && ordered[head].Number >= pt.Number {
+			for _, x := range ordered[:head+1] {
+				if x.Status == state.PatchApplied {
+					p.markPushed(ctx, s, x, now)
+					p.log().Info("patch already pushed", "series", s.ID, "patch", x.ID)
+				}
+			}
+			return
+		}
+	}
+	if err := p.GH.SetBranch(ctx, s.Branch, pt.SHA); err != nil {
+		pushFailed(err)
+		return
+	}
+	p.Stats.Pushed++
+	p.log().Info("patch pushed", "series", s.ID, "patch", pt.ID, "branch", s.Branch, "sha", pt.SHA)
+	p.markPushed(ctx, s, pt, now)
+}
+
+func (p *Pipeline) markPushed(ctx context.Context, s *state.Series, pt *state.Patch, now time.Time) {
 	pt.Failure = nil
 	pt.Status = state.PatchPushed
 	pt.Pushed = state.FormatTime(now)
-	p.Stats.Pushed++
-	p.log().Info("patch pushed", "series", s.ID, "patch", pt.ID, "branch", s.Branch, "sha", pt.SHA)
 	p.dispatch(ctx, s, pt)
 }
 
@@ -202,13 +235,26 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		return
 	}
 
-	base, ok, err := p.dependencyBase(ctx, s, data)
-	if err != nil {
-		retry("dependency", err)
-		return
+	var reused []string
+	var base *state.Base
+	var err error
+	if !s.Reapply {
+		base, reused, err = p.reuseApplied(ctx, s, patches)
+		if err != nil {
+			retry("check applied patches", err)
+			return
+		}
 	}
-	if !ok {
-		return
+	if base == nil {
+		var ok bool
+		base, ok, err = p.dependencyBase(ctx, s, data)
+		if err != nil {
+			retry("dependency", err)
+			return
+		}
+		if !ok {
+			return
+		}
 	}
 	if base == nil {
 		base, err = p.selectBase(ctx, s, data)
@@ -226,23 +272,39 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		base.SHA = sha
 	}
 
-	mboxes := make([][]byte, len(data))
-	for i, d := range data {
-		mboxes[i] = d.mbox
-	}
-	shas, failed, output, err := p.Repo.Apply(ctx, base.SHA, mboxes)
-	if err != nil {
-		retry("apply", err)
-		return
+	shas, failed, output := reused, -1, ""
+	if len(reused) < len(data) {
+		top := base.SHA
+		if len(reused) > 0 {
+			top = reused[len(reused)-1]
+		}
+		var mboxes [][]byte
+		for _, d := range data[len(reused):] {
+			mboxes = append(mboxes, d.mbox)
+		}
+		applied, f, out, err := p.Repo.Apply(ctx, top, mboxes)
+		if err != nil {
+			retry("apply", err)
+			return
+		}
+		shas = append(shas, applied...)
+		if f >= 0 {
+			failed, output = len(reused)+f, out
+		}
 	}
 	if len(shas) > 0 {
-		if err := p.Repo.Push(ctx, shas[len(shas)-1], p.stagingRef(s)); err != nil {
-			retry("push staging ref", err)
+		refs := map[string]string{p.stagingRef(s): shas[len(shas)-1]}
+		for i, sha := range shas {
+			refs[p.patchRef(patches[i])] = sha
+		}
+		if err := p.Repo.PushRefs(ctx, refs); err != nil {
+			retry("push staging refs", err)
 			return
 		}
 	}
 
 	s.Failure = nil
+	s.Reapply = false
 	s.Base = base
 	s.Branch = fmt.Sprintf("%s%d", p.Cfg.TestRepo.BranchPrefix, s.ID)
 	s.Status = state.SeriesTesting
@@ -266,7 +328,44 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		}
 	}
 	p.log().Info("series applied", "series", s.ID, "base", base.Branch, "sha", base.SHA,
-		"applied", len(shas), "failed_index", failed)
+		"applied", len(shas), "reused", len(reused), "failed_index", failed)
+}
+
+// reuseApplied finds patches applied by an earlier attempt whose
+// results were lost, e.g. when a run was killed.  Reusing the same
+// commits keeps branch updates from starting the workflows again.
+func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series, patches []*state.Patch) (*state.Base, []string, error) {
+	names := make([]string, len(patches))
+	for i, pt := range patches {
+		names[i] = p.patchRef(pt)
+	}
+	found, err := p.Repo.TestRefs(ctx, names)
+	if err != nil || len(found) == 0 {
+		return nil, nil, err
+	}
+	var shas []string
+	base := ""
+	for i, name := range names {
+		sha, ok := found[name]
+		if !ok {
+			break
+		}
+		parent, err := p.Repo.Parent(ctx, sha)
+		if err != nil {
+			return nil, nil, err
+		}
+		if i == 0 {
+			base = parent
+		} else if parent != shas[i-1] {
+			break
+		}
+		shas = append(shas, sha)
+	}
+	if len(shas) == 0 {
+		return nil, nil, nil
+	}
+	p.log().Info("reusing patches applied earlier", "series", s.ID, "patches", len(shas))
+	return &state.Base{GitURL: p.Cfg.Upstream.GitURL, SHA: base, Why: "applied by an earlier attempt"}, shas, nil
 }
 
 func short(sha string) string {
@@ -470,8 +569,24 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 	if s.Base != nil {
 		base = s.Base.SHA
 	}
+	var existing map[string]bool
 	for _, r := range pt.Runs {
 		if r.Kind != state.RunDispatch || r.Status != "dispatching" || !r.Failure.Due(p.now()) {
+			continue
+		}
+		// A run that was dispatched before the state was lost, or whose
+		// dispatch request failed after reaching GitHub, has our name.
+		if existing == nil {
+			var err error
+			existing, err = p.dispatchedTitles(ctx, s)
+			if err != nil {
+				p.log().Warn("cannot list dispatched runs", "series", s.ID, "err", err)
+				return
+			}
+		}
+		if existing[r.CorrelationID] {
+			r.Status = "requested"
+			r.Updated = state.FormatTime(p.now())
 			continue
 		}
 		inputs := map[string]string{
@@ -498,6 +613,21 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 		r.Updated = state.FormatTime(p.now())
 		p.Stats.Dispatched++
 	}
+}
+
+func (p *Pipeline) dispatchedTitles(ctx context.Context, s *state.Series) (map[string]bool, error) {
+	runs, err := p.GH.DispatchRuns(ctx, p.Cfg.TestRepo.ToolsBranch,
+		state.ParseTime(s.Discovered).Add(-time.Hour))
+	if err != nil {
+		return nil, err
+	}
+	titles := map[string]bool{}
+	for _, r := range runs {
+		if id, ok := strings.CutPrefix(r.DisplayTitle, dispatchTitlePrefix); ok {
+			titles[id] = true
+		}
+	}
+	return titles, nil
 }
 
 func (p *Pipeline) customWorkflows(ctx context.Context) ([]string, error) {

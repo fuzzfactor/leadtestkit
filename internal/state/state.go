@@ -109,6 +109,10 @@ type Series struct {
 	Skip  string `json:"skip,omitempty"`
 	Retry bool   `json:"retry,omitempty"`
 
+	// Reapply makes a series be applied again on the current base
+	// instead of reusing commits of an earlier attempt.
+	Reapply bool `json:"reapply,omitempty"`
+
 	DependsOn int    `json:"depends_on,omitempty"`
 	Base      *Base  `json:"base,omitempty"`
 	Branch    string `json:"branch,omitempty"`

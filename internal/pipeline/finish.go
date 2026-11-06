@@ -73,6 +73,7 @@ func (p *Pipeline) gc(ctx context.Context) {
 		return
 	}
 	expired := map[int]bool{}
+	expiredPatches := map[int]bool{}
 	for _, m := range months {
 		t, err := time.Parse("2006-01", m)
 		if err != nil || t.After(cutoff) || t.Before(cutoff.AddDate(0, -6, 0)) {
@@ -86,21 +87,33 @@ func (p *Pipeline) gc(ctx context.Context) {
 		for _, s := range list {
 			if f := state.ParseTime(s.Finished); !f.IsZero() && f.Before(cutoff) {
 				expired[s.ID] = true
+				for _, pt := range s.Patches {
+					expiredPatches[pt.ID] = true
+				}
 			}
 		}
 	}
 	for _, s := range p.Store.Queue {
 		delete(expired, s.ID)
+		for _, pt := range s.Patches {
+			delete(expiredPatches, pt.ID)
+		}
 	}
 	if len(expired) == 0 {
 		return
 	}
 	deleted := 0
-	prefixes := []string{
-		"heads/" + p.Cfg.TestRepo.BranchPrefix,
-		strings.TrimPrefix(p.Cfg.TestRepo.StagingRef, "refs/") + "series_",
+	staging := strings.TrimPrefix(p.Cfg.TestRepo.StagingRef, "refs/")
+	prefixes := []struct {
+		prefix string
+		ids    map[int]bool
+	}{
+		{"heads/" + p.Cfg.TestRepo.BranchPrefix, expired},
+		{staging + "series_", expired},
+		{staging + "patch_", expiredPatches},
 	}
-	for _, prefix := range prefixes {
+	for _, pr := range prefixes {
+		prefix := pr.prefix
 		refs, err := p.GH.MatchingRefs(ctx, prefix)
 		if err != nil {
 			p.log().Warn("gc: cannot list refs", "err", err)
@@ -109,7 +122,7 @@ func (p *Pipeline) gc(ctx context.Context) {
 		for ref := range refs {
 			name := strings.TrimPrefix(ref, "refs/")
 			id, err := strconv.Atoi(strings.TrimPrefix(name, prefix))
-			if err != nil || !expired[id] {
+			if err != nil || !pr.ids[id] {
 				continue
 			}
 			if deleted >= maxRefDeletes || ctx.Err() != nil {

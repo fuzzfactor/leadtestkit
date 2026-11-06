@@ -35,6 +35,7 @@ type Patchwork interface {
 }
 
 type GitHub interface {
+	RefSHA(ctx context.Context, name string) (string, error)
 	SetBranch(ctx context.Context, branch, sha string) error
 	DeleteRef(ctx context.Context, name string) error
 	MatchingRefs(ctx context.Context, prefix string) (map[string]string, error)
@@ -61,7 +62,9 @@ type WorkRepo interface {
 	ResolveTestRef(ctx context.Context, ref string) (string, error)
 	ReadFile(ctx context.Context, rev, path string) ([]byte, error)
 	Apply(ctx context.Context, base string, mboxes [][]byte) ([]string, int, string, error)
-	Push(ctx context.Context, sha, ref string) error
+	PushRefs(ctx context.Context, refs map[string]string) error
+	TestRefs(ctx context.Context, refs []string) (map[string]string, error)
+	Parent(ctx context.Context, sha string) (string, error)
 	ChangedFiles(ctx context.Context, from, to string) ([]string, error)
 }
 
@@ -246,6 +249,7 @@ func (p *Pipeline) applyManual(ctx context.Context) {
 
 func resetSeries(s *state.Series) {
 	s.Status = state.SeriesQueued
+	s.Reapply = true
 	s.Reason = ""
 	s.Skip = ""
 	s.Started = ""
@@ -272,6 +276,10 @@ func (p *Pipeline) branchURL(branch string) string {
 
 func (p *Pipeline) stagingRef(s *state.Series) string {
 	return fmt.Sprintf("%sseries_%d", p.Cfg.TestRepo.StagingRef, s.ID)
+}
+
+func (p *Pipeline) patchRef(pt *state.Patch) string {
+	return fmt.Sprintf("%spatch_%d", p.Cfg.TestRepo.StagingRef, pt.ID)
 }
 
 func (p *Pipeline) known() (map[int]bool, error) {

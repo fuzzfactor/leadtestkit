@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -169,15 +170,65 @@ func (w *WorkRepo) Apply(ctx context.Context, base string, mboxes [][]byte) ([]s
 	return shas, -1, "", nil
 }
 
-func (w *WorkRepo) Push(ctx context.Context, sha, ref string) error {
+// PushRefs force-pushes commits to refs of the test fork in one push.
+func (w *WorkRepo) PushRefs(ctx context.Context, refs map[string]string) error {
 	name, err := w.remote(ctx, w.TestRemote)
 	if err != nil {
 		return err
 	}
+	args := []string{"push", "-q", "-f", name}
+	keys := make([]string, 0, len(refs))
+	for ref := range refs {
+		keys = append(keys, ref)
+	}
+	sort.Strings(keys)
+	for _, ref := range keys {
+		args = append(args, refs[ref]+":"+ref)
+	}
 	g := *w.Git
 	g.Env = append(append([]string(nil), g.Env...), w.TestEnv...)
-	_, err = g.Run(ctx, "push", "-q", "-f", name, sha+":"+ref)
+	_, err = g.Run(ctx, args...)
 	return err
+}
+
+// TestRefs fetches those of the given refs that exist in the test
+// fork and returns their commits.
+func (w *WorkRepo) TestRefs(ctx context.Context, refs []string) (map[string]string, error) {
+	name, err := w.remote(ctx, w.TestRemote)
+	if err != nil {
+		return nil, err
+	}
+	g := *w.Git
+	g.Env = append(append([]string(nil), g.Env...), w.TestEnv...)
+	out, err := g.Run(ctx, append([]string{"ls-remote", name}, refs...)...)
+	if err != nil {
+		return nil, err
+	}
+	wanted := map[string]bool{}
+	for _, r := range refs {
+		wanted[r] = true
+	}
+	found := map[string]string{}
+	fetch := []string{"fetch", "-q", "--no-tags", "--filter=blob:none", name}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		sha, ref, ok := strings.Cut(line, "\t")
+		if !ok || !wanted[ref] {
+			continue
+		}
+		found[ref] = sha
+		fetch = append(fetch, "+"+ref+":refs/leadtest-cache/"+name+"/"+strings.TrimPrefix(ref, "refs/"))
+	}
+	if len(found) == 0 {
+		return found, nil
+	}
+	if _, err := g.Run(ctx, fetch...); err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+func (w *WorkRepo) Parent(ctx context.Context, sha string) (string, error) {
+	return w.Git.Out(ctx, "rev-parse", "--verify", sha+"^1")
 }
 
 func (w *WorkRepo) ChangedFiles(ctx context.Context, from, to string) ([]string, error) {

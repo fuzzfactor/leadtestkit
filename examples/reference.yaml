@@ -58,8 +58,10 @@ test_repo:
   # Patches are pushed to <branch_prefix><series id>.
   branch_prefix: series_
 
-  # Namespace where the whole applied series is kept, outside of
-  # branches and tags so that it does not start workflows.
+  # Namespace for refs that do not start workflows: series_<id> holds
+  # the whole applied series and patch_<id> each applied patch.  They
+  # let a run that lost its state (e.g. a killed job) reuse the same
+  # commits, so the test branches do not move and nothing is run twice.
   staging_ref: refs/leadtest/
 
   # For GitHub Enterprise; leave the defaults for github.com.

@@ -94,7 +94,10 @@ func TestApplyAndPush(t *testing.T) {
 	if err != nil || strings.Join(files, ",") != "lorem.txt,sit.txt" {
 		t.Errorf("files=%v err=%v", files, err)
 	}
-	if err := w.Push(ctx, shas[1], "refs/leadtest/series_1"); err != nil {
+	if err := w.PushRefs(ctx, map[string]string{
+		"refs/leadtest/series_1": shas[1],
+		"refs/leadtest/patch_1":  shas[0],
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, test, "rev-parse", "refs/leadtest/series_1"); got != shas[1] {
@@ -109,6 +112,13 @@ func TestApplyAndPush(t *testing.T) {
 	data, err := w2.ReadFile(ctx, sha, "sit.txt")
 	if err != nil || string(data) != "sit\n" {
 		t.Errorf("data=%q err=%v", data, err)
+	}
+	found, err := w2.TestRefs(ctx, []string{"refs/leadtest/patch_1", "refs/leadtest/patch_2"})
+	if err != nil || len(found) != 1 || found["refs/leadtest/patch_1"] != shas[0] {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if parent, err := w2.Parent(ctx, shas[1]); err != nil || parent != shas[0] {
+		t.Errorf("parent=%q err=%v", parent, err)
 	}
 }
 

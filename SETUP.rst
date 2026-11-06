@@ -39,8 +39,10 @@ The test fork runs code from anyone who sends a patch to the list.
    branch, and scheduled upstream workflows stop running in the fork.
 
 Patches are pushed to ``series_<id>`` branches, which runs the
-project's own workflows on push.  The full series is also kept in
-``refs/leadtest/series_<id>``.
+project's own workflows on push.  The applied series and patches are
+also kept in ``refs/leadtest/series_<id>`` and
+``refs/leadtest/patch_<id>``, which do not start workflows; they let
+the bot recover without running anything twice if it loses its state.
 
 
 2. Create the token for the test fork
@@ -135,7 +137,7 @@ your changes.  Useful fields on a series:
 - ``"hold": true`` keeps it from being pushed;
 - ``"skip": "reason"`` stops testing it;
 - ``"retry": true`` retries failed operations, or tests a finished
-  series again;
+  series again, applied anew on the current base;
 
 and on a patch:
 

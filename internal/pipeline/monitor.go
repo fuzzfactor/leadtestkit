@@ -5,6 +5,7 @@ package pipeline
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
@@ -91,7 +92,13 @@ func (p *Pipeline) updatePushRuns(ctx context.Context, s *state.Series, pt *stat
 			latest[r.Name] = r
 		}
 	}
-	for name, wr := range latest {
+	names := make([]string, 0, len(latest))
+	for name := range latest {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		wr := latest[name]
 		r := pt.Run(state.RunPush, name)
 		if r == nil {
 			r = &state.Run{Kind: state.RunPush, Workflow: name}

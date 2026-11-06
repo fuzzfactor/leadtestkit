@@ -574,11 +574,12 @@ func TestGC(t *testing.T) {
 	}
 	e.gh.refs = map[string]string{
 		"refs/heads/series_160": "x", "refs/leadtest/series_160": "x", "refs/heads/series_5": "x",
+		"refs/leadtest/patch_16001": "x", "refs/leadtest/patch_5": "x",
 	}
 	e.now = e.now.AddDate(0, 2, 0)
 	e.reload()
 	e.step()
-	if strings.Join(e.gh.deleted, ",") != "heads/series_160,leadtest/series_160" {
+	if strings.Join(e.gh.deleted, ",") != "heads/series_160,leadtest/series_160,leadtest/patch_16001" {
 		t.Errorf("deleted = %v", e.gh.deleted)
 	}
 }
@@ -651,5 +652,110 @@ func TestInitialBackfill(t *testing.T) {
 	e.step()
 	if e.p.Store.Find(190) != nil || e.series(191).Status != state.SeriesTesting {
 		t.Fatalf("queue = %+v", e.p.Store.Queue)
+	}
+}
+
+// loseState starts over with an empty state, as after a killed run.
+func (e *env) loseState() {
+	e.dir = e.t.TempDir()
+	e.p = nil
+	e.reload()
+}
+
+func TestLostStateDoesNotStartRunsAgain(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Workflows.Custom = true
+	e.gh.files["checkpatch.yml"] = "on: workflow_dispatch\n"
+	e.pw.addSeries(200, 2, "lorem", e.now)
+	e.step()
+	if e.gh.setBranch != 2 || len(e.gh.dispatches) != 2 || e.repo.applies != 1 {
+		t.Fatalf("set-branch=%d dispatches=%d applies=%d", e.gh.setBranch, len(e.gh.dispatches), e.repo.applies)
+	}
+	for _, d := range e.gh.dispatches {
+		e.gh.dispatched = append(e.gh.dispatched, gh.WorkflowRun{ID: 9000, Name: "Checkpatch",
+			DisplayTitle: "leadtest " + d["correlation_id"], Status: "in_progress", RunAttempt: 1})
+	}
+
+	e.loseState()
+	e.advance(time.Minute)
+	e.step()
+	s := e.series(200)
+	if e.repo.applies != 1 || e.gh.setBranch != 2 || len(e.gh.dispatches) != 2 {
+		t.Fatalf("set-branch=%d dispatches=%d applies=%d", e.gh.setBranch, len(e.gh.dispatches), e.repo.applies)
+	}
+	if s.Status != state.SeriesTesting || s.Base.SHA != "base-main" ||
+		s.Patches[0].SHA != "sha-20001" || s.Patches[1].SHA != "sha-20002" ||
+		s.Patches[0].Status != state.PatchPushed || s.Patches[1].Status != state.PatchPushed {
+		t.Fatalf("series = %+v %+v %+v", s, s.Patches[0], s.Patches[1])
+	}
+	if r := runByFile(s.Patches[1], "checkpatch.yml"); r == nil || r.Status != "requested" {
+		t.Fatalf("dispatch run = %+v", r)
+	}
+}
+
+func TestLostStateReusesAppliedPrefix(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(210, 3, "lorem", e.now)
+	e.repo.failAt[210] = 1
+	e.step()
+	if e.gh.branches["series_210"] != "sha-21001" || e.gh.setBranch != 1 {
+		t.Fatalf("branches = %v", e.gh.branches)
+	}
+
+	e.loseState()
+	delete(e.repo.failAt, 210)
+	e.step()
+	s := e.series(210)
+	if s.Patches[0].SHA != "sha-21001" || s.Patches[1].SHA != "sha-21002.2" ||
+		s.Patches[2].SHA != "sha-21003.2" || e.repo.applied != 3 {
+		t.Fatalf("patches = %+v %+v %+v applied=%d", s.Patches[0], s.Patches[1], s.Patches[2], e.repo.applied)
+	}
+	// Patch 1 was already on the branch; only the new patches move it.
+	if e.gh.setBranch != 3 || e.gh.branches["series_210"] != "sha-21003.2" {
+		t.Fatalf("set-branch = %d branches = %v", e.gh.setBranch, e.gh.branches)
+	}
+}
+
+func TestBranchAheadOfState(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Limits.MaxInflightPatches = 2
+	e.cfg.Limits.PerAuthorMaxShare = 1
+	e.pw.addSeries(220, 3, "lorem", e.now)
+	e.step()
+	s := e.series(220)
+	if s.Patches[1].Status != state.PatchPushed || s.Patches[2].Status != state.PatchApplied {
+		t.Fatalf("patches = %+v %+v", s.Patches[1], s.Patches[2])
+	}
+	// The branch moved further than the state knows.
+	e.gh.branches["series_220"] = "sha-22003"
+	n := e.gh.setBranch
+	e.cfg.Limits.MaxInflightPatches = 10
+	e.step()
+	if s.Patches[2].Status != state.PatchPushed || e.gh.setBranch != n {
+		t.Fatalf("patch = %+v set-branch = %d", s.Patches[2], e.gh.setBranch)
+	}
+}
+
+func TestRetryAppliesAgain(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Report.ApplySuccess = false
+	e.pw.addSeries(230, 1, "lorem", e.now)
+	e.step()
+	e.gh.finishRun(e.gh.startRuns("series_230", "sha-23001", "Build")[0], "success")
+	e.step()
+	e.advance(20 * time.Minute)
+	e.step()
+	s := e.series(230)
+	if s.Status != state.SeriesDone {
+		t.Fatalf("series = %+v", s)
+	}
+	if err := e.p.Store.Reopen(s); err != nil {
+		t.Fatal(err)
+	}
+	s.Retry = true
+	e.step()
+	if e.repo.applies != 2 || s.Patches[0].SHA != "sha-23001.2" || s.Reapply ||
+		e.gh.branches["series_230"] != "sha-23001.2" {
+		t.Fatalf("series = %+v patch = %+v", s, s.Patches[0])
 	}
 }

@@ -196,6 +196,7 @@ func (f *fakePW) addSeries(id, n int, submitter string, date time.Time) {
 
 type fakeGH struct {
 	branches   map[string]string
+	setBranch  int
 	runs       map[string][]gh.WorkflowRun
 	dispatched []gh.WorkflowRun
 	jobs       map[int64][]gh.Job
@@ -224,9 +225,19 @@ func (f *fakeGH) maybeFail(op string) error {
 	return nil
 }
 
+func (f *fakeGH) RefSHA(ctx context.Context, name string) (string, error) {
+	if err := f.maybeFail("ref"); err != nil {
+		return "", err
+	}
+	return f.branches[strings.TrimPrefix(name, "heads/")], nil
+}
+
 func (f *fakeGH) SetBranch(ctx context.Context, branch, sha string) error {
 	if err := f.maybeFail("set-branch"); err != nil {
 		return err
+	}
+	if f.branches[branch] != sha {
+		f.setBranch++
 	}
 	f.branches[branch] = sha
 	return nil
@@ -345,6 +356,9 @@ func (f *fakeGH) restartRun(id int64) {
 type fakeRepo struct {
 	failAt   map[int]int
 	pushed   map[string]string
+	parents  map[string]string
+	applies  int
+	applied  int
 	resolved []string
 	files    map[string]string
 	fail     map[string]int
@@ -352,7 +366,7 @@ type fakeRepo struct {
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{failAt: map[int]int{}, pushed: map[string]string{}, files: map[string]string{},
-		fail: map[string]int{}}
+		fail: map[string]int{}, parents: map[string]string{}}
 }
 
 func (f *fakeRepo) Resolve(ctx context.Context, url, branch string) (string, error) {
@@ -376,9 +390,12 @@ func (f *fakeRepo) ReadFile(ctx context.Context, rev, path string) ([]byte, erro
 	return []byte(f.files[path]), nil
 }
 
-// Apply derives commits from the Message-IDs of the emails.
+// Apply derives commits from the Message-IDs of the emails.  Like git
+// am, applying again creates different commits.
 func (f *fakeRepo) Apply(ctx context.Context, base string, mboxes [][]byte) ([]string, int, string, error) {
+	f.applies++
 	var shas []string
+	parent := base
 	for i, m := range mboxes {
 		id := ""
 		for _, l := range strings.Split(string(m), "\n") {
@@ -391,14 +408,41 @@ func (f *fakeRepo) Apply(ctx context.Context, base string, mboxes [][]byte) ([]s
 		if fi, ok := f.failAt[pid/100]; ok && fi == i {
 			return shas, i, "error: patch failed: f:1\nerror: f: patch does not apply", nil
 		}
-		shas = append(shas, "sha-"+id)
+		sha := "sha-" + id
+		if f.applies > 1 {
+			sha = fmt.Sprintf("sha-%s.%d", id, f.applies)
+		}
+		f.parents[sha] = parent
+		parent = sha
+		shas = append(shas, sha)
+		f.applied++
 	}
 	return shas, -1, "", nil
 }
 
-func (f *fakeRepo) Push(ctx context.Context, sha, ref string) error {
-	f.pushed[ref] = sha
+func (f *fakeRepo) PushRefs(ctx context.Context, refs map[string]string) error {
+	for ref, sha := range refs {
+		f.pushed[ref] = sha
+	}
 	return nil
+}
+
+func (f *fakeRepo) TestRefs(ctx context.Context, refs []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, r := range refs {
+		if sha, ok := f.pushed[r]; ok {
+			out[r] = sha
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) Parent(ctx context.Context, sha string) (string, error) {
+	p, ok := f.parents[sha]
+	if !ok {
+		return "", errors.New("unknown commit")
+	}
+	return p, nil
 }
 
 func (f *fakeRepo) ChangedFiles(ctx context.Context, from, to string) ([]string, error) {
