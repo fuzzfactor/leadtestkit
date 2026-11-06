@@ -255,3 +255,13 @@ func TestRepoPushRebasesOverHumanEdit(t *testing.T) {
 		t.Errorf("merge lost changes: %+v", merged.Find(1))
 	}
 }
+
+func TestBackoffCap(t *testing.T) {
+	var f *Failure
+	for i := 0; i < 20; i++ {
+		RecordFailure(&f, "lorem", errors.New("ipsum"), now, 0)
+	}
+	if got := ParseTime(f.Next).Sub(now); got != 3*24*time.Hour {
+		t.Errorf("backoff = %v, want 72h", got)
+	}
+}

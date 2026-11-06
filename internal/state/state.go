@@ -198,7 +198,7 @@ type Failure struct {
 
 const (
 	minBackoff = 5 * time.Minute
-	maxBackoff = 6 * time.Hour
+	maxBackoff = 3 * 24 * time.Hour
 )
 
 func FormatTime(t time.Time) string {
