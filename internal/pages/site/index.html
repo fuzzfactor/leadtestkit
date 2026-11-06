@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<!-- Copyright 2026 LeadTestKit Authors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LeadTestKit</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1 id="title">LeadTestKit</h1>
+    <div id="meta"></div>
+  </header>
+  <nav id="tabs"></nav>
+  <section id="controls">
+    <input id="filter" type="search" placeholder="Filter by name, submitter or ID">
+    <select id="status">
+      <option value="">All statuses</option>
+      <option>new</option>
+      <option>queued</option>
+      <option>waiting</option>
+      <option>testing</option>
+      <option>done</option>
+      <option>skipped</option>
+      <option>error</option>
+    </select>
+    <span id="pager"></span>
+  </section>
+  <main id="list"><p class="muted">Loading...</p></main>
+  <footer>
+    LeadTestKit status page.
+    Data is updated after every bot run.
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

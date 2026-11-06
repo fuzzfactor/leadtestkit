@@ -49,7 +49,8 @@ rules:
   skip:
     - subject: '\bRFC\b'
       reason: RFC
-    - subject: '\bnet-next\b'
+    # Kernel patches cross-posted to the list, e.g. [ovs-dev,net,v2].
+    - subject: '^\[[^\]]*\bnet(-next)?\b[^\]]*\]'
       reason: kernel patch
   base:
     - type: subject

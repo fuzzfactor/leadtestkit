@@ -356,7 +356,7 @@ func (c *Config) CheckSecrets() error {
 	if c.Mode.PostChecks() && c.Secrets.PatchworkToken == "" {
 		missing = append(missing, "LEADTEST_PW_TOKEN")
 	}
-	if c.Secrets.GitHubToken == "" {
+	if c.Mode.PushLive() && c.Secrets.GitHubToken == "" {
 		missing = append(missing, "LEADTEST_GITHUB_TOKEN")
 	}
 	if !c.Mode.EmailOff() && c.Secrets.SMTPUsername != "" && c.Secrets.SMTPPassword == "" {

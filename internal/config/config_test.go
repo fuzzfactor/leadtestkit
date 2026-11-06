@@ -143,6 +143,15 @@ func TestSecrets(t *testing.T) {
 	if err := c.CheckSecrets(); err != nil {
 		t.Errorf("log mode needs no patchwork token: %v", err)
 	}
+	c.Secrets.GitHubToken = ""
+	if err := c.CheckSecrets(); err == nil {
+		t.Error("pushing needs a GitHub token")
+	}
+	c.Mode.Push = "off"
+	if err := c.CheckSecrets(); err != nil {
+		t.Errorf("no push needs no GitHub token: %v", err)
+	}
+	c.Secrets.GitHubToken = "lorem-gh-token"
 	c.Mode.Checks = "post"
 	if err := c.CheckSecrets(); err == nil || !strings.Contains(err.Error(), "LEADTEST_PW_TOKEN") {
 		t.Errorf("err = %v", err)
