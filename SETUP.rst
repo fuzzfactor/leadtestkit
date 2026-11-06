@@ -86,8 +86,8 @@ before the expiration date.
    configuration locally.
 
 All non-secret settings live in ``config.yaml``; the bot never changes
-it.  The comments in ``examples/*.yaml`` and the ``Config`` structure
-in ``internal/config/config.go`` describe every option.
+it.  ``examples/reference.yaml`` lists every option with its default
+value and an explanation.
 
 
 4. Test mode

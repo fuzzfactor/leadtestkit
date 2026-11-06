@@ -50,6 +50,8 @@ func ParseDuration(s string) (time.Duration, error) {
 	return v, nil
 }
 
+// Every option is documented in examples/reference.yaml; tests keep the
+// two in sync.
 type Config struct {
 	Enabled bool   `yaml:"enabled"`
 	Name    string `yaml:"name"`

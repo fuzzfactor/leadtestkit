@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -171,5 +173,93 @@ func TestExamplesParse(t *testing.T) {
 		if _, err := Parse(data); err != nil {
 			t.Errorf("%s: %v", f, err)
 		}
+	}
+}
+
+// yamlKeys lists the keys of all options, following nested structs,
+// slices of structs and maps of structs.
+func yamlKeys(t reflect.Type, out map[string]bool) {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || t == reflect.TypeOf(Duration(0)) {
+		return
+	}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		out[name] = true
+		yamlKeys(f.Type, out)
+	}
+}
+
+func TestReferenceDocumentsEveryOption(t *testing.T) {
+	data, err := os.ReadFile("../../examples/reference.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]bool{}
+	yamlKeys(reflect.TypeOf(Config{}), keys)
+	for k := range keys {
+		// Options of list items may only appear in commented examples.
+		re := regexp.MustCompile(`(?m)^[ \t]*(#[ \t]*)?(- )?` + regexp.QuoteMeta(k) + `:`)
+		if !re.Match(data) {
+			t.Errorf("option %q is not documented in examples/reference.yaml", k)
+		}
+	}
+}
+
+func TestReferenceShowsDefaults(t *testing.T) {
+	data, err := os.ReadFile("../../examples/reference.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := Parse([]byte(`
+patchwork:
+  api_url: https://patchwork.example.org/api/1.2
+  project: lorem
+upstream:
+  git_url: https://github.com/example/lorem.git
+test_repo:
+  repo: example/lorem
+report:
+  to: lorem-build@lists.example.org
+  from: "LeadTestKit Robot <robot@example.org>"
+archive:
+  dev_url: https://lists.example.org/pipermail/lorem-dev/
+smtp:
+  host: smtp.example.org
+mode:
+  allowed_recipients: [lorem-build@lists.example.org]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An empty list in the reference is the same as no list.
+	norm := func(c *Config) {
+		for _, l := range []*[]string{&c.Workflows.Expected, &c.Workflows.CustomExclude,
+			&c.Workflows.CustomPerSeries, &c.Rechecks.Labels} {
+			if len(*l) == 0 {
+				*l = nil
+			}
+		}
+		if len(c.Rules.Skip) == 0 {
+			c.Rules.Skip = nil
+		}
+		if len(c.Rules.Base) == 0 {
+			c.Rules.Base = nil
+		}
+	}
+	norm(got)
+	norm(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("reference values differ from the defaults:\n got: %+v\nwant: %+v", got, want)
 	}
 }

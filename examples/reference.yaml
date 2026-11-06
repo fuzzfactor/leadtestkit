@@ -1,0 +1,327 @@
+# LeadTestKit configuration reference.
+#
+# This file lists every option with its default value.  Options marked
+# "required" have no default; the values given for them here are only
+# placeholders.  All other options may be left out of config.yaml.
+#
+# config.yaml lives on the `state` branch of your leadtestkit fork and
+# is never modified by the bot.  Secrets are not configured here; they
+# are repository secrets, see SETUP.rst.
+#
+# Durations are written like 90s, 15m, 2h or 3d.
+
+# Without `enabled: true` the bot does nothing.  Set it back to false
+# to pause the bot without removing anything.
+enabled: false
+
+# Human readable name of the project, used in logs and the job summary.
+name: ""
+
+patchwork:
+  # Required.  API root, including the API version.  API 1.2 lacks
+  # comment events, so rechecks then need archive.dev_url.
+  api_url: https://patchwork.example.org/api/1.2
+
+  # Web root of Patchwork, used for links in reports and on the pages.
+  # Empty means the API URL without /api/N.N.
+  web_url: ""
+
+  # Required.  Project link name as used in Patchwork URLs.
+  project: lorem
+
+  # Minimum delay between two requests to Patchwork, measured from the
+  # end of the previous response.  Be gentle with overloaded servers.
+  min_delay: 5s
+
+  # Find Recheck-request comments through comment events (true) or by
+  # matching subjects in the dev list archive (false).  When not set,
+  # events are used on API 1.3 and later.
+  # comment_events: true
+
+upstream:
+  # Required.  Repository the series are applied to.
+  git_url: https://github.com/example/lorem.git
+
+  # Base branch unless a rule in rules.base selects another one.
+  default_branch: main
+
+test_repo:
+  # Required.  The test fork on GitHub ("owner/name") that runs the
+  # workflows.  It must not hold any secrets.
+  repo: example/lorem
+
+  # Branch of the test fork with the workflows started for every patch
+  # when workflows.custom is enabled.  It must be the fork's default
+  # branch, because GitHub only dispatches workflows found there.
+  tools_branch: leadtestkit
+
+  # Patches are pushed to <branch_prefix><series id>.
+  branch_prefix: series_
+
+  # Namespace where the whole applied series is kept, outside of
+  # branches and tags so that it does not start workflows.
+  staging_ref: refs/leadtest/
+
+  # For GitHub Enterprise; leave the defaults for github.com.
+  api_url: https://api.github.com
+  git_host: github.com
+
+report:
+  # "ovs": statuses are patchwork check states (success, fail, warning,
+  # pending), as used on ovs-build.  "dpdk": SUCCESS, FAILURE, WARNING,
+  # PENDING, as expected by test-report@dpdk.org.
+  style: ovs
+
+  # Required unless mode.email is off.  Reports list and sender.  The
+  # SMTP account must be allowed to send as this address and the
+  # address must be allowed to post to the list.
+  to: lorem-build@lists.example.org
+  from: "LeadTestKit Robot <robot@example.org>"
+
+  # Test-Label of workflow reports is "<label>: <workflow name>"; the
+  # Patchwork check context is derived from it.  Keep the label used by
+  # the previous bot so that new checks replace the old ones.
+  label: github-robot
+
+  # Test-Label of the results of applying patches.
+  apply_label: apply-robot
+
+  # Reports carry "_<build_prefix>: passed_" (or failed, warning,
+  # pending), which becomes the Patchwork check description.
+  build_prefix: github build
+
+  # Copy the series submitter on reports that are not successful.  Only
+  # done when mode.email is live.
+  cc_submitter: true
+
+  # Email a pending report when a workflow starts.
+  pending_email: true
+
+  # Email a report for every patch that applied, not only for failures.
+  apply_success: true
+
+  # Post a pending check to Patchwork when a workflow starts, linking
+  # to the test branch.  Only logged unless mode.checks is post.
+  pending_check: true
+
+  # Reports of failed runs include the last log_lines lines of up to
+  # max_log_jobs failed jobs.
+  log_lines: 25
+  max_log_jobs: 5
+
+  # Right-hand side of generated Message-IDs.  Empty means the domain
+  # of report.from.
+  message_id_domain: ""
+
+archive:
+  # Pipermail archive of the reports list.  Required when ingest is
+  # enabled.
+  reports_url: ""
+
+  # Pipermail archive of the development list.  On Patchwork API 1.2
+  # it is needed to find Recheck-request comments.
+  dev_url: https://lists.example.org/pipermail/lorem-dev/
+
+  # Post every report found on the reports list (ours and other labs')
+  # as a Patchwork check.  Disable it where the list is already turned
+  # into checks by someone else, like test-report@dpdk.org.
+  ingest: false
+
+  # Minimum delay between two requests to the archive server.
+  min_delay: 1s
+
+  # Months before the current one that are always scanned, so that
+  # messages that arrive at the end of a month are not missed.  After a
+  # pause, scanning resumes from the last month seen.  The very first
+  # scan only records existing messages, without posting them.
+  lookback_months: 1
+
+  # Messages read per run, including retries, so that a backlog cannot
+  # take the whole run.
+  max_messages: 200
+
+smtp:
+  # Required unless mode.email is off.  The user name and password are
+  # the LEADTEST_SMTP_USERNAME and LEADTEST_SMTP_PASSWORD secrets.
+  host: smtp.example.org
+
+  # GitHub runners cannot use port 25.
+  port: 587
+
+  # "starttls" (usually port 587) or "tls" (usually port 465).
+  security: starttls
+
+mode:
+  # "live": push series to the test fork.  "off": do not push or rerun
+  # anything; series stay queued.
+  push: live
+
+  # "post": post checks to Patchwork (needs LEADTEST_PW_TOKEN).
+  # "log": only log the checks that would be posted.
+  checks: log
+
+  # "live": send reports normally.
+  # "test": mark reports so that other bots ignore them (subject prefix
+  #         [leadtest-dryrun], renamed Test-Label/Test-Status, patch link
+  #         without a scheme) and never send them to anyone outside
+  #         allowed_recipients.
+  # "off":  do not send any email.
+  email: test
+
+  # Required when email is test.  The only addresses test reports may
+  # be sent to.  Ignored in live mode.
+  allowed_recipients:
+    - lorem-build@lists.example.org
+
+rules:
+  # Series not to test.  `subject` is a regular expression matched
+  # against the series name and every patch name; `reason` is recorded
+  # in the state and shown on the pages.
+  skip: []
+  # skip:
+  #   - subject: '\bRFC\b'
+  #     reason: RFC
+
+  # Base branch selection.  Rules are tried in order and the first
+  # match wins; without a match upstream.default_branch is used.  A
+  # "Depends-on: series-N" or "Depends-on: patch-N" line in the cover
+  # letter or the first patch takes precedence over all rules.
+  base: []
+  # base:
+  #   # Regular expression on the series and patch names.  `branch` may
+  #   # use groups like $1.  `git_url` defaults to upstream.git_url.
+  #   - type: subject
+  #     match: '\b(branch-\d+\.\d+)\b'
+  #     branch: '$1'
+  #
+  #   # Patchwork username of the delegate of the series.
+  #   - type: delegate
+  #     delegate: lorem
+  #     git_url: https://git.example.org/lorem-next.git
+  #     branch: main
+  #
+  #   # Tree chosen from the files touched by the series, using the
+  #   # MAINTAINERS file of upstream.default_branch (DPDK style: F:
+  #   # patterns and T: trees).  Trees missing from `trees` fall back to
+  #   # the default branch.
+  #   - type: maintainers
+  #     file: MAINTAINERS
+  #     trees:
+  #       dpdk-next-net:
+  #         git_url: https://dpdk.org/git/next/dpdk-next-net
+  #         branch: main
+
+  # When a new version of a series arrives from the same submitter,
+  # skip older versions that were not pushed yet.
+  supersede: false
+
+limits:
+  # Series with more patches are skipped.  0 means no limit.
+  max_series_patches: 50
+
+  # Patches are pushed while fewer jobs than this wait for a runner in
+  # the test fork.  Keeping the queue short is what lets a new author
+  # get the next free runner.
+  max_queued_jobs: 20
+
+  # Patches whose workflows are still running, across all authors.
+  max_inflight_patches: 20
+
+  # While others are waiting, an author gets at most a fair share of
+  # max_inflight_patches, never more than per_author_max_share of it,
+  # and never less than per_author_min patches.
+  per_author_min: 2
+  per_author_max_share: 0.5
+
+  # Initial estimate of the jobs one pushed patch adds to the queue,
+  # used to avoid pushing too much before GitHub shows the new jobs.
+  # Once patches have finished, a measured average (stats in meta.json)
+  # is used instead.
+  jobs_per_patch: 10
+
+  # Series older than this when discovered are skipped.
+  series_max_age: 7d
+
+  # Series that Patchwork does not report as complete within this time
+  # are skipped.  Also how long a series waits for its Depends-on
+  # series before being tested on the default base.
+  complete_timeout: 3d
+
+  # A patch without any workflow run this long after the push gets a
+  # warning report.  Also applies to each workflow in
+  # workflows.expected and to dispatched workflows that never started.
+  no_run_timeout: 2h
+
+  # Runs not finished this long after the push get a warning report.
+  run_timeout: 30h
+
+  # Without workflows.expected, a patch is complete when no run has
+  # finished for this long, in case more workflows start late.
+  grace_after_runs: 20m
+
+  # A failing operation is retried with growing delays and given up
+  # this long after its first failure; giving up is reported in the job
+  # summary and on the pages.
+  retry_deadline: 2d
+
+  # Test branches and staging refs of series that finished longer ago
+  # are deleted from the test fork.  0 keeps them forever.  Refs of
+  # series the bot does not know about are never deleted.
+  branch_retention: 30d
+
+  # Finished series are remembered for this long to recognize them and
+  # their reports.
+  history_window: 30d
+
+workflows:
+  # Names (as shown in GitHub Actions) of the push workflows that must
+  # report before a patch is complete.  Without it, grace_after_runs is
+  # used.
+  expected: []
+
+  # Start the workflow_dispatch workflows of test_repo.tools_branch for
+  # every pushed patch.  See fork-workflows/ for templates.
+  custom: false
+
+  # Workflow files on the tools branch that are not started.
+  custom_exclude: []
+
+  # Workflow files on the tools branch that only run once per series,
+  # on the last patch.
+  custom_per_series: []
+
+  # Rerun a cancelled run once before reporting it as a warning.
+  rerun_cancelled: true
+
+rechecks:
+  # Rerun the workflows of a patch on a "Recheck-request: <label>" line
+  # in a reply to it.
+  enabled: true
+
+  # Labels accepted in Recheck-request lines.  Empty means report.label.
+  labels: []
+
+  # Patches can be rechecked for this long after they were tested.
+  window: 30d
+
+runner:
+  # Each scheduled run keeps working for loop_duration, repeating all
+  # stages every loop_interval, so that new runners are used sooner
+  # than the 15 minute schedule allows.  0 runs a single step.
+  loop_duration: 13m
+  loop_interval: 3m
+
+  # Author of the state commits.
+  commit_author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+
+pages:
+  # Publish the status pages with GitHub Pages (source: GitHub Actions).
+  enabled: true
+  title: LeadTestKit
+
+  # Link reports and patches to their emails by Message-ID; {} is
+  # replaced with the Message-ID without angle brackets.  For example
+  # https://inbox.dpdk.org/test-report/{}/ and
+  # https://inbox.dpdk.org/dev/{}/ for lore.
+  archive_url_format: ""
+  patch_archive_url_format: ""
