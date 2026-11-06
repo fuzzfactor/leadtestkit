@@ -133,8 +133,10 @@ type Patch struct {
 	SHA    string `json:"sha,omitempty"`
 	Pushed string `json:"pushed,omitempty"`
 
-	// CommentsSeen is the highest comment ID checked for rechecks.
-	CommentsSeen int `json:"comments_seen,omitempty"`
+	// CommentsSeen is the highest comment ID checked for rechecks;
+	// CommentsPending asks for the comments to be fetched.
+	CommentsSeen    int  `json:"comments_seen,omitempty"`
+	CommentsPending bool `json:"comments_pending,omitempty"`
 
 	// Recheck requests a rerun of all runs, from a Recheck-request
 	// comment or a human.
