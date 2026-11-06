@@ -289,5 +289,6 @@ func (p *Patch) RunByCorrelation(id string) *Run {
 // fully handled.
 func (r *Run) Settled() bool {
 	return r.Result != "" && r.Status == "completed" &&
-		(r.Final.Email == StepSent || r.Final.Email == StepSkipped || r.Final.Email == StepFailed)
+		(r.Final.Email == StepSent || r.Final.Email == StepSkipped ||
+			r.Final.Email == StepFailed)
 }

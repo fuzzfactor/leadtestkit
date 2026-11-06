@@ -18,7 +18,8 @@ func TestAuthor(t *testing.T) {
 			"Reply-To": "dev@lists.example.org"}, "Lorem Ipsum <lorem@example.org>"},
 		{"dmarc rewritten", map[string]any{
 			"From":     "Lorem Ipsum via dev <dev@lists.example.org>",
-			"Reply-To": "Lorem Ipsum <lorem@example.org>"}, "Lorem Ipsum <lorem@example.org>"},
+			"Reply-To": "Lorem Ipsum <lorem@example.org>"},
+			"Lorem Ipsum <lorem@example.org>"},
 		{"encoded", map[string]any{"From": "=?utf-8?q?D=C3=B6lor?= <dolor@example.org>"},
 			"Dölor <dolor@example.org>"},
 		{"list value", map[string]any{"from": []any{"Sit Amet <sit@example.org>"}},
@@ -58,8 +59,9 @@ func TestBuildMbox(t *testing.T) {
 			"Subject":  "[PATCH v2 1/2] dolor: Fix\n sit amet ü.",
 			"Date":     "Mon, 2 Mar 2026 10:00:00 +0100",
 		},
-		Content: "Body line.\nFrom here on.\n\nSigned-off-by: Lorem Ipsum <lorem@example.org>\n",
-		Diff:    "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n",
+		Content: "Body line.\nFrom here on.\n\n" +
+			"Signed-off-by: Lorem Ipsum <lorem@example.org>\n",
+		Diff: "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n",
 	}
 	p.ID = 5
 	p.MsgID = "<1@example.org>"

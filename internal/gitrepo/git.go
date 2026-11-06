@@ -99,14 +99,16 @@ func (g *Git) RunInput(ctx context.Context, stdin []byte, args ...string) (strin
 	cmd.Stderr = &stderr
 	start := time.Now()
 	err := cmd.Run()
-	g.log().Debug("git", "args", strings.Join(args, " "), "dur", time.Since(start).Round(time.Millisecond))
+	g.log().Debug("git", "args", strings.Join(args, " "),
+		"dur", time.Since(start).Round(time.Millisecond))
 	if err != nil {
 		code := -1
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
 		}
 		if ctx.Err() != nil {
-			return stdout.String(), fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
+			return stdout.String(),
+				fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
 		}
 		return stdout.String(), &Error{
 			Args:   args,

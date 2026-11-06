@@ -74,7 +74,8 @@ func (r *Repo) Push(ctx context.Context) (bool, error) {
 		}
 		g := *r.Git
 		g.Env = append(append([]string(nil), g.Env...), r.identity()...)
-		if _, rerr := g.Run(ctx, "rebase", "-q", "-X", "theirs", "FETCH_HEAD"); rerr != nil {
+		if _, rerr := g.Run(ctx, "rebase", "-q", "-X", "theirs",
+			"FETCH_HEAD"); rerr != nil {
 			r.Git.Run(ctx, "rebase", "--abort")
 			return rebased, r.resetToRemote(ctx, rerr)
 		}

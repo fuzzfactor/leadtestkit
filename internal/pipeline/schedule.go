@@ -145,7 +145,8 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 			s.Finish(state.SeriesError, "push: "+pt.Failure.LastError, now)
 			p.errorf("series %d: giving up pushing patch %d: %v", s.ID, pt.ID, err)
 		} else {
-			p.log().Warn("push failed", "series", s.ID, "patch", pt.ID, "name", pt.Name, "err", err)
+			p.log().Warn("push failed", "series", s.ID, "patch", pt.ID,
+				"name", pt.Name, "err", err)
 		}
 	}
 	// After a lost state the branch may already be at this or a later
@@ -167,7 +168,8 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 			for _, x := range ordered[:head+1] {
 				if x.Status == state.PatchApplied {
 					p.markPushed(ctx, s, x, now)
-					p.log().Info("patch already pushed", "series", s.ID, "patch", x.ID, "name", x.Name)
+					p.log().Info("patch already pushed", "series", s.ID,
+						"patch", x.ID, "name", x.Name)
 				}
 			}
 			return
@@ -178,12 +180,14 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 		return
 	}
 	p.Stats.Pushed++
-	p.log().Info("patch pushed", "series", s.ID, "patch", pt.ID, "name", pt.Name, "branch", s.Branch,
+	p.log().Info("patch pushed", "series", s.ID, "patch", pt.ID,
+		"name", pt.Name, "branch", s.Branch,
 		"sha", pt.SHA)
 	p.markPushed(ctx, s, pt, now)
 }
 
-func (p *Pipeline) markPushed(ctx context.Context, s *state.Series, pt *state.Patch, now time.Time) {
+func (p *Pipeline) markPushed(ctx context.Context, s *state.Series,
+	pt *state.Patch, now time.Time) {
 	pt.Failure = nil
 	pt.Status = state.PatchPushed
 	pt.Pushed = state.FormatTime(now)
@@ -205,7 +209,8 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 			p.errorf("series %d: giving up (%s): %v", s.ID, op, err)
 			return
 		}
-		p.log().Warn("series preparation failed", "series", s.ID, "name", s.Name, "op", op, "err", err)
+		p.log().Warn("series preparation failed", "series", s.ID, "name", s.Name,
+			"op", op, "err", err)
 	}
 
 	patches := sortedPatches(s)
@@ -319,23 +324,27 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 			pt.Status = state.PatchApplied
 			if p.Cfg.Report.ApplySuccess {
 				pt.Runs = append(pt.Runs, p.applyRun(state.ResultSuccess,
-					fmt.Sprintf("Applied on top of %s (%s).", base.Branch, short(base.SHA))))
+					fmt.Sprintf("Applied on top of %s (%s).",
+						base.Branch, short(base.SHA))))
 			}
 		case i == failed:
 			pt.Status = state.PatchApplyFailed
-			pt.Runs = append(pt.Runs, p.applyRun(state.ResultFail, applyFailure(base, output)))
+			pt.Runs = append(pt.Runs,
+				p.applyRun(state.ResultFail, applyFailure(base, output)))
 		default:
 			pt.Status = state.PatchNotApplied
 		}
 	}
-	p.log().Info("series applied", "series", s.ID, "name", s.Name, "base", base.Branch, "sha", base.SHA,
+	p.log().Info("series applied", "series", s.ID, "name", s.Name,
+		"base", base.Branch, "sha", base.SHA,
 		"applied", len(shas), "reused", len(reused), "failed_index", failed)
 }
 
 // reuseApplied finds patches applied by an earlier attempt whose
 // results were lost, e.g. when a run was killed.  Reusing the same
 // commits keeps branch updates from starting the workflows again.
-func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series, patches []*state.Patch) (*state.Base, []string, error) {
+func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series,
+	patches []*state.Patch) (*state.Base, []string, error) {
 	names := make([]string, len(patches))
 	for i, pt := range patches {
 		names[i] = p.patchRef(pt)
@@ -366,7 +375,8 @@ func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series, patches []
 		return nil, nil, nil
 	}
 	p.log().Info("reusing patches applied earlier", "series", s.ID, "patches", len(shas))
-	return &state.Base{GitURL: p.Cfg.Upstream.GitURL, SHA: base, Why: "applied by an earlier attempt"}, shas, nil
+	return &state.Base{GitURL: p.Cfg.Upstream.GitURL, SHA: base,
+		Why: "applied by an earlier attempt"}, shas, nil
 }
 
 func short(sha string) string {
@@ -381,7 +391,8 @@ func applyFailure(base *state.Base, output string) string {
 	if len(output) > maxDetails {
 		output = "...\n" + output[len(output)-maxDetails:]
 	}
-	return fmt.Sprintf("Failed to apply on top of %s (%s):\n\n%s", base.Branch, short(base.SHA), output)
+	return fmt.Sprintf("Failed to apply on top of %s (%s):\n\n%s", base.Branch,
+		short(base.SHA), output)
 }
 
 func (p *Pipeline) applyRun(result, details string) *state.Run {
@@ -399,7 +410,8 @@ func (p *Pipeline) applyRun(result, details string) *state.Run {
 
 // dependencyBase handles "Depends-on:".  It returns ok=false while the
 // series has to wait for its dependency.
-func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series, data []patchData) (*state.Base, bool, error) {
+func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
+	data []patchData) (*state.Base, bool, error) {
 	var text []string
 	if s.CoverID > 0 {
 		cover, err := p.PW.GetCover(ctx, s.CoverID)
@@ -459,9 +471,11 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series, data []p
 		return &state.Base{GitURL: p.Cfg.Upstream.GitURL, Branch: dep.Branch, SHA: sha,
 			Why: fmt.Sprintf("depends on series %d", depID)}, true, nil
 	}
-	if dep != nil && dep.Active() && now.Sub(state.ParseTime(s.Discovered)) < p.Cfg.Limits.CompleteTimeout.D() {
+	if dep != nil && dep.Active() &&
+		now.Sub(state.ParseTime(s.Discovered)) < p.Cfg.Limits.CompleteTimeout.D() {
 		if s.Status != state.SeriesWaiting {
-			p.log().Info("series waits for dependency", "series", s.ID, "depends_on", depID)
+			p.log().Info("series waits for dependency", "series", s.ID,
+				"depends_on", depID)
 		}
 		s.Status = state.SeriesWaiting
 		s.Reason = fmt.Sprintf("waiting for series %d", depID)
@@ -471,8 +485,10 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series, data []p
 	return nil, true, nil
 }
 
-func (p *Pipeline) selectBase(ctx context.Context, s *state.Series, data []patchData) (*state.Base, error) {
-	def := &state.Base{GitURL: p.Cfg.Upstream.GitURL, Branch: p.Cfg.Upstream.DefaultBranch, Why: "default"}
+func (p *Pipeline) selectBase(ctx context.Context, s *state.Series,
+	data []patchData) (*state.Base, error) {
+	def := &state.Base{GitURL: p.Cfg.Upstream.GitURL,
+		Branch: p.Cfg.Upstream.DefaultBranch, Why: "default"}
 	names := []string{s.Name}
 	delegate := ""
 	var diffs []string
@@ -497,11 +513,13 @@ func (p *Pipeline) selectBase(ctx context.Context, s *state.Series, data []patch
 					continue
 				}
 				branch := string(r.Regexp().ExpandString(nil, r.Branch, n, m))
-				return &state.Base{GitURL: gitURL, Branch: branch, Why: "subject: " + branch}, nil
+				return &state.Base{GitURL: gitURL, Branch: branch,
+					Why: "subject: " + branch}, nil
 			}
 		case "delegate":
 			if delegate != "" && strings.EqualFold(delegate, r.Delegate) {
-				return &state.Base{GitURL: gitURL, Branch: r.Branch, Why: "delegate: " + delegate}, nil
+				return &state.Base{GitURL: gitURL, Branch: r.Branch,
+					Why: "delegate: " + delegate}, nil
 			}
 		case "maintainers":
 			sha, err := p.Repo.Resolve(ctx, def.GitURL, def.Branch)
@@ -510,7 +528,8 @@ func (p *Pipeline) selectBase(ctx context.Context, s *state.Series, data []patch
 			}
 			content, err := p.Repo.ReadFile(ctx, sha, r.File)
 			if err != nil {
-				p.log().Warn("cannot read maintainers file", "file", r.File, "err", err)
+				p.log().Warn("cannot read maintainers file",
+					"file", r.File, "err", err)
 				continue
 			}
 			tree := maint.Parse(string(content)).Select(maint.DiffFiles(diffs...))
@@ -522,7 +541,8 @@ func (p *Pipeline) selectBase(ctx context.Context, s *state.Series, data []patch
 				def.Why = "default (tree " + tree + " is not configured)"
 				continue
 			}
-			return &state.Base{GitURL: t.GitURL, Branch: t.Branch, Why: "maintainers: " + tree}, nil
+			return &state.Base{GitURL: t.GitURL, Branch: t.Branch,
+				Why: "maintainers: " + tree}, nil
 		}
 	}
 	return def, nil
@@ -572,7 +592,8 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 	}
 	var existing map[string]bool
 	for _, r := range pt.Runs {
-		if r.Kind != state.RunDispatch || r.Status != "dispatching" || !r.Failure.Due(p.now()) {
+		if r.Kind != state.RunDispatch || r.Status != "dispatching" ||
+			!r.Failure.Due(p.now()) {
 			continue
 		}
 		// A run that was dispatched before the state was lost, or whose
@@ -581,7 +602,8 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 			var err error
 			existing, err = p.dispatchedTitles(ctx, s)
 			if err != nil {
-				p.log().Warn("cannot list dispatched runs", "series", s.ID, "err", err)
+				p.log().Warn("cannot list dispatched runs",
+					"series", s.ID, "err", err)
 				return
 			}
 		}
@@ -599,14 +621,16 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 			"patch_index":    strconv.Itoa(pt.Number),
 			"correlation_id": r.CorrelationID,
 		}
-		if err := p.GH.Dispatch(ctx, r.File, p.Cfg.TestRepo.ToolsBranch, inputs); err != nil {
+		if err := p.GH.Dispatch(ctx, r.File, p.Cfg.TestRepo.ToolsBranch,
+			inputs); err != nil {
 			if p.fail(&r.Failure, "dispatch", err) {
 				r.Status = "completed"
 				r.Result = state.ResultWarning
 				r.Details = "Failed to start the workflow: " + r.Failure.LastError
 				r.Completed = state.FormatTime(p.now())
 			}
-			p.log().Warn("dispatch failed", "series", s.ID, "patch", pt.ID, "file", r.File, "err", err)
+			p.log().Warn("dispatch failed", "series", s.ID, "patch", pt.ID,
+				"file", r.File, "err", err)
 			continue
 		}
 		r.Failure = nil
@@ -642,7 +666,8 @@ func (p *Pipeline) customWorkflows(ctx context.Context) ([]string, error) {
 	var out []string
 	for _, f := range files {
 		// The tools branch also has the project's own workflows.
-		if !strings.HasPrefix(f, p.Cfg.Workflows.CustomPrefix) || contains(p.Cfg.Workflows.CustomExclude, f) {
+		if !strings.HasPrefix(f, p.Cfg.Workflows.CustomPrefix) ||
+			contains(p.Cfg.Workflows.CustomExclude, f) {
 			continue
 		}
 		data, err := p.GH.File(ctx, ".github/workflows/"+f, p.Cfg.TestRepo.ToolsBranch)

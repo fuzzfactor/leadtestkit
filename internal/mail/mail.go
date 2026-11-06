@@ -87,7 +87,8 @@ func (s *SMTP) Send(ctx context.Context, e *report.Email) error {
 		tlsConfig = s.TLSConfig
 	}
 	if s.Security == "tls" {
-		conn, err = (&tls.Dialer{NetDialer: dialer, Config: tlsConfig}).DialContext(ctx, "tcp", addr)
+		d := &tls.Dialer{NetDialer: dialer, Config: tlsConfig}
+		conn, err = d.DialContext(ctx, "tcp", addr)
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
 	}
@@ -153,6 +154,7 @@ func (l *Log) Send(ctx context.Context, e *report.Email) error {
 			break
 		}
 	}
-	l.Log.Info("email disabled, not sending", "to", strings.Join(e.Recipients, ","), "subject", subject)
+	l.Log.Info("email disabled, not sending", "to", strings.Join(e.Recipients, ","),
+		"subject", subject)
 	return nil
 }

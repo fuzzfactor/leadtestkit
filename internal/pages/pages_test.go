@@ -64,7 +64,8 @@ func TestRender(t *testing.T) {
 	if err := json.Unmarshal(b, &idx); err != nil {
 		t.Fatal(err)
 	}
-	if idx.Title != "Lorem CI" || idx.Queue != 1 || len(idx.Months) != 1 || idx.Months[0].Patches != 1 ||
+	if idx.Title != "Lorem CI" || idx.Queue != 1 || len(idx.Months) != 1 ||
+		idx.Months[0].Patches != 1 ||
 		idx.PatchworkWeb != "https://pw.example.org" {
 		t.Errorf("index = %+v", idx)
 	}

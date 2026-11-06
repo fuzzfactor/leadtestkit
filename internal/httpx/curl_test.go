@@ -170,7 +170,7 @@ func TestExecCurl_SkipUA(t *testing.T) {
 	resp.Body.Close()
 
 	if strings.Contains(gotUA, "leadtestkit") {
-		t.Errorf("User-Agent should not contain leadtestkit when skipUA=true, got %q", gotUA)
+		t.Errorf("User-Agent with skipUA = %q", gotUA)
 	}
 	if gotUA == "" {
 		t.Error("curl should send its own default User-Agent")

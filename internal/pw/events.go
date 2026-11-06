@@ -69,7 +69,8 @@ func (c *Client) WalkEvents(
 			break
 		}
 		if err != nil {
-			return opts.Cursor, fmt.Errorf("events %s page %d: %w", opts.Category, p, err)
+			return opts.Cursor,
+				fmt.Errorf("events %s page %d: %w", opts.Category, p, err)
 		}
 		if len(page.Items) == 0 {
 			break

@@ -195,10 +195,11 @@ func TestRetryAfterHonored(t *testing.T) {
 			return
 		}
 		w.Write([]byte("ok"))
-	}, Options{BaseDelay: time.Millisecond, Sleep: func(ctx context.Context, d time.Duration) error {
-		slept = append(slept, d)
-		return nil
-	}})
+	}, Options{BaseDelay: time.Millisecond,
+		Sleep: func(ctx context.Context, d time.Duration) error {
+			slept = append(slept, d)
+			return nil
+		}})
 	if _, err := c.Get(context.Background(), srv.URL); err != nil {
 		t.Fatal(err)
 	}

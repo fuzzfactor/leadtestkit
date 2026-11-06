@@ -91,8 +91,9 @@ func TestPagination(t *testing.T) {
 		switch page {
 		case "", "1":
 			// Patchwork returns http:// links even over https.
-			w.Header().Set("Link", fmt.Sprintf(`<%s/api/1.2/patches/1/checks/?page=2>; rel="next"`,
-				srv.URL))
+			w.Header().Set("Link",
+				fmt.Sprintf(`<%s/api/1.2/patches/1/checks/?page=2>; rel="next"`,
+					srv.URL))
 			w.Write([]byte(`[{"id":1},{"id":2}]`))
 		case "2":
 			w.Write([]byte(`[{"id":3}]`))
@@ -111,7 +112,8 @@ func TestParseLinkNext(t *testing.T) {
 	tests := []struct{ header, want string }{
 		{`<https://pw.example.com/api/1.2/patches/?page=2>; rel="next"`,
 			"https://pw.example.com/api/1.2/patches/?page=2"},
-		{`<https://pw.example.com/?page=2>; rel="next", <https://pw.example.com/?page=5>; rel="last"`,
+		{`<https://pw.example.com/?page=2>; rel="next", ` +
+			`<https://pw.example.com/?page=5>; rel="last"`,
 			"https://pw.example.com/?page=2"},
 		{`<https://pw.example.com/?page=5>; rel="last"`, ""},
 		{"", ""},
@@ -311,7 +313,8 @@ func TestWalkEventsOnlyOldEventsSetsCursor(t *testing.T) {
 	var reqs []string
 	c, _ := testClient(t, eventServer(t, 4, &reqs))
 	cursor, err := c.WalkEvents(context.Background(),
-		WalkOptions{Category: "series-completed", Cutoff: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)},
+		WalkOptions{Category: "series-completed",
+			Cutoff: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)},
 		func(ev Event) error {
 			t.Errorf("unexpected event %d", ev.ID)
 			return nil

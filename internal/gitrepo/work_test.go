@@ -58,7 +58,8 @@ func setup(t *testing.T) (upstream, test string, patches [][]byte) {
 	run(t, src, "add", ".")
 	run(t, src, "commit", "-qm", "sit: Add file.")
 	for _, rev := range []string{"HEAD~1", "HEAD"} {
-		patches = append(patches, []byte(run(t, src, "format-patch", "--stdout", "-1", rev)+"\n"))
+		patches = append(patches,
+			[]byte(run(t, src, "format-patch", "--stdout", "-1", rev)+"\n"))
 	}
 	bad := strings.Replace(string(patches[0]), "-ipsum", "-amet", 1)
 	bad = strings.Replace(bad, " ipsum\n", " amet\n", 1)
@@ -68,7 +69,8 @@ func setup(t *testing.T) (upstream, test string, patches [][]byte) {
 
 func newWork(t *testing.T, test string) *WorkRepo {
 	return &WorkRepo{
-		Git:        &Git{Dir: filepath.Join(t.TempDir(), "work"), Env: []string{"GIT_CONFIG_GLOBAL=/dev/null"}},
+		Git: &Git{Dir: filepath.Join(t.TempDir(), "work"),
+			Env: []string{"GIT_CONFIG_GLOBAL=/dev/null"}},
 		TestRemote: test,
 		Committer:  "Robot <robot@example.org>",
 	}
@@ -148,7 +150,8 @@ func TestResolveMissingBranch(t *testing.T) {
 
 func TestAuthEnv(t *testing.T) {
 	env := AuthEnv("github.com", "lorem-token")
-	if len(env) != 3 || !strings.HasPrefix(env[2], "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic ") ||
+	if len(env) != 3 || !strings.HasPrefix(env[2],
+		"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic ") ||
 		strings.Contains(strings.Join(env, " "), "lorem-token") {
 		t.Errorf("env = %v", env)
 	}

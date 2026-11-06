@@ -86,7 +86,8 @@ func TestComposeDPDKFieldsWithinFirstLines(t *testing.T) {
 	}
 	lines := strings.Split(body, "\n")
 	joined := strings.Join(lines[:9], "\n")
-	for _, want := range []string{"Test-Label: ", "Test-Status: SUCCESS", "/patch/2052/", "_lorem build"} {
+	for _, want := range []string{"Test-Label: ", "Test-Status: SUCCESS",
+		"/patch/2052/", "_lorem build"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("%q not within the first 9 lines:\n%s", want, joined)
 		}
@@ -102,7 +103,8 @@ func TestComposeTestMode(t *testing.T) {
 		t.Errorf("headers:\n%s", head)
 	}
 	// pw-ci searches for these substrings anywhere in the page.
-	for _, bad := range []string{"Test-Label: ", "Test-Status: ", "https://pw.example.org", "http://pw"} {
+	for _, bad := range []string{"Test-Label: ", "Test-Status: ",
+		"https://pw.example.org", "http://pw"} {
 		if strings.Contains(body, bad) {
 			t.Errorf("test report contains %q:\n%s", bad, body)
 		}
@@ -134,7 +136,8 @@ func TestComposeLongLinesAndNonASCII(t *testing.T) {
 
 func TestStatusAndNormalize(t *testing.T) {
 	for _, r := range []string{"success", "fail", "warning", "pending"} {
-		if NormalizeStatus(Status(StyleDPDK, r)) != r || NormalizeStatus(Status(StyleOVS, r)) != r {
+		if NormalizeStatus(Status(StyleDPDK, r)) != r ||
+			NormalizeStatus(Status(StyleOVS, r)) != r {
 			t.Errorf("round trip failed for %s", r)
 		}
 	}
@@ -172,17 +175,21 @@ func TestParse(t *testing.T) {
 		desc    string
 	}{
 		{"numeric web link", "x",
-			"Test-Label: lorem-robot\nTest-Status: SUCCESS\nhttps://pw.example.org/patch/12/\n\n_lorem: ok_\n",
+			"Test-Label: lorem-robot\nTest-Status: SUCCESS\n" +
+				"https://pw.example.org/patch/12/\n\n_lorem: ok_\n",
 			nil, 12, "", "success", "lorem: ok"},
 		{"api link in href", "x",
 			"Test-Label: lab\nTest-Status: fail\nsee link\n",
-			[]string{"http://pw.example.org/api/1.2/patches/34/"}, 34, "", "fail", "test: fail"},
+			[]string{"http://pw.example.org/api/1.2/patches/34/"}, 34, "",
+			"fail", "test: fail"},
 		{"unversioned api link", "x",
-			"Test-Label: lab\nTest-Status: warning\nhttps://pw.example.org/api/patches/56/\n",
+			"Test-Label: lab\nTest-Status: warning\n" +
+				"https://pw.example.org/api/patches/56/\n",
 			nil, 56, "", "warning", "test: warning"},
 		{"msgid link", "x",
 			"Test-Label: lab\nTest-Status: pending\n" +
-				"https://pw.example.org/project/lorem/patch/20260301.1-lorem%40example.org/\n",
+				"https://pw.example.org/project/lorem/patch/" +
+				"20260301.1-lorem%40example.org/\n",
 			nil, 0, "<20260301.1-lorem@example.org>", "pending", "test: pending"},
 		{"other host ignored, subject fallback", "|FAILURE| pw78 [PATCH] x",
 			"Test-Label: lab\nTest-Status: FAILURE\nhttps://other.example/patch/1/\n",
@@ -194,7 +201,8 @@ func TestParse(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if p.PatchID != tt.id || p.PatchMsgID != tt.msgid || p.Status != tt.status ||
+			if p.PatchID != tt.id || p.PatchMsgID != tt.msgid ||
+				p.Status != tt.status ||
 				p.Description != tt.desc {
 				t.Errorf("parsed = %+v", p)
 			}

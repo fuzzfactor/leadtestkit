@@ -23,7 +23,8 @@ import (
 )
 
 type Patchwork interface {
-	WalkEvents(ctx context.Context, opts pw.WalkOptions, handle func(pw.Event) error) (int, error)
+	WalkEvents(ctx context.Context, opts pw.WalkOptions,
+		handle func(pw.Event) error) (int, error)
 	BuildSeriesURL(params pw.SeriesListParams) string
 	GetSeriesPage(ctx context.Context, pageURL string) (*pw.PageResult[pw.Series], error)
 	GetSeries(ctx context.Context, id int) (*pw.Series, error)
@@ -55,7 +56,8 @@ type GitHub interface {
 }
 
 type Archive interface {
-	FetchMonth(ctx context.Context, year int, month time.Month) ([]archive.ArchiveMessage, error)
+	FetchMonth(ctx context.Context, year int, month time.Month) ([]archive.ArchiveMessage,
+		error)
 	FetchMessage(ctx context.Context, msgURL string) (*archive.Message, error)
 	MessageURL(month string, number int) string
 }
@@ -287,15 +289,18 @@ func (p *Pipeline) rerun(ctx context.Context, runID int64) error {
 		return p.GH.Rerun(ctx, runID, false)
 	}
 	err := p.GH.Rerun(ctx, runID, true)
-	if code := httpx.StatusCode(err); code == http.StatusForbidden || code == http.StatusUnprocessableEntity {
-		p.log().Info("failed jobs cannot be rerun, rerunning the whole run", "run", runID, "err", err)
+	if code := httpx.StatusCode(err); code == http.StatusForbidden ||
+		code == http.StatusUnprocessableEntity {
+		p.log().Info("failed jobs cannot be rerun, rerunning the whole run",
+			"run", runID, "err", err)
 		return p.GH.Rerun(ctx, runID, false)
 	}
 	return err
 }
 
 func (p *Pipeline) branchURL(branch string) string {
-	return fmt.Sprintf("https://%s/%s/tree/%s", p.Cfg.TestRepo.GitHost, p.Cfg.TestRepo.Repo, branch)
+	return fmt.Sprintf("https://%s/%s/tree/%s", p.Cfg.TestRepo.GitHost,
+		p.Cfg.TestRepo.Repo, branch)
 }
 
 func (p *Pipeline) stagingRef(s *state.Series) string {

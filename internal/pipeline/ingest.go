@@ -60,14 +60,16 @@ type monthMessages struct {
 // newMessages lists messages after the cursor in each month.  On the
 // first scan, existing messages are only recorded as seen.  It returns
 // the month (YYYY-MM) from which the next scan has to start.
-func (p *Pipeline) newMessages(ctx context.Context, a Archive, c *state.ArchiveCursor) ([]monthMessages, string, bool) {
+func (p *Pipeline) newMessages(ctx context.Context, a Archive,
+	c *state.ArchiveCursor) ([]monthMessages, string, bool) {
 	now := p.now()
 	first := c.LastMonth == ""
 	var out []monthMessages
 	for _, m := range scanMonths(c, now, p.Cfg.Archive.LookbackMonths) {
 		msgs, err := a.FetchMonth(ctx, m.Year(), m.Month())
 		if err != nil {
-			p.log().Warn("cannot read archive", "month", m.Format("2006-01"), "err", err)
+			p.log().Warn("cannot read archive",
+				"month", m.Format("2006-01"), "err", err)
 			return out, m.Format("2006-01"), false
 		}
 		key := archive.MonthKey(m.Year(), m.Month())
@@ -134,7 +136,8 @@ func (p *Pipeline) ingest(ctx context.Context) {
 					c.Retry = map[string]*state.Failure{}
 				}
 				c.Retry[u] = f
-				p.log().Warn("report ingest failed, will retry", "url", u, "err", err)
+				p.log().Warn("report ingest failed, will retry",
+					"url", u, "err", err)
 			}
 			c.Months[mm.key] = m.Number
 		}
@@ -191,7 +194,8 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 			return err
 		}
 		if len(found) == 0 {
-			p.log().Info("report for unknown patch", "url", msgURL, "msgid", parsed.PatchMsgID)
+			p.log().Info("report for unknown patch", "url", msgURL,
+				"msgid", parsed.PatchMsgID)
 			return errSkip
 		}
 		patchID = found[0].ID
@@ -204,7 +208,8 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 		name = m.Subject
 	}
 	if !ok {
-		p.log().Debug("report for another project", "url", msgURL, "patch", patchID, "name", name)
+		p.log().Debug("report for another project", "url", msgURL,
+			"patch", patchID, "name", name)
 		return errSkip
 	}
 	checks, err := p.PW.GetPatchChecks(ctx, patchID)
@@ -213,7 +218,8 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	for _, ch := range checks {
 		if ch.TargetURL != nil && stripScheme(*ch.TargetURL) == stripScheme(msgURL) {
-			p.log().Debug("check already posted", "url", msgURL, "patch", patchID, "name", name)
+			p.log().Debug("check already posted", "url", msgURL,
+				"patch", patchID, "name", name)
 			return errSkip
 		}
 	}
@@ -231,8 +237,10 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 		return nil
 	}
 	if err := p.PW.CreateCheck(ctx, patchID, chk); err != nil {
-		if code := httpx.StatusCode(err); code >= 400 && code < 500 && code != http.StatusTooManyRequests {
-			p.log().Warn("check rejected", "patch", patchID, "name", name, "context", chk.Context,
+		if code := httpx.StatusCode(err); code >= 400 && code < 500 &&
+			code != http.StatusTooManyRequests {
+			p.log().Warn("check rejected", "patch", patchID, "name", name,
+				"context", chk.Context,
 				"err", err)
 			return errSkip
 		}
@@ -262,6 +270,7 @@ func (p *Pipeline) ourPatch(ctx context.Context, id int) (bool, string, error) {
 		return false, "", err
 	}
 	proj := p.Cfg.Patchwork.Project
-	return strings.EqualFold(d.Project.LinkName, proj) || strings.EqualFold(d.Project.Name, proj) ||
+	return strings.EqualFold(d.Project.LinkName, proj) ||
+		strings.EqualFold(d.Project.Name, proj) ||
 		strings.EqualFold(d.Project.ListID, proj), d.Name, nil
 }

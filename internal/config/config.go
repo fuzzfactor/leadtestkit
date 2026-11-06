@@ -306,13 +306,15 @@ func defaults() Config {
 			BranchRetention:    Duration(30 * 24 * time.Hour),
 			HistoryWindow:      Duration(30 * 24 * time.Hour),
 		},
-		Workflows: Workflows{RerunCancelled: true, RerunJobs: "failed", CustomPrefix: "leadtest-"},
-		Rechecks:  Rechecks{Enabled: true, Window: Duration(30 * 24 * time.Hour)},
+		Workflows: Workflows{RerunCancelled: true, RerunJobs: "failed",
+			CustomPrefix: "leadtest-"},
+		Rechecks: Rechecks{Enabled: true, Window: Duration(30 * 24 * time.Hour)},
 		Runner: Runner{
 			LoopDuration: Duration(13 * time.Minute),
 			HardStop:     Duration(40 * time.Minute),
 			LoopInterval: Duration(3 * time.Minute),
-			CommitAuthor: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+			CommitAuthor: "github-actions[bot] " +
+				"<41898282+github-actions[bot]@users.noreply.github.com>",
 		},
 		Pages: Pages{Enabled: true, Title: "LeadTestKit"},
 	}
@@ -419,7 +421,9 @@ func (c *Config) RecheckLabels() []string {
 
 func (c *Config) validate() error {
 	var errs []string
-	add := func(format string, args ...any) { errs = append(errs, fmt.Sprintf(format, args...)) }
+	add := func(format string, args ...any) {
+		errs = append(errs, fmt.Sprintf(format, args...))
+	}
 
 	checkURL := func(field, v string, required bool) {
 		if v == "" {
@@ -450,10 +454,12 @@ func (c *Config) validate() error {
 	if c.TestRepo.ToolsBranch == "" {
 		c.TestRepo.ToolsBranch = c.Upstream.DefaultBranch
 	}
-	if parts := strings.Split(c.TestRepo.Repo, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	if parts := strings.Split(c.TestRepo.Repo, "/"); len(parts) != 2 ||
+		parts[0] == "" || parts[1] == "" {
 		add("test_repo.repo must be owner/name, got %q", c.TestRepo.Repo)
 	}
-	if !strings.HasPrefix(c.TestRepo.StagingRef, "refs/") || !strings.HasSuffix(c.TestRepo.StagingRef, "/") ||
+	if !strings.HasPrefix(c.TestRepo.StagingRef, "refs/") ||
+		!strings.HasSuffix(c.TestRepo.StagingRef, "/") ||
 		strings.HasPrefix(c.TestRepo.StagingRef, "refs/heads/") ||
 		strings.HasPrefix(c.TestRepo.StagingRef, "refs/tags/") {
 		add("test_repo.staging_ref must be a refs/<namespace>/ outside heads and tags")
@@ -558,7 +564,8 @@ func (c *Config) validate() error {
 			}
 			for name, t := range r.Trees {
 				if t.GitURL == "" || t.Branch == "" {
-					add("rules.base[%d]: tree %s needs git_url and branch", i, name)
+					add("rules.base[%d]: tree %s needs git_url and branch",
+						i, name)
 				}
 			}
 		default:
@@ -567,8 +574,10 @@ func (c *Config) validate() error {
 	}
 
 	l := c.Limits
-	if l.MaxQueuedJobs < 1 || l.MaxInflightPatches < 1 || l.PerAuthorMin < 1 || l.JobsPerPatch < 1 {
-		add("limits: max_queued_jobs, max_inflight_patches, per_author_min, jobs_per_patch must be >= 1")
+	if l.MaxQueuedJobs < 1 || l.MaxInflightPatches < 1 || l.PerAuthorMin < 1 ||
+		l.JobsPerPatch < 1 {
+		add("limits: max_queued_jobs, max_inflight_patches, per_author_min " +
+			"and jobs_per_patch must be >= 1")
 	}
 	if l.PerAuthorMaxShare <= 0 || l.PerAuthorMaxShare > 1 {
 		add("limits.per_author_max_share must be in (0, 1]")

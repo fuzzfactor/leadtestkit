@@ -340,12 +340,12 @@ const testArticleHTML = `<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transition
    <TITLE> [lorem-build] |fail| pw2052 [lorem-dev] ipsum: Dolor sit.
    </TITLE>
    <LINK REL="Index" HREF="index.html" >
-   <LINK REL="made" HREF="mailto:lorem-build%40lists.example.org?Subject=Re%3A%20%5Blorem-build%5D&In-Reply-To=%3C20260302.abc%40robot.example.org%3E">
+   <LINK REL="made" HREF="mailto:b%40l.example.org?In-Reply-To=%3C1.abc%40r.example.org%3E">
  </HEAD>
  <BODY BGCOLOR="#ffffff">
    <H1>[lorem-build] |fail| pw2052 [lorem-dev] ipsum: Dolor &amp; sit.</H1>
     <B>robot at robot.example.org</B>
-    <A HREF="mailto:lorem-build%40lists.example.org?Subject=Re%3A&In-Reply-To=%3C20260302.abc%40robot.example.org%3E"
+    <A HREF="mailto:build%40l.example.org?Subject=Re%3A&In-Reply-To=%3C1.abc%40r.example.org%3E"
        TITLE="[lorem-build] |fail| pw2052">robot at robot.example.org
        </A><BR>
     <I>Mon Mar  2 10:00:00 UTC 2026</I>
@@ -372,14 +372,15 @@ func TestParseMessagePage(t *testing.T) {
 	if m.Subject != "[lorem-build] |fail| pw2052 [lorem-dev] ipsum: Dolor & sit." {
 		t.Errorf("Subject = %q", m.Subject)
 	}
-	if m.MessageID != "<20260302.abc@robot.example.org>" {
+	if m.MessageID != "<1.abc@r.example.org>" {
 		t.Errorf("MessageID = %q", m.MessageID)
 	}
 	if m.Date != "Mon Mar  2 10:00:00 UTC 2026" {
 		t.Errorf("Date = %q", m.Date)
 	}
-	if !strings.HasPrefix(m.Body, "Test-Label: lorem-robot: Build and Test\nTest-Status: fail\n"+
-		"https://pw.example.org/patch/2052/\n") || !strings.Contains(m.Body, "a <b> c") {
+	wantStart := "Test-Label: lorem-robot: Build and Test\nTest-Status: fail\n" +
+		"https://pw.example.org/patch/2052/\n"
+	if !strings.HasPrefix(m.Body, wantStart) || !strings.Contains(m.Body, "a <b> c") {
 		t.Errorf("Body = %q", m.Body)
 	}
 	if len(m.Links) != 2 || m.Links[0] != "https://pw.example.org/patch/2052/" {

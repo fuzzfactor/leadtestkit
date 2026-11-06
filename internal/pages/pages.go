@@ -70,15 +70,17 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 		GitHost:          cfg.TestRepo.GitHost,
 		ArchiveURLFormat: cfg.Pages.ArchiveURLFormat,
 		PatchURLFormat:   cfg.Pages.PatchArchiveURLFormat,
-		Mode:             Mode{Push: cfg.Mode.Push, Checks: cfg.Mode.Checks, Email: cfg.Mode.Email},
-		Queue:            len(st.Queue),
-		Months:           []Month{},
+		Mode: Mode{Push: cfg.Mode.Push, Checks: cfg.Mode.Checks,
+			Email: cfg.Mode.Email},
+		Queue:  len(st.Queue),
+		Months: []Month{},
 	}
 	queue := st.Queue
 	if queue == nil {
 		queue = []*state.Series{}
 	}
-	if err := writeJSON(filepath.Join(data, "queue.json"), seriesFile{Schema: state.SchemaVersion, Series: queue}); err != nil {
+	if err := writeJSON(filepath.Join(data, "queue.json"),
+		seriesFile{Schema: state.SchemaVersion, Series: queue}); err != nil {
 		return err
 	}
 	months, err := st.HistoryMonths()
@@ -95,7 +97,8 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 			n += len(s.Patches)
 		}
 		idx.Months = append(idx.Months, Month{Month: m, Series: len(list), Patches: n})
-		if err := writeJSON(filepath.Join(data, "history", m+".json"), seriesFile{Schema: state.SchemaVersion, Series: list}); err != nil {
+		if err := writeJSON(filepath.Join(data, "history", m+".json"),
+			seriesFile{Schema: state.SchemaVersion, Series: list}); err != nil {
 			return err
 		}
 	}

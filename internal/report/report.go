@@ -196,7 +196,8 @@ func crlf(s string) string {
 // have been sent before a crash can be recognized in the archive.
 func MessageID(domain string, seriesID, patchID int, label, kind string, attempt int) string {
 	slug := strings.Trim(nonSlugRe.ReplaceAllString(strings.ToLower(label), "-"), "-")
-	return fmt.Sprintf("<leadtest.%d.%d.%s.%s.%d@%s>", seriesID, patchID, slug, kind, attempt, domain)
+	return fmt.Sprintf("<leadtest.%d.%d.%s.%s.%d@%s>", seriesID, patchID, slug, kind,
+		attempt, domain)
 }
 
 var nonSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
@@ -218,12 +219,13 @@ type Parsed struct {
 }
 
 var (
-	labelRe    = regexp.MustCompile(`(?m)Test-Label: *([^\n]*)`)
-	statusRe   = regexp.MustCompile(`(?m)Test-Status: *([^\n]*)`)
-	labelTRe   = regexp.MustCompile(`(?m)Test-Label \(leadtest dry-run\): *([^\n]*)`)
-	statusTRe  = regexp.MustCompile(`(?m)Test-Status \(leadtest dry-run\): *([^\n]*)`)
-	descRe     = regexp.MustCompile(`(?m)^_(.+)_\s*$`)
-	urlRe      = regexp.MustCompile(`(?:https?://)?[A-Za-z0-9.-]+(?::\d+)?/[^\s<>"']*patch[^\s<>"']*`)
+	labelRe   = regexp.MustCompile(`(?m)Test-Label: *([^\n]*)`)
+	statusRe  = regexp.MustCompile(`(?m)Test-Status: *([^\n]*)`)
+	labelTRe  = regexp.MustCompile(`(?m)Test-Label \(leadtest dry-run\): *([^\n]*)`)
+	statusTRe = regexp.MustCompile(`(?m)Test-Status \(leadtest dry-run\): *([^\n]*)`)
+	descRe    = regexp.MustCompile(`(?m)^_(.+)_\s*$`)
+	urlRe     = regexp.MustCompile(`(?:https?://)?[A-Za-z0-9.-]+(?::\d+)?/` +
+		`[^\s<>"']*patch[^\s<>"']*`)
 	numericRe  = regexp.MustCompile(`/(?:api/(?:\d+\.\d+/)?patches|patch)/(\d+)/?$`)
 	msgidRe    = regexp.MustCompile(`/project/[^/]+/patch/([^/]+)/?$`)
 	subjPwIDRe = regexp.MustCompile(`\bpw(\d+)\b`)

@@ -262,7 +262,8 @@ func (c *Client) Do(ctx context.Context, r Request) (*Response, error) {
 		}
 		if delay > c.opts.MaxDelay {
 			if retryAfter > c.opts.MaxDelay {
-				return resp, fmt.Errorf("%w (server asked to wait %s)", lastErr, retryAfter)
+				err := fmt.Errorf("%w (asked to wait %s)", lastErr, retryAfter)
+				return resp, err
 			}
 			delay = c.opts.MaxDelay
 		}
@@ -289,7 +290,8 @@ func isTransientStatus(resp *Response) bool {
 		return true
 	case http.StatusForbidden:
 		// GitHub signals rate limiting with 403.
-		if resp.Header.Get("Retry-After") != "" || resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		if resp.Header.Get("Retry-After") != "" ||
+			resp.Header.Get("X-RateLimit-Remaining") == "0" {
 			return true
 		}
 		return bytes.Contains(bytes.ToLower(resp.Body), []byte("secondary rate limit"))
@@ -432,13 +434,15 @@ func (c *Client) viaCurl(ctx context.Context, r Request, mode transportMode) (*R
 	start := time.Now()
 	hr, err := execCurl(ctx, req, r.Body, mode == transportCurlAnon, c.opts.Timeout)
 	if err != nil {
-		c.log.Warn("http", "method", r.Method, "url", r.URL, "via", mode.String(), "err", err)
+		c.log.Warn("http", "method", r.Method, "url", r.URL,
+			"via", mode.String(), "err", err)
 		return nil, err
 	}
 	body, _ := io.ReadAll(hr.Body)
 	c.log.Info("http", "method", r.Method, "url", r.URL, "via", mode.String(),
 		"status", hr.StatusCode, "dur", time.Since(start).Round(time.Millisecond))
-	return &Response{StatusCode: hr.StatusCode, Header: hr.Header, Body: body, Via: mode.String()}, nil
+	return &Response{StatusCode: hr.StatusCode, Header: hr.Header, Body: body,
+		Via: mode.String()}, nil
 }
 
 // isBotResponse detects bot protection pages served instead of JSON.

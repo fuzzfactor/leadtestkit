@@ -52,7 +52,8 @@ func (p *Pipermail) MessageURL(month string, number int) string {
 
 // FetchMonth lists the messages of one month.  A missing month (no
 // mail yet) is an empty list, not an error.
-func (p *Pipermail) FetchMonth(ctx context.Context, year int, month time.Month) ([]ArchiveMessage, error) {
+func (p *Pipermail) FetchMonth(ctx context.Context, year int,
+	month time.Month) ([]ArchiveMessage, error) {
 	resp, err := p.http.Get(ctx, BuildArchiveURL(p.base, year, month))
 	if httpx.IsNotFound(err) {
 		return nil, nil
@@ -73,7 +74,8 @@ func parseArchiveMessages(body []byte) ([]ArchiveMessage, error) {
 		if err != nil {
 			continue
 		}
-		msgs = append(msgs, ArchiveMessage{Number: num, Subject: cleanArchiveSubject(string(m[2]))})
+		msgs = append(msgs, ArchiveMessage{Number: num,
+			Subject: cleanArchiveSubject(string(m[2]))})
 	}
 	return msgs, nil
 }

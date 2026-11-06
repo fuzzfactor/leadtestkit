@@ -100,14 +100,17 @@ func TestSelect(t *testing.T) {
 		files []string
 		want  string
 	}{
-		{[]string{"drivers/net/intel/lorem/x.c", "doc/guides/rel_notes/x.rst"}, "dpdk-next-net-intel"},
+		{[]string{"drivers/net/intel/lorem/x.c", "doc/guides/rel_notes/x.rst"},
+			"dpdk-next-net-intel"},
 		{[]string{"drivers/net/intel/lorem/x.c", "drivers/net/mlx5/m.c"}, "dpdk-next-net"},
 		{[]string{"drivers/net/virtio/v.c", "drivers/net/bonding/b.c"}, "dpdk-next-net"},
 		{[]string{"drivers/net/virtio/v.c"}, "dpdk-next-virtio"},
 		{[]string{"lib/cryptodev/c.c", "drivers/net/virtio/v.c"}, ""},
 		{[]string{"lib/eal/e.c", "drivers/net/bonding/b.c"}, "dpdk"},
-		{[]string{"drivers/net/mlx5/m.c", "drivers/common/lorem_x/c.c", "lib/cryptodev/c.c"}, ""},
-		{[]string{"drivers/event/lorem/e.c", "drivers/common/mlx5/c.c"}, "dpdk-next-eventdev"},
+		{[]string{"drivers/net/mlx5/m.c", "drivers/common/lorem_x/c.c",
+			"lib/cryptodev/c.c"}, ""},
+		{[]string{"drivers/event/lorem/e.c", "drivers/common/mlx5/c.c"},
+			"dpdk-next-eventdev"},
 		{[]string{"doc/guides/rel_notes/x.rst"}, ""},
 	}
 	for _, tt := range tests {
@@ -129,7 +132,8 @@ deleted file mode 100644
 --- a/old.c
 +++ /dev/null
 `
-	got := strings.Join(DiffFiles(diff, "diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n"), ",")
+	got := strings.Join(DiffFiles(diff,
+		"diff --git a/new.c b/new.c\n--- /dev/null\n+++ b/new.c\n"), ",")
 	if got != "lib/a.c,new.c,old.c" {
 		t.Errorf("got %q", got)
 	}

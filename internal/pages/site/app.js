@@ -63,8 +63,10 @@ function renderPatch(s, p) {
   const runs = el("div", { class: "runs" });
   for (const r of p.runs || []) {
     const st = runState(r);
-    const title = [r.conclusion, r.details, r.failure && r.failure.last_error].filter(Boolean).join("\n");
-    const badge = el("span", { class: "badge " + st, title: title || null }, runLabel(r) + ": " + st);
+    const title = [r.conclusion, r.details, r.failure && r.failure.last_error]
+      .filter(Boolean).join("\n");
+    const badge = el("span", { class: "badge " + st, title: title || null },
+      runLabel(r) + ": " + st);
     runs.append(link(r.url, badge));
     const report = archiveLink(r.final && r.final.message_id);
     if (report) runs.append(link(report, "report"));
@@ -84,7 +86,9 @@ function renderPatch(s, p) {
 function renderSeries(s) {
   const pwSeries = s.web_url || index.patchwork_web + "/project/" + index.project +
     "/list/?series=" + s.id + "&state=*&archive=both";
-  const branch = s.branch ? "https://" + index.git_host + "/" + index.test_repo + "/tree/" + s.branch : null;
+  const branch = s.branch
+    ? "https://" + index.git_host + "/" + index.test_repo + "/tree/" + s.branch
+    : null;
   const head = el("div", { class: "head" },
     el("span", { class: "badge " + s.status }, s.status),
     link(pwSeries, "#" + s.id),
@@ -93,7 +97,9 @@ function renderSeries(s) {
     el("span", { class: "muted" }, age(s.finished || s.started || s.discovered)));
   const info = [];
   if (s.reason) info.push(s.reason);
-  if (s.base) info.push("base: " + (s.base.branch || "") + (s.base.why ? " (" + s.base.why + ")" : ""));
+  if (s.base) {
+    info.push("base: " + (s.base.branch || "") + (s.base.why ? " (" + s.base.why + ")" : ""));
+  }
   if (s.hold) info.push("on hold");
   const box = el("div", { class: "series" }, head,
     el("div", { class: "info" }, ...info.map((t, i) => (i ? " · " : "") + t),
@@ -112,7 +118,8 @@ function filtered() {
     if (st && s.status !== st) return false;
     if (!q) return true;
     const sub = s.submitter || {};
-    return [String(s.id), s.name, sub.name, sub.email].concat((s.patches || []).map(p => "pw" + p.id))
+    const patches = (s.patches || []).map(p => "pw" + p.id);
+    return [String(s.id), s.name, sub.name, sub.email].concat(patches)
       .some(v => v && v.toLowerCase().includes(q));
   });
 }
@@ -131,9 +138,15 @@ function render() {
   pager.replaceChildren();
   if (pages > 1) {
     pager.append(
-      el("button", { onclick: () => { current.page--; render(); }, disabled: current.page === 0 }, "‹"),
+      el("button", {
+        onclick: () => { current.page--; render(); },
+        disabled: current.page === 0,
+      }, "‹"),
       " " + (current.page + 1) + " / " + pages + " ",
-      el("button", { onclick: () => { current.page++; render(); }, disabled: current.page >= pages - 1 }, "›"));
+      el("button", {
+        onclick: () => { current.page++; render(); },
+        disabled: current.page >= pages - 1,
+      }, "›"));
   }
 }
 
@@ -141,7 +154,9 @@ async function selectTab(tab) {
   current.tab = tab;
   current.page = 0;
   location.hash = tab;
-  for (const b of document.querySelectorAll("nav button")) b.classList.toggle("active", b.dataset.tab === tab);
+  for (const b of document.querySelectorAll("nav button")) {
+    b.classList.toggle("active", b.dataset.tab === tab);
+  }
   document.getElementById("list").replaceChildren(el("p", { class: "muted" }, "Loading..."));
   const path = tab === "queue" ? "data/queue.json" : "data/history/" + tab + ".json";
   try {
@@ -177,7 +192,8 @@ async function main() {
   document.getElementById("filter").oninput = () => { current.page = 0; render(); };
   document.getElementById("status").onchange = () => { current.page = 0; render(); };
   const wanted = location.hash.slice(1);
-  await selectTab(wanted === "queue" || index.months.some(m => m.month === wanted) ? wanted : "queue");
+  const known = wanted === "queue" || index.months.some(m => m.month === wanted);
+  await selectTab(known ? wanted : "queue");
 }
 
 main().catch(e => {

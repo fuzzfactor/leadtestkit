@@ -113,10 +113,11 @@ func (s *Store) CheckInstance(want Instance) error {
 	if normalize(cur.Patchwork) != normalize(want.Patchwork) ||
 		!strings.EqualFold(cur.Project, want.Project) ||
 		!strings.EqualFold(cur.TestRepo, want.TestRepo) {
-		return fmt.Errorf("the state belongs to %s project %s with test repository %s, but "+
-			"config.yaml uses %s project %s with %s; fix config.yaml, or update or remove "+
-			"\"instance\" in meta.json if the change is intended",
-			cur.Patchwork, cur.Project, cur.TestRepo, want.Patchwork, want.Project, want.TestRepo)
+		return fmt.Errorf("the state belongs to %s project %s with test repository "+
+			"%s, but config.yaml uses %s project %s with %s; fix config.yaml, or "+
+			"update or remove \"instance\" in meta.json if the change is intended",
+			cur.Patchwork, cur.Project, cur.TestRepo,
+			want.Patchwork, want.Project, want.TestRepo)
 	}
 	return nil
 }

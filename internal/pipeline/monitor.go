@@ -27,25 +27,29 @@ func (p *Pipeline) monitor(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if pt.Status != state.PatchPushed || !pt.Failure.Due(p.now()) {
-				continue
+			if pt.Status == state.PatchPushed && pt.Failure.Due(p.now()) {
+				p.monitorPatch(ctx, s, pt, dispatched)
 			}
-			runs, err := p.GH.RunsForSHA(ctx, pt.SHA)
-			if err != nil {
-				p.log().Warn("cannot list runs", "series", s.ID, "patch", pt.ID, "err", err)
-				if state.RecordFailure(&pt.Failure, "monitor", err, p.now(), monitorDeadline) {
-					p.abandonRuns(pt, "Lost track of the workflow runs: "+pt.Failure.LastError)
-				}
-				continue
-			}
-			if pt.Failure != nil && pt.Failure.Op == "monitor" {
-				pt.Failure = nil
-			}
-			p.updatePushRuns(ctx, s, pt, runs)
-			p.updateDispatchRuns(ctx, s, pt, dispatched)
-			p.checkComplete(ctx, s, pt)
 		}
 	}
+}
+
+func (p *Pipeline) monitorPatch(ctx context.Context, s *state.Series, pt *state.Patch,
+	dispatched map[string]gh.WorkflowRun) {
+	runs, err := p.GH.RunsForSHA(ctx, pt.SHA)
+	if err != nil {
+		p.log().Warn("cannot list runs", "series", s.ID, "patch", pt.ID, "err", err)
+		if state.RecordFailure(&pt.Failure, "monitor", err, p.now(), monitorDeadline) {
+			p.abandonRuns(pt, "Lost track of the workflow runs: "+pt.Failure.LastError)
+		}
+		return
+	}
+	if pt.Failure != nil && pt.Failure.Op == "monitor" {
+		pt.Failure = nil
+	}
+	p.updatePushRuns(ctx, s, pt, runs)
+	p.updateDispatchRuns(ctx, s, pt, dispatched)
+	p.checkComplete(ctx, s, pt)
 }
 
 func (p *Pipeline) dispatchedRuns(ctx context.Context) map[string]gh.WorkflowRun {
@@ -54,7 +58,8 @@ func (p *Pipeline) dispatchedRuns(ctx context.Context) map[string]gh.WorkflowRun
 		for _, pt := range s.Patches {
 			for _, r := range pt.Runs {
 				if r.Kind == state.RunDispatch && r.Status != "completed" {
-					if t := state.ParseTime(pt.Pushed); !t.IsZero() && (since.IsZero() || t.Before(since)) {
+					if t := state.ParseTime(pt.Pushed); !t.IsZero() &&
+						(since.IsZero() || t.Before(since)) {
 						since = t
 					}
 				}
@@ -82,7 +87,8 @@ func (p *Pipeline) dispatchedRuns(ctx context.Context) map[string]gh.WorkflowRun
 	return out
 }
 
-func (p *Pipeline) updatePushRuns(ctx context.Context, s *state.Series, pt *state.Patch, runs []gh.WorkflowRun) {
+func (p *Pipeline) updatePushRuns(ctx context.Context, s *state.Series, pt *state.Patch,
+	runs []gh.WorkflowRun) {
 	latest := map[string]gh.WorkflowRun{}
 	for _, r := range runs {
 		if r.Event != "push" || r.HeadBranch != s.Branch || r.HeadSHA != pt.SHA {
@@ -108,7 +114,8 @@ func (p *Pipeline) updatePushRuns(ctx context.Context, s *state.Series, pt *stat
 	}
 }
 
-func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *state.Patch, runs map[string]gh.WorkflowRun) {
+func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *state.Patch,
+	runs map[string]gh.WorkflowRun) {
 	p.sendDispatches(ctx, s, pt)
 	for _, r := range pt.Runs {
 		if r.Kind != state.RunDispatch || r.Status == "dispatching" {
@@ -125,7 +132,8 @@ func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *
 	}
 }
 
-func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Patch, r *state.Run, wr gh.WorkflowRun) {
+func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Patch, r *state.Run,
+	wr gh.WorkflowRun) {
 	if r.Status == "completed" && r.Result != "" && wr.RunAttempt <= r.Attempt {
 		return
 	}
@@ -149,7 +157,8 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 	if wr.Conclusion == "cancelled" && p.Cfg.Workflows.RerunCancelled && r.AutoReruns < 1 {
 		err := p.rerun(ctx, wr.ID)
 		if err == nil {
-			p.log().Info("rerunning cancelled run", "series", s.ID, "patch", pt.ID, "run", wr.ID)
+			p.log().Info("rerunning cancelled run", "series", s.ID,
+				"patch", pt.ID, "run", wr.ID)
 			r.AutoReruns++
 			r.MinAttempt = wr.RunAttempt
 			r.Status = "requested"
@@ -165,7 +174,8 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 	if r.Pending.Email == "" {
 		r.Pending.Email = state.StepSkipped
 	}
-	p.log().Info("run completed", "series", s.ID, "patch", pt.ID, "name", pt.Name, "workflow", r.Workflow,
+	p.log().Info("run completed", "series", s.ID, "patch", pt.ID, "name", pt.Name,
+		"workflow", r.Workflow,
 		"conclusion", wr.Conclusion)
 }
 
@@ -191,7 +201,8 @@ func (p *Pipeline) abandonRuns(pt *state.Patch, details string) {
 	}
 	if len(pt.Runs) == 0 {
 		pt.Runs = append(pt.Runs, &state.Run{Kind: state.RunMissing, Status: "completed",
-			Result: state.ResultWarning, Details: details, Updated: now, Completed: now})
+			Result: state.ResultWarning, Details: details,
+			Updated: now, Completed: now})
 	}
 }
 
@@ -211,32 +222,40 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	lim := p.Cfg.Limits
 	stamp := state.FormatTime(now)
 
+	warn := func(r *state.Run, details string) {
+		r.Status, r.Result = "completed", state.ResultWarning
+		r.Completed, r.Details = stamp, details
+		if r.Updated == "" {
+			r.Updated = stamp
+		}
+	}
+	missing := func(workflow, details string) {
+		r := &state.Run{Kind: state.RunMissing, Workflow: workflow}
+		warn(r, details)
+		pt.Runs = append(pt.Runs, r)
+	}
+
 	runs := ciRuns(pt)
 	if now.Sub(pushed) > lim.NoRunTimeout.D() {
 		if len(runs) == 0 {
-			pt.Runs = append(pt.Runs, &state.Run{Kind: state.RunMissing, Status: "completed",
-				Result: state.ResultWarning, Details: "No workflow runs were started for this patch.",
-				Updated: stamp, Completed: stamp})
+			missing("", "No workflow runs were started for this patch.")
 		}
 		for _, name := range p.Cfg.Workflows.Expected {
-			if pt.Run(state.RunPush, name) == nil && pt.Run(state.RunMissing, name) == nil {
-				pt.Runs = append(pt.Runs, &state.Run{Kind: state.RunMissing, Workflow: name,
-					Status: "completed", Result: state.ResultWarning,
-					Details: "The workflow did not start for this patch.", Updated: stamp, Completed: stamp})
+			if pt.Run(state.RunPush, name) == nil &&
+				pt.Run(state.RunMissing, name) == nil {
+				missing(name, "The workflow did not start for this patch.")
 			}
 		}
 		for _, r := range ciRuns(pt) {
 			if r.Kind == state.RunDispatch && r.ID == 0 && r.Status == "requested" {
-				r.Status, r.Result, r.Completed = "completed", state.ResultWarning, stamp
-				r.Details = "The dispatched workflow run was not found."
+				warn(r, "The dispatched workflow run was not found.")
 			}
 		}
 	}
 	if now.Sub(pushed) > lim.RunTimeout.D() {
 		for _, r := range ciRuns(pt) {
 			if r.Status != "completed" || r.Result == "" {
-				r.Status, r.Result, r.Completed = "completed", state.ResultWarning, stamp
-				r.Details = "Timed out waiting for the workflow to finish."
+				warn(r, "Timed out waiting for the workflow to finish.")
 			}
 		}
 	}
@@ -257,12 +276,14 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	if len(p.Cfg.Workflows.Expected) == 0 {
 		// Without a list of expected workflows, wait a little in case
 		// more runs show up.
-		if now.Sub(last) < lim.GraceAfterRuns.D() || now.Sub(pushed) < lim.GraceAfterRuns.D() {
+		if now.Sub(last) < lim.GraceAfterRuns.D() ||
+			now.Sub(pushed) < lim.GraceAfterRuns.D() {
 			return
 		}
 	} else {
 		for _, name := range p.Cfg.Workflows.Expected {
-			if pt.Run(state.RunPush, name) == nil && pt.Run(state.RunMissing, name) == nil {
+			if pt.Run(state.RunPush, name) == nil &&
+				pt.Run(state.RunMissing, name) == nil {
 				return
 			}
 		}

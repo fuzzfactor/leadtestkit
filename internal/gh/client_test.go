@@ -48,7 +48,8 @@ func TestRefSHA(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	})
-	if sha, err := c.RefSHA(context.Background(), "leadtest/series_1"); sha != "abc" || err != nil {
+	sha, err := c.RefSHA(context.Background(), "leadtest/series_1")
+	if sha != "abc" || err != nil {
 		t.Errorf("sha=%q err=%v", sha, err)
 	}
 	if sha, err := c.RefSHA(context.Background(), "heads/none"); sha != "" || err != nil {
@@ -64,8 +65,10 @@ func TestSetBranch(t *testing.T) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		switch {
-		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/repos/ipsum/lorem/git/ref/"):
-			name := "refs/" + strings.TrimPrefix(r.URL.Path, "/repos/ipsum/lorem/git/ref/")
+		case r.Method == "GET" &&
+			strings.HasPrefix(r.URL.Path, "/repos/ipsum/lorem/git/ref/"):
+			ref := strings.TrimPrefix(r.URL.Path, "/repos/ipsum/lorem/git/ref/")
+			name := "refs/" + ref
 			sha, ok := refs[name]
 			if !ok {
 				w.WriteHeader(404)
@@ -80,7 +83,8 @@ func TestSetBranch(t *testing.T) {
 			if body["force"] != true {
 				t.Error("update must be forced")
 			}
-			refs["refs/heads/"+strings.TrimPrefix(r.URL.Path, "/repos/ipsum/lorem/git/refs/heads/")] =
+			refs["refs/heads/"+strings.TrimPrefix(r.URL.Path,
+				"/repos/ipsum/lorem/git/refs/heads/")] =
 				body["sha"].(string)
 			w.Write([]byte(`{}`))
 		}
@@ -110,12 +114,14 @@ func TestRunsForSHAPagination(t *testing.T) {
 			t.Errorf("query = %q", r.URL.RawQuery)
 		}
 		if r.URL.Query().Get("page") == "" {
-			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/ipsum/lorem/actions/runs?head_sha=abc&page=2>; rel="next"`,
-				srvURL))
-			w.Write([]byte(`{"total_count":2,"workflow_runs":[{"id":1,"name":"Build"}]}`))
+			next := srvURL + "/repos/ipsum/lorem/actions/runs?head_sha=abc&page=2"
+			w.Header().Set("Link", fmt.Sprintf(`<%s>; rel="next"`, next))
+			w.Write([]byte(`{"total_count":2,` +
+				`"workflow_runs":[{"id":1,"name":"Build"}]}`))
 			return
 		}
-		w.Write([]byte(`{"total_count":2,"workflow_runs":[{"id":2,"name":"Test","run_attempt":2}]}`))
+		w.Write([]byte(`{"total_count":2,` +
+			`"workflow_runs":[{"id":2,"name":"Test","run_attempt":2}]}`))
 	})
 	srvURL = srv.URL
 	runs, err := c.RunsForSHA(context.Background(), "abc")
@@ -146,7 +152,8 @@ func TestDispatchNotRetried(t *testing.T) {
 }
 
 func TestJobLogRedirectDropsAuthorization(t *testing.T) {
-	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,
+		r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			t.Error("Authorization leaked to storage host")
 		}
@@ -173,8 +180,10 @@ func TestWorkflowFilesAndFile(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/repos/ipsum/lorem/contents/.github/workflows":
-			w.Write([]byte(`[{"name":"a.yml","type":"file"},{"name":"README","type":"file"},
-				{"name":"b.yaml","type":"file"},{"name":"d","type":"dir"}]`))
+			w.Write([]byte(`[{"name":"a.yml","type":"file"},
+				{"name":"README","type":"file"},
+				{"name":"b.yaml","type":"file"},
+				{"name":"d","type":"dir"}]`))
 		case "/repos/ipsum/lorem/contents/.github/workflows/a.yml":
 			enc := base64.StdEncoding.EncodeToString([]byte("on: workflow_dispatch\n"))
 			fmt.Fprintf(w, `{"content":%q,"encoding":"base64"}`, enc[:4]+"\n"+enc[4:])
@@ -214,7 +223,8 @@ func TestMergeUpstream(t *testing.T) {
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		if n.Load() == 1 {
-			w.Write([]byte(`{"message":"ok","merge_type":"merge","base_branch":"upstream:main"}`))
+			w.Write([]byte(`{"message":"ok","merge_type":"merge",` +
+				`"base_branch":"upstream:main"}`))
 			return
 		}
 		w.WriteHeader(409)
@@ -224,7 +234,8 @@ func TestMergeUpstream(t *testing.T) {
 	if err != nil || kind != "merge" || body["branch"] != "main" {
 		t.Fatalf("kind=%q err=%v body=%v", kind, err, body)
 	}
-	if _, err := c.MergeUpstream(context.Background(), "main"); httpx.StatusCode(err) != 409 || n.Load() != 2 {
+	if _, err := c.MergeUpstream(context.Background(), "main"); httpx.StatusCode(err) != 409 ||
+		n.Load() != 2 {
 		t.Fatalf("err=%v n=%d", err, n.Load())
 	}
 }

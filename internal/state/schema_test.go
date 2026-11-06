@@ -54,8 +54,9 @@ func TestSchemaFields(t *testing.T) {
 	}
 	want, err := os.ReadFile(path)
 	if err != nil || string(want) != text {
-		t.Fatalf("the state structure differs from %s.  Bump SchemaVersion, add a migration if "+
-			"old files need converting, then run: go test ./internal/state -run TestSchemaFields -update", path)
+		t.Fatalf("the state structure differs from %s.  Bump SchemaVersion, add a "+
+			"migration if old files need converting, then run: "+
+			"go test ./internal/state -run TestSchemaFields -update", path)
 	}
 }
 
@@ -72,7 +73,8 @@ func TestFilesCarrySchema(t *testing.T) {
 	}
 	for _, f := range []string{MetaFile, QueueFile, filepath.Join(HistoryDir, "2026-03.json")} {
 		data, _ := os.ReadFile(filepath.Join(dir, f))
-		if !strings.HasPrefix(string(data), fmt.Sprintf("{\n  \"schema\": %d,", SchemaVersion)) {
+		if !strings.HasPrefix(string(data),
+			fmt.Sprintf("{\n  \"schema\": %d,", SchemaVersion)) {
 			t.Errorf("%s does not start with the schema:\n%.80s", f, data)
 		}
 	}
@@ -137,17 +139,20 @@ func TestMigrate(t *testing.T) {
 
 func TestCheckInstance(t *testing.T) {
 	s, _ := Load(t.TempDir())
-	want := Instance{Patchwork: "https://pw.example.org", Project: "lorem", TestRepo: "github.com/ipsum/lorem"}
+	want := Instance{Patchwork: "https://pw.example.org", Project: "lorem",
+		TestRepo: "github.com/ipsum/lorem"}
 	if err := s.CheckInstance(want); err != nil || s.Meta.Instance == nil {
 		t.Fatalf("err = %v", err)
 	}
-	same := Instance{Patchwork: "http://PW.example.org/", Project: "Lorem", TestRepo: "github.com/Ipsum/lorem"}
+	same := Instance{Patchwork: "http://PW.example.org/", Project: "Lorem",
+		TestRepo: "github.com/Ipsum/lorem"}
 	if err := s.CheckInstance(same); err != nil {
 		t.Errorf("err = %v", err)
 	}
 	other := want
 	other.Project = "dolor"
-	if err := s.CheckInstance(other); err == nil || !strings.Contains(err.Error(), "meta.json") {
+	if err := s.CheckInstance(other); err == nil ||
+		!strings.Contains(err.Error(), "meta.json") {
 		t.Errorf("err = %v", err)
 	}
 	other = want

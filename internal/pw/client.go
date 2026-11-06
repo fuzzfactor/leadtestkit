@@ -46,7 +46,8 @@ type Client struct {
 var apiSuffixRe = regexp.MustCompile(`/api(/\d+\.\d+)?/?$`)
 
 func WebURL(apiURL string) string {
-	return strings.TrimRight(apiSuffixRe.ReplaceAllString(strings.TrimRight(apiURL, "/"), ""), "/")
+	return strings.TrimRight(apiSuffixRe.ReplaceAllString(strings.TrimRight(apiURL, "/"), ""),
+		"/")
 }
 
 func APIVersion(apiURL string) string {

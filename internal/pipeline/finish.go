@@ -27,7 +27,8 @@ func (p *Pipeline) syncTools(ctx context.Context) {
 	}
 	p.syncDone = true
 	now := p.now()
-	if last := state.ParseTime(p.Store.Meta.ToolsSynced); !last.IsZero() && now.Sub(last) < interval {
+	if last := state.ParseTime(p.Store.Meta.ToolsSynced); !last.IsZero() &&
+		now.Sub(last) < interval {
 		return
 	}
 	branch := p.Cfg.TestRepo.ToolsBranch
@@ -36,11 +37,14 @@ func (p *Pipeline) syncTools(ctx context.Context) {
 	case err == nil:
 		p.log().Info("tools branch synced with upstream", "branch", branch, "merge", kind)
 		p.customLoaded = false
-	case code == http.StatusConflict || code == http.StatusUnprocessableEntity || code == http.StatusNotFound:
+	case code == http.StatusConflict || code == http.StatusUnprocessableEntity ||
+		code == http.StatusNotFound:
 		// Retrying before the next interval would not help.
-		p.errorf("cannot sync %s of the test fork with upstream (merge it manually): %v", branch, err)
+		p.errorf("cannot sync %s of the test fork with upstream (merge it manually): %v",
+			branch, err)
 	default:
-		p.log().Warn("syncing the tools branch failed, will retry", "branch", branch, "err", err)
+		p.log().Warn("syncing the tools branch failed, will retry",
+			"branch", branch, "err", err)
 		return
 	}
 	p.Store.Meta.ToolsSynced = state.FormatTime(now)

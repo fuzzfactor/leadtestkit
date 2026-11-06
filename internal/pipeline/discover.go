@@ -51,7 +51,8 @@ func (p *Pipeline) discover(ctx context.Context) {
 			"initial_backfill", p.Cfg.Limits.InitialBackfill.D())
 	}
 	cutoff := now.Add(-p.Cfg.Limits.SeriesMaxAge.D())
-	if c := state.ParseTime(meta.DiscoveryStart).Add(-p.Cfg.Limits.InitialBackfill.D()); c.After(cutoff) {
+	start := state.ParseTime(meta.DiscoveryStart)
+	if c := start.Add(-p.Cfg.Limits.InitialBackfill.D()); c.After(cutoff) {
 		cutoff = c
 	}
 
@@ -112,7 +113,8 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		ps, err := p.PW.GetSeries(ctx, s.ID)
 		if err != nil {
 			if p.fail(&s.Failure, "fetch series", err) {
-				s.Finish(state.SeriesError, "fetch series: "+s.Failure.LastError, now)
+				s.Finish(state.SeriesError,
+					"fetch series: "+s.Failure.LastError, now)
 				p.errorf("series %d: giving up fetching details: %v", s.ID, err)
 			}
 			continue
@@ -120,7 +122,8 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		s.Failure = nil
 		p.fill(s, ps)
 		if reason := p.skipReason(s, ps, now); reason != "" {
-			p.log().Info("series skipped", "series", s.ID, "name", s.Name, "reason", reason)
+			p.log().Info("series skipped", "series", s.ID,
+				"name", s.Name, "reason", reason)
 			s.Finish(state.SeriesSkipped, reason, now)
 			continue
 		}
@@ -130,7 +133,8 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		}
 		s.Checked = ""
 		s.Status = state.SeriesQueued
-		p.log().Info("series queued", "series", s.ID, "name", s.Name, "patches", len(s.Patches))
+		p.log().Info("series queued", "series", s.ID, "name", s.Name,
+			"patches", len(s.Patches))
 		p.supersede(s, now)
 	}
 }
@@ -175,7 +179,8 @@ func (p *Pipeline) skipReason(s *state.Series, ps *pw.Series, now time.Time) str
 		return "older than series_max_age"
 	}
 	if !ps.ReceivedAll {
-		if d := state.ParseTime(s.Discovered); now.Sub(d) > p.Cfg.Limits.CompleteTimeout.D() {
+		discovered := state.ParseTime(s.Discovered)
+		if now.Sub(discovered) > p.Cfg.Limits.CompleteTimeout.D() {
 			return "series never completed"
 		}
 		return ""
@@ -220,7 +225,8 @@ func (p *Pipeline) supersede(s *state.Series, now time.Time) {
 		if o == s || o.Version >= s.Version || !o.Active() ||
 			(o.Status != state.SeriesQueued && o.Status != state.SeriesNew &&
 				o.Status != state.SeriesWaiting) ||
-			!strings.EqualFold(o.Submitter.Email, s.Submitter.Email) || baseName(o.Name) != name {
+			!strings.EqualFold(o.Submitter.Email, s.Submitter.Email) ||
+			baseName(o.Name) != name {
 			continue
 		}
 		p.log().Info("series superseded", "series", o.ID, "name", o.Name, "by", s.ID)

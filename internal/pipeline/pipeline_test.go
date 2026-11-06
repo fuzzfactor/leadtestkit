@@ -35,7 +35,8 @@ func TestFullFlow(t *testing.T) {
 	}
 	// Apply results are reported for each patch.
 	subjects := e.mail.subjects()
-	if len(subjects) != 2 || !strings.HasPrefix(subjects[0], "|success| pw701 [lorem-dev,1/2]") {
+	if len(subjects) != 2 || !strings.HasPrefix(subjects[0],
+		"|success| pw701 [lorem-dev,1/2]") {
 		t.Fatalf("subjects = %q", subjects)
 	}
 
@@ -62,7 +63,8 @@ func TestFullFlow(t *testing.T) {
 	e.gh.finishRun(r2[1], "failure")
 	e.gh.jobs[r2[1]] = []gh.Job{{ID: 55, Name: "lorem-job", Conclusion: "failure",
 		Steps: []gh.Step{{Name: "make check", Conclusion: "failure"}}}}
-	e.gh.logs[55] = "2026-03-10T12:00:00.1234567Z line one\n2026-03-10T12:00:01.0Z ipsum error\n"
+	e.gh.logs[55] = "2026-03-10T12:00:00.1234567Z line one\n" +
+		"2026-03-10T12:00:01.0Z ipsum error\n"
 	e.advance(3 * time.Minute)
 	e.step()
 	subjects = e.mail.subjects()
@@ -70,7 +72,8 @@ func TestFullFlow(t *testing.T) {
 		t.Fatalf("subjects = %q", subjects)
 	}
 	last := string(e.mail.sent[len(e.mail.sent)-1].Data)
-	if !strings.Contains(last, "|fail| pw702") || !strings.Contains(last, "Cc: \"Lorem lorem\"") ||
+	if !strings.Contains(last, "|fail| pw702") ||
+		!strings.Contains(last, "Cc: \"Lorem lorem\"") ||
 		!strings.Contains(last, "lorem-job: failed at step \"make check\"") ||
 		!strings.Contains(last, "\r\nipsum error\r\n") {
 		t.Errorf("failure report:\n%s", last)
@@ -100,7 +103,8 @@ func TestApplyFailure(t *testing.T) {
 	e.repo.failAt[8] = 1
 	e.step()
 	s := e.series(8)
-	if s.Patches[0].Status != state.PatchPushed || s.Patches[1].Status != state.PatchApplyFailed ||
+	if s.Patches[0].Status != state.PatchPushed ||
+		s.Patches[1].Status != state.PatchApplyFailed ||
 		s.Patches[2].Status != state.PatchNotApplied {
 		t.Fatalf("patches = %+v %+v %+v", s.Patches[0], s.Patches[1], s.Patches[2])
 	}
@@ -175,7 +179,8 @@ func TestSkipRulesAndBaseSelection(t *testing.T) {
 	if s := e.series(11); s.Status != state.SeriesSkipped || s.Reason != "RFC" {
 		t.Errorf("series 11 = %+v", s)
 	}
-	if s := e.series(12); s.Base == nil || s.Base.Branch != "branch-3.4" || s.Base.Why != "subject: branch-3.4" {
+	if s := e.series(12); s.Base == nil || s.Base.Branch != "branch-3.4" ||
+		s.Base.Why != "subject: branch-3.4" {
 		t.Errorf("series 12 base = %+v", s.Base)
 	}
 }
@@ -189,7 +194,8 @@ func TestSupersede(t *testing.T) {
 	e.pw.series[21].Version = 2
 	e.pw.series[21].Name = "[v2] lorem: Series 20"
 	e.step()
-	if s := e.series(20); s.Status != state.SeriesSkipped || !strings.Contains(s.Reason, "superseded") {
+	if s := e.series(20); s.Status != state.SeriesSkipped ||
+		!strings.Contains(s.Reason, "superseded") {
 		t.Errorf("series 20 = %+v", s)
 	}
 	if s := e.series(21); s.Status != state.SeriesQueued {
@@ -236,7 +242,8 @@ func TestNoRunsTimeout(t *testing.T) {
 	e.advance(61 * time.Minute)
 	e.step()
 	pt := e.series(50).Patches[0]
-	if len(pt.Runs) != 1 || pt.Runs[0].Kind != state.RunMissing || pt.Runs[0].Final.Email != state.StepSent {
+	if len(pt.Runs) != 1 || pt.Runs[0].Kind != state.RunMissing ||
+		pt.Runs[0].Final.Email != state.StepSent {
 		t.Fatalf("runs = %+v", pt.Runs)
 	}
 	subjects := e.mail.subjects()
@@ -332,8 +339,8 @@ func TestPushOff(t *testing.T) {
 }
 
 func reportBody(label, status string, patchID int) string {
-	return fmt.Sprintf("Test-Label: %s\nTest-Status: %s\nhttps://pw.example.org/patch/%d/\n\n_lab: %s_\n",
-		label, status, patchID, status)
+	return fmt.Sprintf("Test-Label: %s\nTest-Status: %s\n"+
+		"https://pw.example.org/patch/%d/\n\n_lab: %s_\n", label, status, patchID, status)
 }
 
 func TestIngest(t *testing.T) {
@@ -358,12 +365,15 @@ func TestIngest(t *testing.T) {
 	other.Project.LinkName = "other"
 	e.pw.patches[9999] = &other
 
-	u1 := e.reports.add(prev, 2, "|FAILURE| pw9001 x", reportBody("lab-robot: Perf test", "FAILURE", 9001), "<b@lab>")
+	u1 := e.reports.add(prev, 2, "|FAILURE| pw9001 x",
+		reportBody("lab-robot: Perf test", "FAILURE", 9001), "<b@lab>")
 	e.reports.add(e.now, 3, "|fail| pw9999 x", reportBody("lab", "fail", 9999), "<c@lab>")
 	e.reports.add(e.now, 4, "hello", "Just a discussion.\n", "<d@lab>")
 	ownPending := "<leadtest.90.9001.github-robot-build.pending.1.1@example.org>"
-	e.reports.add(e.now, 5, "|pending| pw9001 x", reportBody("github-robot: Build", "pending", 9001), ownPending)
-	u6 := e.reports.add(e.now, 6, "|success| pw9001 x", reportBody("github-robot: Build", "success", 9001),
+	e.reports.add(e.now, 5, "|pending| pw9001 x",
+		reportBody("github-robot: Build", "pending", 9001), ownPending)
+	u6 := e.reports.add(e.now, 6, "|success| pw9001 x",
+		reportBody("github-robot: Build", "success", 9001),
 		"<leadtest.90.9001.github-robot-build.final.1.1@example.org>")
 	e.reports.fail[u6] = 1
 	e.step()
@@ -384,7 +394,8 @@ func TestIngest(t *testing.T) {
 	e.advance(10 * time.Minute)
 	e.p.Store.Meta.Archives["reports"].Months[archive.MonthKey(prev.Year(), prev.Month())] = 0
 	e.step()
-	if len(e.pw.posted) != 2 || e.pw.posted[1].check.Context != "github-robot-_Build" || len(c.Retry) != 0 {
+	if len(e.pw.posted) != 2 || e.pw.posted[1].check.Context != "github-robot-_Build" ||
+		len(c.Retry) != 0 {
 		t.Fatalf("posted = %+v retry = %v", e.pw.posted, c.Retry)
 	}
 }
@@ -430,7 +441,8 @@ func TestRecheckFromArchive(t *testing.T) {
 	}
 	s := e.series(100)
 	pt := s.Patches[0]
-	if s.Status != state.SeriesTesting || e.p.Store.Find(100) == nil || pt.Status != state.PatchPushed ||
+	if s.Status != state.SeriesTesting || e.p.Store.Find(100) == nil ||
+		pt.Status != state.PatchPushed ||
 		pt.CommentsSeen != 2 {
 		t.Fatalf("series = %+v patch = %+v", s, pt)
 	}
@@ -474,15 +486,17 @@ func TestDependencyWaits(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Mode.Push = "live"
 	e.pw.addSeries(120, 1, "lorem", e.now)
-	e.p.Store.Add(&state.Series{ID: 119, Status: state.SeriesNew, Discovered: state.FormatTime(e.now),
-		Patches: []*state.Patch{}, Hold: true})
+	e.p.Store.Add(&state.Series{ID: 119, Status: state.SeriesNew,
+		Discovered: state.FormatTime(e.now),
+		Patches:    []*state.Patch{}, Hold: true})
 	e.pw.patches[12001].Content = "Depends-on: patch-11901\n"
 	dep := *e.pw.patches[12001]
 	dep.ID = 11901
 	dep.Series = []pw.SeriesSummary{{ID: 119}}
 	e.pw.patches[11901] = &dep
 	e.step()
-	if s := e.series(120); s.Status != state.SeriesWaiting || s.Reason != "waiting for series 119" {
+	if s := e.series(120); s.Status != state.SeriesWaiting ||
+		s.Reason != "waiting for series 119" {
 		t.Fatalf("series = %+v", s)
 	}
 	e.advance(4 * 24 * time.Hour)
@@ -502,7 +516,8 @@ func TestManualFlags(t *testing.T) {
 	e.step()
 	e.series(130).Skip = "lorem reason"
 	e.step()
-	if s := e.series(130); s.Status != state.SeriesSkipped || s.Reason != "manual: lorem reason" {
+	if s := e.series(130); s.Status != state.SeriesSkipped ||
+		s.Reason != "manual: lorem reason" {
 		t.Fatalf("series = %+v", s)
 	}
 	e.reload()
@@ -522,7 +537,8 @@ func TestCustomWorkflows(t *testing.T) {
 	e.cfg.Workflows.Custom = true
 	e.cfg.Workflows.CustomPerSeries = []string{"leadtest-series.yml"}
 	e.cfg.Report.ApplySuccess = false
-	e.gh.files["leadtest-checkpatch.yml"] = "name: Checkpatch\non:\n  workflow_dispatch:\n    inputs: {}\n"
+	e.gh.files["leadtest-checkpatch.yml"] =
+		"name: Checkpatch\non:\n  workflow_dispatch:\n    inputs: {}\n"
 	e.gh.files["leadtest-series.yml"] = "on: [workflow_dispatch]\n"
 	e.gh.files["leadtest-other.yml"] = "on: push\n"
 	e.gh.files["build-and-test.yml"] = "on: [push, workflow_dispatch]\n"
@@ -532,16 +548,20 @@ func TestCustomWorkflows(t *testing.T) {
 		t.Fatalf("dispatches = %v", e.gh.dispatches)
 	}
 	d := e.gh.dispatches[0]
-	if d["file"] != "leadtest-checkpatch.yml" || d["ref"] != "main" || d["sha"] != "sha-14001" ||
-		d["patch_index"] != "1" || d["correlation_id"] != "140-14001-leadtest-checkpatch-1" {
+	if d["file"] != "leadtest-checkpatch.yml" || d["ref"] != "main" ||
+		d["sha"] != "sha-14001" ||
+		d["patch_index"] != "1" ||
+		d["correlation_id"] != "140-14001-leadtest-checkpatch-1" {
 		t.Errorf("dispatch = %v", d)
 	}
 	e.gh.dispatched = []gh.WorkflowRun{{ID: 5000, Name: "Checkpatch",
-		DisplayTitle: "leadtest 140-14001-leadtest-checkpatch-1", Status: "completed", Conclusion: "failure",
+		DisplayTitle: "leadtest 140-14001-leadtest-checkpatch-1", Status: "completed",
+		Conclusion: "failure",
 		RunAttempt: 1, HTMLURL: "https://github.com/ipsum/lorem/actions/runs/5000"}}
 	e.step()
 	r := runByFile(e.series(140).Patches[0], "leadtest-checkpatch.yml")
-	if r.Result != state.ResultFail || r.Workflow != "Checkpatch" || r.Final.Email != state.StepSent {
+	if r.Result != state.ResultFail || r.Workflow != "Checkpatch" ||
+		r.Final.Email != state.StepSent {
 		t.Fatalf("run = %+v", r)
 	}
 	if !strings.Contains(string(e.mail.sent[0].Data), "Test-Label: github-robot: Checkpatch") {
@@ -579,13 +599,15 @@ func TestGC(t *testing.T) {
 		t.Fatal("series not done")
 	}
 	e.gh.refs = map[string]string{
-		"refs/heads/series_160": "x", "refs/leadtest/series_160": "x", "refs/heads/series_5": "x",
+		"refs/heads/series_160": "x", "refs/leadtest/series_160": "x",
+		"refs/heads/series_5":       "x",
 		"refs/leadtest/patch_16001": "x", "refs/leadtest/patch_5": "x",
 	}
 	e.now = e.now.AddDate(0, 2, 0)
 	e.reload()
 	e.step()
-	if strings.Join(e.gh.deleted, ",") != "heads/series_160,leadtest/series_160,leadtest/patch_16001" {
+	if strings.Join(e.gh.deleted,
+		",") != "heads/series_160,leadtest/series_160,leadtest/patch_16001" {
 		t.Errorf("deleted = %v", e.gh.deleted)
 	}
 }
@@ -637,7 +659,8 @@ func TestFirstRunDoesNotTestOldSeries(t *testing.T) {
 	if s := e.p.Store.Find(170); s != nil || len(e.gh.branches) != 0 {
 		t.Fatalf("old series tracked: %+v", s)
 	}
-	if e.p.Store.Meta.DiscoveryStart != state.FormatTime(e.now) || e.p.Store.Meta.Events["series-completed"] != 1 {
+	if e.p.Store.Meta.DiscoveryStart != state.FormatTime(e.now) ||
+		e.p.Store.Meta.Events["series-completed"] != 1 {
 		t.Fatalf("meta = %+v", e.p.Store.Meta)
 	}
 
@@ -688,11 +711,14 @@ func TestLostStateDoesNotStartRunsAgain(t *testing.T) {
 	e.pw.addSeries(200, 2, "lorem", e.now)
 	e.step()
 	if e.gh.setBranch != 2 || len(e.gh.dispatches) != 2 || e.repo.applies != 1 {
-		t.Fatalf("set-branch=%d dispatches=%d applies=%d", e.gh.setBranch, len(e.gh.dispatches), e.repo.applies)
+		t.Fatalf("set-branch=%d dispatches=%d applies=%d", e.gh.setBranch,
+			len(e.gh.dispatches), e.repo.applies)
 	}
 	for _, d := range e.gh.dispatches {
-		e.gh.dispatched = append(e.gh.dispatched, gh.WorkflowRun{ID: 9000, Name: "Checkpatch",
-			DisplayTitle: "leadtest " + d["correlation_id"], Status: "in_progress", RunAttempt: 1})
+		e.gh.dispatched = append(e.gh.dispatched,
+			gh.WorkflowRun{ID: 9000, Name: "Checkpatch",
+				DisplayTitle: "leadtest " + d["correlation_id"],
+				Status:       "in_progress", RunAttempt: 1})
 	}
 
 	e.loseState()
@@ -700,14 +726,17 @@ func TestLostStateDoesNotStartRunsAgain(t *testing.T) {
 	e.step()
 	s := e.series(200)
 	if e.repo.applies != 1 || e.gh.setBranch != 2 || len(e.gh.dispatches) != 2 {
-		t.Fatalf("set-branch=%d dispatches=%d applies=%d", e.gh.setBranch, len(e.gh.dispatches), e.repo.applies)
+		t.Fatalf("set-branch=%d dispatches=%d applies=%d", e.gh.setBranch,
+			len(e.gh.dispatches), e.repo.applies)
 	}
 	if s.Status != state.SeriesTesting || s.Base.SHA != "base-main" ||
 		s.Patches[0].SHA != "sha-20001" || s.Patches[1].SHA != "sha-20002" ||
-		s.Patches[0].Status != state.PatchPushed || s.Patches[1].Status != state.PatchPushed {
+		s.Patches[0].Status != state.PatchPushed ||
+		s.Patches[1].Status != state.PatchPushed {
 		t.Fatalf("series = %+v %+v %+v", s, s.Patches[0], s.Patches[1])
 	}
-	if r := runByFile(s.Patches[1], "leadtest-checkpatch.yml"); r == nil || r.Status != "requested" {
+	if r := runByFile(s.Patches[1], "leadtest-checkpatch.yml"); r == nil ||
+		r.Status != "requested" {
 		t.Fatalf("dispatch run = %+v", r)
 	}
 }
@@ -727,7 +756,8 @@ func TestLostStateReusesAppliedPrefix(t *testing.T) {
 	s := e.series(210)
 	if s.Patches[0].SHA != "sha-21001" || s.Patches[1].SHA != "sha-21002.2" ||
 		s.Patches[2].SHA != "sha-21003.2" || e.repo.applied != 3 {
-		t.Fatalf("patches = %+v %+v %+v applied=%d", s.Patches[0], s.Patches[1], s.Patches[2], e.repo.applied)
+		t.Fatalf("patches = %+v %+v %+v applied=%d", s.Patches[0], s.Patches[1],
+			s.Patches[2], e.repo.applied)
 	}
 	// Patch 1 was already on the branch; only the new patches move it.
 	if e.gh.setBranch != 3 || e.gh.branches["series_210"] != "sha-21003.2" {
@@ -805,7 +835,8 @@ func TestRecheckRerunsOnlyFailedJobs(t *testing.T) {
 	s.Patches[0].Recheck = true
 	sent := len(e.mail.sent)
 	e.step()
-	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{failed}) || fmt.Sprint(e.gh.failedOnly) != "[true]" {
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{failed}) ||
+		fmt.Sprint(e.gh.failedOnly) != "[true]" {
 		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
 	}
 	pt := e.series(240).Patches[0]
@@ -819,7 +850,8 @@ func TestRecheckRerunsOnlyFailedJobs(t *testing.T) {
 	e.advance(11 * time.Minute)
 	e.step()
 	if len(e.mail.sent) != sent+1 || e.series(240).Status != state.SeriesDone {
-		t.Fatalf("sent = %d, want %d; series = %+v", len(e.mail.sent), sent+1, e.series(240))
+		t.Fatalf("sent = %d, want %d; series = %+v", len(e.mail.sent),
+			sent+1, e.series(240))
 	}
 }
 
@@ -829,7 +861,8 @@ func TestRerunFallsBackToAllJobs(t *testing.T) {
 	e.gh.refuseFailedOnly = true
 	e.series(250).Patches[0].Recheck = true
 	e.step()
-	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{failed}) || fmt.Sprint(e.gh.failedOnly) != "[false]" {
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{failed}) ||
+		fmt.Sprint(e.gh.failedOnly) != "[false]" {
 		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
 	}
 }
@@ -840,7 +873,8 @@ func TestRerunAllJobs(t *testing.T) {
 	ok, failed := testedPatch(t, e, 260)
 	e.series(260).Patches[0].Recheck = true
 	e.step()
-	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{ok, failed}) || fmt.Sprint(e.gh.failedOnly) != "[false false]" {
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{ok, failed}) ||
+		fmt.Sprint(e.gh.failedOnly) != "[false false]" {
 		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
 	}
 }
@@ -850,7 +884,8 @@ func TestRerunAllJobs(t *testing.T) {
 func requestRecheck(e *env, seriesID int, line string) {
 	pt := e.series(seriesID).Patches[0]
 	e.pw.comments[pt.ID] = append(e.pw.comments[pt.ID],
-		pw.Comment{ID: len(e.pw.comments[pt.ID]) + 1, Content: "Thanks.\n\nRecheck-request: " + line + "\n"})
+		pw.Comment{ID: len(e.pw.comments[pt.ID]) + 1,
+			Content: "Thanks.\n\nRecheck-request: " + line + "\n"})
 	pt.CommentsPending = true
 }
 
@@ -861,7 +896,8 @@ func TestRecheckByCheckName(t *testing.T) {
 	e.step()
 	// An explicitly named run is rerun even though it succeeded, as a
 	// whole, since it has no failed jobs.
-	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{ok}) || fmt.Sprint(e.gh.failedOnly) != "[false]" {
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{ok}) ||
+		fmt.Sprint(e.gh.failedOnly) != "[false]" {
 		t.Fatalf("reruns = %v failed only = %v", e.gh.reruns, e.gh.failedOnly)
 	}
 	pt := e.series(270).Patches[0]
@@ -903,7 +939,8 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 	e.pw.addSeries(300, 1, "lorem", e.now)
 	e.step()
 	e.gh.dispatched = []gh.WorkflowRun{{ID: 7000, Name: "Checkpatch",
-		DisplayTitle: "leadtest 300-30001-leadtest-checkpatch-1", Status: "completed", Conclusion: "failure",
+		DisplayTitle: "leadtest 300-30001-leadtest-checkpatch-1", Status: "completed",
+		Conclusion: "failure",
 		RunAttempt: 1}}
 	e.gh.finishRun(e.gh.startRuns("series_300", "sha-30001", "Build")[0], "success")
 	e.step()
@@ -912,7 +949,8 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 	e.step()
 	e.advance(11 * time.Minute)
 	e.step()
-	if r := runByFile(e.series(300).Patches[0], "leadtest-perf.yml"); r.Result != state.ResultWarning {
+	if r := runByFile(e.series(300).Patches[0],
+		"leadtest-perf.yml"); r.Result != state.ResultWarning {
 		t.Fatalf("perf run = %+v", r)
 	}
 	if s := e.series(300); s.Status != state.SeriesDone {
@@ -925,7 +963,8 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 		t.Fatalf("reruns = %v", e.gh.reruns)
 	}
 	last := e.gh.dispatches[len(e.gh.dispatches)-1]
-	if len(e.gh.dispatches) != 3 || last["file"] != "leadtest-perf.yml" || last["correlation_id"] != "300-30001-leadtest-perf-2" {
+	if len(e.gh.dispatches) != 3 || last["file"] != "leadtest-perf.yml" ||
+		last["correlation_id"] != "300-30001-leadtest-perf-2" {
 		t.Fatalf("dispatches = %v", e.gh.dispatches)
 	}
 	pt := e.series(300).Patches[0]
@@ -938,7 +977,8 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 }
 
 func TestNextCorrelationID(t *testing.T) {
-	for in, want := range map[string]string{"1-2-x-1": "1-2-x-2", "1-2-x-9": "1-2-x-10", "odd": "odd-2"} {
+	for in, want := range map[string]string{"1-2-x-1": "1-2-x-2",
+		"1-2-x-9": "1-2-x-10", "odd": "odd-2"} {
 		if got := nextCorrelationID(in); got != want {
 			t.Errorf("%q: got %q", in, got)
 		}
@@ -949,7 +989,8 @@ func TestSyncTools(t *testing.T) {
 	e := newEnv(t, "")
 	e.step()
 	e.step()
-	if fmt.Sprint(e.gh.merges) != "[main]" || e.p.Store.Meta.ToolsSynced != state.FormatTime(e.now) {
+	if fmt.Sprint(e.gh.merges) != "[main]" ||
+		e.p.Store.Meta.ToolsSynced != state.FormatTime(e.now) {
 		t.Fatalf("merges = %v synced = %q", e.gh.merges, e.p.Store.Meta.ToolsSynced)
 	}
 	e.reload()
@@ -971,7 +1012,8 @@ func TestSyncToolsErrors(t *testing.T) {
 	e.gh.mergeErr = errTransient
 	e.step()
 	if e.p.Store.Meta.ToolsSynced != "" || len(e.p.Stats.Errors) != 0 {
-		t.Fatalf("transient error: synced = %q errors = %v", e.p.Store.Meta.ToolsSynced, e.p.Stats.Errors)
+		t.Fatalf("transient error: synced = %q errors = %v",
+			e.p.Store.Meta.ToolsSynced, e.p.Stats.Errors)
 	}
 	e.reload()
 	e.gh.mergeErr = &httpx.StatusError{Code: 409}
@@ -1020,7 +1062,8 @@ func TestArchiveReadRetriedAfterFailure(t *testing.T) {
 	e.reports.monthFail = 1
 	e.step()
 	e.step()
-	if n := e.reports.monthFetches; n != 3 || e.p.Store.Meta.Archives["reports"].LastMonth == "" {
+	if n := e.reports.monthFetches; n != 3 ||
+		e.p.Store.Meta.Archives["reports"].LastMonth == "" {
 		t.Errorf("fetches = %d cursor = %+v", n, e.p.Store.Meta.Archives["reports"])
 	}
 }

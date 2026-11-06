@@ -77,15 +77,18 @@ func TestValidationErrors(t *testing.T) {
 		"bad base":    minimal + "\nrules:\n  base:\n    - type: lorem\n",
 		"staging ref": minimal + "\n  staging_ref: refs/heads/x/\n",
 		"no dev archive for rechecks": strings.Replace(minimal,
-			"archive:\n  dev_url: https://lists.example.org/pipermail/lorem-dev/\n", "", 1),
+			"archive:\n  dev_url: https://lists.example.org/pipermail/lorem-dev/\n",
+			"", 1),
 	}
 	for name, cfg := range tests {
 		t.Run(name, func(t *testing.T) {
 			if name == "bad mode" {
-				cfg = strings.Replace(minimal, "mode:\n", "mode:\n  push: maybe\n", 1)
+				cfg = strings.Replace(minimal, "mode:\n",
+					"mode:\n  push: maybe\n", 1)
 			}
 			if name == "staging ref" {
-				cfg = strings.Replace(minimal, "test_repo:\n", "test_repo:\n  staging_ref: refs/heads/x/\n", 1)
+				cfg = strings.Replace(minimal, "test_repo:\n",
+					"test_repo:\n  staging_ref: refs/heads/x/\n", 1)
 			}
 			if _, err := Parse([]byte(cfg)); err == nil {
 				t.Error("expected validation error")
@@ -95,11 +98,13 @@ func TestValidationErrors(t *testing.T) {
 }
 
 func TestDuration(t *testing.T) {
-	c, err := Parse([]byte(minimal + "\nlimits:\n  series_max_age: 3d\n  grace_after_runs: 90m\n"))
+	c, err := Parse([]byte(minimal +
+		"\nlimits:\n  series_max_age: 3d\n  grace_after_runs: 90m\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Limits.SeriesMaxAge.D() != 72*time.Hour || c.Limits.GraceAfterRuns.D() != 90*time.Minute {
+	if c.Limits.SeriesMaxAge.D() != 72*time.Hour ||
+		c.Limits.GraceAfterRuns.D() != 90*time.Minute {
 		t.Errorf("limits = %+v", c.Limits)
 	}
 	if _, err := Parse([]byte(minimal + "\nlimits:\n  series_max_age: lorem\n")); err == nil {
@@ -119,7 +124,8 @@ rules:
 		t.Fatal(err)
 	}
 	re := c.Rules.Base[0].Regexp()
-	if re == nil || re.ReplaceAllString(re.FindString("[PATCH branch-3.4] x"), c.Rules.Base[0].Branch) !=
+	if re == nil || re.ReplaceAllString(re.FindString("[PATCH branch-3.4] x"),
+		c.Rules.Base[0].Branch) !=
 		"branch-3.4" {
 		t.Errorf("regexp = %v", re)
 	}
@@ -155,7 +161,8 @@ func TestSecrets(t *testing.T) {
 	}
 	c.Secrets.GitHubToken = "lorem-gh-token"
 	c.Mode.Checks = "post"
-	if err := c.CheckSecrets(); err == nil || !strings.Contains(err.Error(), "LEADTEST_PW_TOKEN") {
+	if err := c.CheckSecrets(); err == nil ||
+		!strings.Contains(err.Error(), "LEADTEST_PW_TOKEN") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -260,6 +267,7 @@ mode:
 	norm(got)
 	norm(want)
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("reference values differ from the defaults:\n got: %+v\nwant: %+v", got, want)
+		t.Errorf("reference values differ from the defaults:\n got: %+v\nwant: %+v",
+			got, want)
 	}
 }

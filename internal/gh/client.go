@@ -157,7 +157,8 @@ func (c *Client) SetBranch(ctx context.Context, branch, sha string) error {
 }
 
 func (c *Client) DeleteRef(ctx context.Context, name string) error {
-	_, err := c.do(ctx, httpx.Request{Method: http.MethodDelete, URL: c.repoURL("/git/refs/" + name)})
+	_, err := c.do(ctx, httpx.Request{Method: http.MethodDelete,
+		URL: c.repoURL("/git/refs/" + name)})
 	if httpx.IsNotFound(err) || httpx.StatusCode(err) == http.StatusUnprocessableEntity {
 		return nil
 	}
@@ -203,7 +204,8 @@ type WorkflowRun struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-func (c *Client) listRuns(ctx context.Context, params url.Values, maxPages int) ([]WorkflowRun, error) {
+func (c *Client) listRuns(ctx context.Context, params url.Values,
+	maxPages int) ([]WorkflowRun, error) {
 	params.Set("per_page", "100")
 	u := c.repoURL("/actions/runs?" + params.Encode())
 	var all []WorkflowRun
@@ -226,7 +228,8 @@ func (c *Client) RunsForSHA(ctx context.Context, sha string) ([]WorkflowRun, err
 	return c.listRuns(ctx, url.Values{"head_sha": {sha}}, 0)
 }
 
-func (c *Client) DispatchRuns(ctx context.Context, branch string, since time.Time) ([]WorkflowRun, error) {
+func (c *Client) DispatchRuns(ctx context.Context, branch string,
+	since time.Time) ([]WorkflowRun, error) {
 	return c.listRuns(ctx, url.Values{
 		"event":   {"workflow_dispatch"},
 		"branch":  {branch},
@@ -283,7 +286,8 @@ func (c *Client) Jobs(ctx context.Context, runID int64) ([]Job, error) {
 // JobLog downloads the plain text log of a job.  GitHub redirects to a
 // storage host; the Go client drops Authorization on that redirect.
 func (c *Client) JobLog(ctx context.Context, jobID int64) (string, error) {
-	resp, err := c.do(ctx, httpx.Request{URL: c.repoURL(fmt.Sprintf("/actions/jobs/%d/logs", jobID))})
+	u := c.repoURL(fmt.Sprintf("/actions/jobs/%d/logs", jobID))
+	resp, err := c.do(ctx, httpx.Request{URL: u})
 	if err != nil {
 		return "", err
 	}
@@ -316,7 +320,8 @@ func (c *Client) MergeUpstream(ctx context.Context, branch string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	resp, err := c.do(ctx, httpx.Request{Method: http.MethodPost, URL: c.repoURL("/merge-upstream"),
+	resp, err := c.do(ctx, httpx.Request{Method: http.MethodPost,
+		URL:  c.repoURL("/merge-upstream"),
 		Body: data, NoRetry: true})
 	if err != nil {
 		return "", err
@@ -340,7 +345,8 @@ type contentEntry struct {
 
 func (c *Client) WorkflowFiles(ctx context.Context, ref string) ([]string, error) {
 	var entries []contentEntry
-	_, err := c.getJSON(ctx, c.repoURL("/contents/.github/workflows?ref="+url.QueryEscape(ref)), &entries)
+	u := c.repoURL("/contents/.github/workflows?ref=" + url.QueryEscape(ref))
+	_, err := c.getJSON(ctx, u, &entries)
 	if httpx.IsNotFound(err) {
 		return nil, nil
 	}
@@ -349,7 +355,8 @@ func (c *Client) WorkflowFiles(ctx context.Context, ref string) ([]string, error
 	}
 	var files []string
 	for _, e := range entries {
-		if e.Type == "file" && (strings.HasSuffix(e.Name, ".yml") || strings.HasSuffix(e.Name, ".yaml")) {
+		if e.Type == "file" && (strings.HasSuffix(e.Name, ".yml") ||
+			strings.HasSuffix(e.Name, ".yaml")) {
 			files = append(files, e.Name)
 		}
 	}
@@ -358,7 +365,8 @@ func (c *Client) WorkflowFiles(ctx context.Context, ref string) ([]string, error
 
 func (c *Client) File(ctx context.Context, path, ref string) ([]byte, error) {
 	var e contentEntry
-	if _, err := c.getJSON(ctx, c.repoURL("/contents/"+path+"?ref="+url.QueryEscape(ref)), &e); err != nil {
+	u := c.repoURL("/contents/" + path + "?ref=" + url.QueryEscape(ref))
+	if _, err := c.getJSON(ctx, u, &e); err != nil {
 		return nil, err
 	}
 	if e.Encoding != "base64" {

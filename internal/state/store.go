@@ -87,7 +87,8 @@ func validate(name string, list []*Series) error {
 			return fmt.Errorf("%s: series[%d] is null", name, i)
 		}
 		if s.ID <= 0 || seen[s.ID] {
-			return fmt.Errorf("%s: series[%d]: invalid or duplicate id %d", name, i, s.ID)
+			return fmt.Errorf("%s: series[%d]: invalid or duplicate id %d", name,
+				i, s.ID)
 		}
 		seen[s.ID] = true
 		if !validSeriesStatus[s.Status] {
@@ -98,11 +99,13 @@ func validate(name string, list []*Series) error {
 				return fmt.Errorf("%s: series %d: patch[%d] invalid", name, s.ID, j)
 			}
 			if !validPatchStatus[p.Status] {
-				return fmt.Errorf("%s: patch %d: invalid status %q", name, p.ID, p.Status)
+				return fmt.Errorf("%s: patch %d: invalid status %q", name,
+					p.ID, p.Status)
 			}
 			for k, r := range p.Runs {
 				if r == nil {
-					return fmt.Errorf("%s: patch %d: run[%d] is null", name, p.ID, k)
+					return fmt.Errorf("%s: patch %d: run[%d] is null",
+						name, p.ID, k)
 				}
 			}
 		}
@@ -159,7 +162,8 @@ func (s *Store) Save() error {
 	for month := range s.dirty {
 		list := s.history[month]
 		sortSeries(list)
-		if err := writeJSON(s.historyPath(month), queueFile{Schema: SchemaVersion, Series: list}); err != nil {
+		if err := writeJSON(s.historyPath(month),
+			queueFile{Schema: SchemaVersion, Series: list}); err != nil {
 			return err
 		}
 	}

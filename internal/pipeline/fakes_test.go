@@ -59,7 +59,8 @@ func (f *fakePW) maybeFail(op string) error {
 	return nil
 }
 
-func (f *fakePW) WalkEvents(ctx context.Context, opts pw.WalkOptions, handle func(pw.Event) error) (int, error) {
+func (f *fakePW) WalkEvents(ctx context.Context, opts pw.WalkOptions,
+	handle func(pw.Event) error) (int, error) {
 	if err := f.maybeFail("events"); err != nil {
 		return opts.Cursor, err
 	}
@@ -70,7 +71,8 @@ func (f *fakePW) WalkEvents(ctx context.Context, opts pw.WalkOptions, handle fun
 		if ev.Category != opts.Category || ev.ID <= cursor {
 			continue
 		}
-		if opts.Cursor == 0 && !opts.Cutoff.IsZero() && pw.ParseDate(ev.Date).Before(opts.Cutoff) {
+		if opts.Cursor == 0 && !opts.Cutoff.IsZero() &&
+			pw.ParseDate(ev.Date).Before(opts.Cutoff) {
 			cursor = ev.ID
 			continue
 		}
@@ -167,8 +169,9 @@ func (f *fakePW) PatchWebURL(id int) string {
 func (f *fakePW) addSeries(id, n int, submitter string, date time.Time) {
 	s := &pw.Series{
 		ID: id, Name: fmt.Sprintf("lorem: Series %d", id), Version: 1,
-		Date:        date.Format("2006-01-02T15:04:05"),
-		Submitter:   pw.Person{Name: "Lorem " + submitter, Email: submitter + "@example.org"},
+		Date: date.Format("2006-01-02T15:04:05"),
+		Submitter: pw.Person{Name: "Lorem " + submitter,
+			Email: submitter + "@example.org"},
 		Total:       n,
 		ReceivedAll: true,
 	}
@@ -178,7 +181,8 @@ func (f *fakePW) addSeries(id, n int, submitter string, date time.Time) {
 		msgid := fmt.Sprintf("<%d@example.org>", pid)
 		s.Patches = append(s.Patches, pw.PatchSummary{ID: pid, Name: name, MsgID: msgid})
 		d := &pw.PatchDetail{
-			Headers: map[string]any{"From": s.Submitter.Name + " <" + s.Submitter.Email + ">",
+			Headers: map[string]any{"From": s.Submitter.Name + " <" +
+				s.Submitter.Email + ">",
 				"Subject": name},
 			Content: "Lorem ipsum.\n\nSigned-off-by: x <x@example.org>\n",
 			Diff:    "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n",
@@ -269,7 +273,8 @@ func (f *fakeGH) RunsForSHA(ctx context.Context, sha string) ([]gh.WorkflowRun, 
 	return f.runs[sha], nil
 }
 
-func (f *fakeGH) DispatchRuns(ctx context.Context, branch string, since time.Time) ([]gh.WorkflowRun, error) {
+func (f *fakeGH) DispatchRuns(ctx context.Context, branch string,
+	since time.Time) ([]gh.WorkflowRun, error) {
 	return f.dispatched, nil
 }
 
@@ -336,9 +341,11 @@ func (f *fakeGH) startRuns(branch, sha string, names ...string) []int64 {
 	var ids []int64
 	for _, n := range names {
 		f.nextRun++
-		f.runs[sha] = append(f.runs[sha], gh.WorkflowRun{ID: f.nextRun, Name: n, Event: "push",
-			HeadBranch: branch, HeadSHA: sha, Status: "in_progress", RunAttempt: 1,
-			HTMLURL: fmt.Sprintf("https://github.com/ipsum/lorem/actions/runs/%d", f.nextRun)})
+		url := fmt.Sprintf("https://github.com/ipsum/lorem/actions/runs/%d", f.nextRun)
+		f.runs[sha] = append(f.runs[sha], gh.WorkflowRun{
+			ID: f.nextRun, Name: n, Event: "push", HeadBranch: branch, HeadSHA: sha,
+			Status: "in_progress", RunAttempt: 1, HTMLURL: url,
+		})
 		ids = append(ids, f.nextRun)
 	}
 	return ids
@@ -381,8 +388,9 @@ type fakeRepo struct {
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{failAt: map[int]int{}, pushed: map[string]string{}, files: map[string]string{},
-		fail: map[string]int{}, parents: map[string]string{}}
+	return &fakeRepo{failAt: map[int]int{}, pushed: map[string]string{},
+		files: map[string]string{},
+		fail:  map[string]int{}, parents: map[string]string{}}
 }
 
 func (f *fakeRepo) Resolve(ctx context.Context, url, branch string) (string, error) {
@@ -408,7 +416,9 @@ func (f *fakeRepo) ReadFile(ctx context.Context, rev, path string) ([]byte, erro
 
 // Apply derives commits from the Message-IDs of the emails.  Like git
 // am, applying again creates different commits.
-func (f *fakeRepo) Apply(ctx context.Context, base string, mboxes [][]byte) ([]string, int, string, error) {
+func (f *fakeRepo) Apply(
+	ctx context.Context, base string, mboxes [][]byte,
+) ([]string, int, string, error) {
 	f.applies++
 	var shas []string
 	parent := base
@@ -416,13 +426,15 @@ func (f *fakeRepo) Apply(ctx context.Context, base string, mboxes [][]byte) ([]s
 		id := ""
 		for _, l := range strings.Split(string(m), "\n") {
 			if strings.HasPrefix(l, "Message-Id: <") {
-				id = strings.TrimSuffix(strings.TrimPrefix(l, "Message-Id: <"), "@example.org>")
+				id = strings.TrimPrefix(l, "Message-Id: <")
+				id = strings.TrimSuffix(id, "@example.org>")
 			}
 		}
 		var pid int
 		fmt.Sscan(id, &pid)
 		if fi, ok := f.failAt[pid/100]; ok && fi == i {
-			return shas, i, "error: patch failed: f:1\nerror: f: patch does not apply", nil
+			out := "error: patch failed: f:1\nerror: f: patch does not apply"
+			return shas, i, out, nil
 		}
 		sha := "sha-" + id
 		if f.applies > 1 {
@@ -481,7 +493,8 @@ func newFakeArchive(base string) *fakeArchive {
 		messages: map[string]*archive.Message{}, fail: map[string]int{}}
 }
 
-func (f *fakeArchive) FetchMonth(ctx context.Context, y int, m time.Month) ([]archive.ArchiveMessage, error) {
+func (f *fakeArchive) FetchMonth(ctx context.Context, y int,
+	m time.Month) ([]archive.ArchiveMessage, error) {
 	f.monthFetches++
 	if f.monthFail > 0 {
 		f.monthFail--

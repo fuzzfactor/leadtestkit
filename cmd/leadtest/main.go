@@ -129,7 +129,8 @@ func cmdRenderPages(args []string) error {
 }
 
 func runURL() string {
-	server, repo, id := os.Getenv("GITHUB_SERVER_URL"), os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID")
+	server, repo, id := os.Getenv("GITHUB_SERVER_URL"), os.Getenv("GITHUB_REPOSITORY"),
+		os.Getenv("GITHUB_RUN_ID")
 	if server == "" || repo == "" || id == "" {
 		return ""
 	}
@@ -183,7 +184,8 @@ func (r *runner) checkpoint(ctx context.Context, stage string) error {
 func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	stateDir := fs.String("state", "state", "state branch checkout")
-	workDir := fs.String("workdir", filepath.Join(os.TempDir(), "leadtest-work"), "work directory")
+	defaultWork := filepath.Join(os.TempDir(), "leadtest-work")
+	workDir := fs.String("workdir", defaultWork, "work directory")
 	once := fs.Bool("once", false, "run a single step")
 	dryRun := fs.Bool("dry-run", false, "do not push, post checks or send emails")
 	noCommit := fs.Bool("no-commit", false, "save the state but do not commit or push it")
@@ -240,7 +242,7 @@ func cmdRun(args []string) error {
 	}
 	p.Checkpoint = r.checkpoint
 	if *noCommit {
-		p.Checkpoint = func(ctx context.Context, stage string) error { return p.Store.Save() }
+		p.Checkpoint = func(context.Context, string) error { return p.Store.Save() }
 	}
 
 	duration := cfg.Runner.LoopDuration.D()
@@ -285,7 +287,8 @@ func instance(cfg *config.Config) state.Instance {
 	}
 }
 
-func buildPipeline(cfg *config.Config, st *state.Store, workDir string, log *slog.Logger) (*pipeline.Pipeline, error) {
+func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
+	log *slog.Logger) (*pipeline.Pipeline, error) {
 	pwc, err := pw.New(pw.Options{
 		APIURL:   cfg.Patchwork.APIURL,
 		Project:  cfg.Patchwork.Project,
@@ -339,9 +342,10 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string, log *slo
 			Env: []string{"GIT_CONFIG_GLOBAL=/dev/null"},
 			Log: log,
 		},
-		TestRemote: fmt.Sprintf("https://%s/%s.git", cfg.TestRepo.GitHost, cfg.TestRepo.Repo),
-		TestEnv:    gitrepo.AuthEnv(cfg.TestRepo.GitHost, cfg.Secrets.GitHubToken),
-		Committer:  cfg.Runner.CommitAuthor,
+		TestRemote: fmt.Sprintf("https://%s/%s.git",
+			cfg.TestRepo.GitHost, cfg.TestRepo.Repo),
+		TestEnv:   gitrepo.AuthEnv(cfg.TestRepo.GitHost, cfg.Secrets.GitHubToken),
+		Committer: cfg.Runner.CommitAuthor,
 	}
 	p := &pipeline.Pipeline{
 		Cfg:   cfg,
@@ -372,10 +376,13 @@ func writeSummary(cfg *config.Config, p *pipeline.Pipeline) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "## LeadTestKit: %s\n\n", cfg.Name)
-	fmt.Fprintf(&b, "Mode: push `%s`, checks `%s`, email `%s`\n\n", cfg.Mode.Push, cfg.Mode.Checks, cfg.Mode.Email)
+	fmt.Fprintf(&b, "Mode: push `%s`, checks `%s`, email `%s`\n\n", cfg.Mode.Push,
+		cfg.Mode.Checks, cfg.Mode.Email)
 	fmt.Fprintf(&b, "This run: %s\n\n", p.Stats.Summary())
 	b.WriteString("| Queue | Series |\n|---|---|\n")
-	for _, st := range []string{state.SeriesNew, state.SeriesQueued, state.SeriesWaiting, state.SeriesTesting} {
+	active := []string{state.SeriesNew, state.SeriesQueued, state.SeriesWaiting,
+		state.SeriesTesting}
+	for _, st := range active {
 		fmt.Fprintf(&b, "| %s | %d |\n", st, counts[st])
 	}
 	var failing []string

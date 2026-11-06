@@ -129,7 +129,9 @@ func (w *WorkRepo) ReadFile(ctx context.Context, rev, path string) ([]byte, erro
 // Apply applies the emails on top of base one by one.  It returns the
 // commit of every applied patch; on a failure it also returns the index
 // of the failing patch and the git am output.
-func (w *WorkRepo) Apply(ctx context.Context, base string, mboxes [][]byte) ([]string, int, string, error) {
+func (w *WorkRepo) Apply(
+	ctx context.Context, base string, mboxes [][]byte,
+) ([]string, int, string, error) {
 	if err := w.ensure(ctx); err != nil {
 		return nil, -1, "", err
 	}
@@ -216,7 +218,8 @@ func (w *WorkRepo) TestRefs(ctx context.Context, refs []string) (map[string]stri
 			continue
 		}
 		found[ref] = sha
-		fetch = append(fetch, "+"+ref+":refs/leadtest-cache/"+name+"/"+strings.TrimPrefix(ref, "refs/"))
+		dst := "refs/leadtest-cache/" + name + "/" + strings.TrimPrefix(ref, "refs/")
+		fetch = append(fetch, "+"+ref+":"+dst)
 	}
 	if len(found) == 0 {
 		return found, nil

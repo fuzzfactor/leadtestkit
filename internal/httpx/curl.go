@@ -114,7 +114,8 @@ func parseCurlResponse(data []byte, req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func buildResponse(statusLine string, headerLines []string, body []byte, req *http.Request) *http.Response {
+func buildResponse(statusLine string, headerLines []string, body []byte,
+	req *http.Request) *http.Response {
 	parts := strings.SplitN(statusLine, " ", 3)
 	if len(parts) < 2 {
 		return nil

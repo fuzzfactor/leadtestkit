@@ -28,8 +28,10 @@ func sampleSeries(id int) *Series {
 		Status:     SeriesQueued,
 		Discovered: FormatTime(now),
 		Patches: []*Patch{
-			{ID: id*10 + 1, Number: 1, Name: "[v2,1/2] lorem", MsgID: "<1@x>", Status: PatchPending},
-			{ID: id*10 + 2, Number: 2, Name: "[v2,2/2] ipsum", MsgID: "<2@x>", Status: PatchPending},
+			{ID: id*10 + 1, Number: 1, Name: "[v2,1/2] lorem", MsgID: "<1@x>",
+				Status: PatchPending},
+			{ID: id*10 + 2, Number: 2, Name: "[v2,2/2] ipsum", MsgID: "<2@x>",
+				Status: PatchPending},
 		},
 	}
 }
@@ -78,8 +80,9 @@ func TestLoadRejectsBadState(t *testing.T) {
 	tests := map[string]string{
 		"unknown field": `{"series":[{"id":1,"status":"queued","lorem":1,"patches":[]}]}`,
 		"bad status":    `{"series":[{"id":1,"status":"lorem","patches":[]}]}`,
-		"duplicate":     `{"series":[{"id":1,"status":"new","patches":[]},{"id":1,"status":"new","patches":[]}]}`,
-		"bad json":      `{"series":[`,
+		"duplicate": `{"series":[{"id":1,"status":"new","patches":[]},` +
+			`{"id":1,"status":"new","patches":[]}]}`,
+		"bad json": `{"series":[`,
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -165,7 +168,8 @@ func gitInit(t *testing.T, dir string, args ...string) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=x", "GIT_AUTHOR_EMAIL=x@example.org",
-		"GIT_COMMITTER_NAME=x", "GIT_COMMITTER_EMAIL=x@example.org", "GIT_CONFIG_GLOBAL=/dev/null")
+		"GIT_COMMITTER_NAME=x", "GIT_COMMITTER_EMAIL=x@example.org",
+		"GIT_CONFIG_GLOBAL=/dev/null")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
@@ -251,7 +255,8 @@ func TestRepoPushRebasesOverHumanEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !merged.Find(1).Hold || merged.Find(1).Patches[0].Status != PatchApplied || merged.Find(2) == nil {
+	if !merged.Find(1).Hold || merged.Find(1).Patches[0].Status != PatchApplied ||
+		merged.Find(2) == nil {
 		t.Errorf("merge lost changes: %+v", merged.Find(1))
 	}
 }
