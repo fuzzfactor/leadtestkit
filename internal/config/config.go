@@ -338,7 +338,7 @@ var ErrNotConfigured = errors.New("not configured")
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrNotConfigured
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotConfigured, path)
 	}
 	if err != nil {
 		return nil, err

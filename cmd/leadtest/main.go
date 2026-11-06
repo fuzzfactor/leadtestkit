@@ -108,7 +108,7 @@ func cmdRenderPages(args []string) error {
 	logx.Setup(false)
 	cfg, err := loadConfig(*stateDir)
 	if errors.Is(err, config.ErrNotConfigured) {
-		slog.Info("not configured, no pages")
+		slog.Info("no pages", "reason", err)
 		return nil
 	}
 	if err != nil {
@@ -193,7 +193,7 @@ func cmdRun(args []string) error {
 
 	cfg, err := loadConfig(*stateDir)
 	if errors.Is(err, config.ErrNotConfigured) {
-		log.Info("no config.yaml on the state branch, nothing to do")
+		log.Info("nothing to do", "reason", err)
 		return nil
 	}
 	if err != nil {
