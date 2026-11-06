@@ -1,0 +1,70 @@
+# Checkpatch for DPDK patches, started by LeadTestKit.
+#
+# Copy to .github/workflows/ on the `leadtestkit` branch of the test
+# fork and make that branch the default one.
+#
+# CHECKPATCH_SOURCE selects the DPDK tree whose devtools are used:
+#   upstream-main - the upstream main branch (recommended, a patch
+#                   cannot change how it is checked);
+#   patched       - the tested commit.
+name: Checkpatch
+run-name: leadtest ${{ inputs.correlation_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        required: true
+      base_sha:
+        required: false
+      branch:
+        required: false
+      series_id:
+        required: false
+      patch_id:
+        required: false
+      patch_index:
+        required: false
+      correlation_id:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM: https://github.com/DPDK/dpdk.git
+  CHECKPATCH_SOURCE: upstream-main
+  LINUX_RAW: https://raw.githubusercontent.com/torvalds/linux/master/scripts
+
+jobs:
+  checkpatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch the patch
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          git init -q patch
+          git -C patch fetch -q --depth=2 "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$SHA"
+          git -C patch format-patch -1 --stdout FETCH_HEAD > patch.mbox
+
+      - name: Get the DPDK tree and the kernel checkpatch
+        run: |
+          if [ "$CHECKPATCH_SOURCE" = patched ]; then
+            git -C patch checkout -q FETCH_HEAD
+            ln -s patch dpdk
+          else
+            git clone -q --depth=1 "$UPSTREAM" dpdk
+          fi
+          mkdir linux
+          for f in checkpatch.pl spelling.txt const_structs.checkpatch; do
+            curl -sSfL "$LINUX_RAW/$f" -o "linux/$f"
+          done
+          chmod +x linux/checkpatch.pl
+
+      - name: Run checkpatches.sh
+        run: |
+          cd dpdk
+          DPDK_CHECKPATCH_PATH="$GITHUB_WORKSPACE/linux/checkpatch.pl" \
+            devtools/checkpatches.sh "$GITHUB_WORKSPACE/patch.mbox"

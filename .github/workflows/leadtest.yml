@@ -1,0 +1,106 @@
+name: leadtest
+
+on:
+  schedule:
+    # Off the full hour, when GitHub delays scheduled runs the most.
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      once:
+        description: Run a single step instead of the full loop
+        type: boolean
+        default: false
+      dry_run:
+        description: Do not push, post checks or send emails
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# Runs must never overlap: the state branch is the database.
+concurrency:
+  group: leadtest
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+      pages: ${{ steps.pages.outputs.pages }}
+    steps:
+      - name: Check for the state branch
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/branches/state" --silent 2>/dev/null; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No state branch, nothing to do.  See SETUP.rst."
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.check.outputs.configured == 'true'
+
+      - uses: actions/checkout@v6
+        if: steps.check.outputs.configured == 'true'
+        with:
+          ref: state
+          path: state
+          fetch-depth: 1
+
+      - uses: actions/setup-go@v6
+        if: steps.check.outputs.configured == 'true'
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        if: steps.check.outputs.configured == 'true'
+        run: make build
+
+      - name: Restore the work repository
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/leadtest-work
+          key: leadtest-work-${{ github.run_id }}
+          restore-keys: leadtest-work-
+
+      - name: Run
+        if: steps.check.outputs.configured == 'true'
+        env:
+          LEADTEST_PW_TOKEN: ${{ secrets.LEADTEST_PW_TOKEN }}
+          LEADTEST_GITHUB_TOKEN: ${{ secrets.LEADTEST_GITHUB_TOKEN }}
+          LEADTEST_SMTP_USERNAME: ${{ secrets.LEADTEST_SMTP_USERNAME }}
+          LEADTEST_SMTP_PASSWORD: ${{ secrets.LEADTEST_SMTP_PASSWORD }}
+          ONCE: ${{ inputs.once && '--once' || '' }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: ./leadtest run --state state --workdir ~/leadtest-work $ONCE $DRY_RUN
+
+      - name: Render pages
+        id: pages
+        if: always() && steps.check.outputs.configured == 'true'
+        run: ./leadtest render-pages --state state --out _site
+
+      - uses: actions/upload-pages-artifact@v4
+        if: always() && steps.pages.outputs.pages == 'true'
+        with:
+          path: _site
+
+  pages:
+    needs: run
+    if: always() && needs.run.outputs.pages == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

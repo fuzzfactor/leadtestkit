@@ -1,0 +1,62 @@
+# Checkpatch for Open vSwitch patches, started by LeadTestKit.
+#
+# Copy to .github/workflows/ on the `leadtestkit` branch of the test
+# fork and make that branch the default one.  For OVN, set UPSTREAM to
+# https://github.com/ovn-org/ovn.git.
+#
+# CHECKPATCH_SOURCE selects the checkpatch.py that is run:
+#   upstream-main - from the upstream main branch (recommended, a patch
+#                   cannot change how it is checked);
+#   patched       - from the tested commit.
+name: Checkpatch
+run-name: leadtest ${{ inputs.correlation_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        required: true
+      base_sha:
+        required: false
+      branch:
+        required: false
+      series_id:
+        required: false
+      patch_id:
+        required: false
+      patch_index:
+        required: false
+      correlation_id:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM: https://github.com/openvswitch/ovs.git
+  CHECKPATCH_SOURCE: upstream-main
+
+jobs:
+  checkpatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch the patch
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          git init -q patch
+          git -C patch fetch -q --depth=2 "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$SHA"
+          git -C patch format-patch -1 --stdout FETCH_HEAD > patch.mbox
+
+      - name: Get checkpatch.py
+        run: |
+          if [ "$CHECKPATCH_SOURCE" = patched ]; then
+            git -C patch show FETCH_HEAD:utilities/checkpatch.py > checkpatch.py
+          else
+            git clone -q --depth=1 "$UPSTREAM" upstream
+            cp upstream/utilities/checkpatch.py checkpatch.py
+          fi
+
+      - name: Run checkpatch
+        run: python3 checkpatch.py patch.mbox
