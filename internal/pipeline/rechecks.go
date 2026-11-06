@@ -151,8 +151,12 @@ func (p *Pipeline) commentsFromEvents(ctx context.Context, patches map[int]track
 // commentsFromArchive matches new dev list subjects against tracked
 // patches, for Patchwork instances without comment events.
 func (p *Pipeline) commentsFromArchive(ctx context.Context, patches map[int]tracked) {
+	if p.devScanned {
+		return
+	}
 	c := p.Store.Cursor(devCursor)
 	months, next, ok := p.newMessages(ctx, p.Dev, c)
+	p.devScanned = ok
 	var msgs []archive.ArchiveMessage
 	for _, mm := range months {
 		msgs = append(msgs, mm.msgs...)

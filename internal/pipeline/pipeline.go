@@ -95,7 +95,11 @@ type Pipeline struct {
 	expiryWarned  bool
 	safetyNetDone bool
 	syncDone      bool
-	gcDone        bool
+	// Archives are read once per run; reports there are not urgent and
+	// the archive servers are shared.
+	reportsScanned bool
+	devScanned     bool
+	gcDone         bool
 }
 
 type Stats struct {

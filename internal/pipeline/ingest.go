@@ -83,7 +83,7 @@ func (p *Pipeline) newMessages(ctx context.Context, a Archive, c *state.ArchiveC
 }
 
 func (p *Pipeline) ingest(ctx context.Context) {
-	if !p.Cfg.Archive.Ingest || p.Reports == nil {
+	if !p.Cfg.Archive.Ingest || p.Reports == nil || p.reportsScanned {
 		return
 	}
 	c := p.Store.Cursor(reportsCursor)
@@ -118,6 +118,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 	}
 
 	months, next, ok := p.newMessages(ctx, p.Reports, c)
+	p.reportsScanned = ok
 	for _, mm := range months {
 		for _, m := range mm.msgs {
 			if budget <= 0 || ctx.Err() != nil {

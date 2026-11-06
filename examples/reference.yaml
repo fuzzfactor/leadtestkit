@@ -138,7 +138,8 @@ archive:
   # into checks by someone else, like test-report@dpdk.org.
   ingest: false
 
-  # Minimum delay between two requests to the archive server.
+  # Minimum delay between two requests to the archive server.  The
+  # archives are read once per run, not on every runner.loop_interval.
   min_delay: 1s
 
   # Months before the current one that are always scanned, so that

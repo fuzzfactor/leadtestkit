@@ -471,6 +471,9 @@ type fakeArchive struct {
 	messages map[string]*archive.Message
 	fetched  []string
 	fail     map[string]int
+
+	monthFetches int
+	monthFail    int
 }
 
 func newFakeArchive(base string) *fakeArchive {
@@ -479,6 +482,11 @@ func newFakeArchive(base string) *fakeArchive {
 }
 
 func (f *fakeArchive) FetchMonth(ctx context.Context, y int, m time.Month) ([]archive.ArchiveMessage, error) {
+	f.monthFetches++
+	if f.monthFail > 0 {
+		f.monthFail--
+		return nil, errTransient
+	}
 	return f.months[archive.MonthKey(y, m)], nil
 }
 

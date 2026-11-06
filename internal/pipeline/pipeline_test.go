@@ -351,6 +351,7 @@ func TestIngest(t *testing.T) {
 		t.Fatalf("cursor = %+v", c)
 	}
 
+	e.reload()
 	e.pw.addSeries(90, 1, "lorem", e.now)
 	other := *e.pw.patches[9001]
 	other.ID = 9999
@@ -378,6 +379,8 @@ func TestIngest(t *testing.T) {
 
 	// The retry posts the check; reading the same messages again does
 	// not post duplicates.
+	e.reload()
+	c = e.p.Store.Meta.Archives["reports"]
 	e.advance(10 * time.Minute)
 	e.p.Store.Meta.Archives["reports"].Months[archive.MonthKey(prev.Year(), prev.Month())] = 0
 	e.step()
@@ -390,6 +393,7 @@ func TestIngestMonthCatchUp(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Mode.Push = "off"
 	e.step()
+	e.reload()
 	e.pw.addSeries(91, 1, "lorem", e.now)
 	e.now = e.now.AddDate(0, 3, 0)
 	old := e.now.AddDate(0, -2, 0)
@@ -988,5 +992,35 @@ func TestSyncToolsDisabled(t *testing.T) {
 	e.step()
 	if len(e.gh.merges) != 0 {
 		t.Fatalf("merges = %v", e.gh.merges)
+	}
+}
+
+func TestArchivesReadOncePerRun(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Mode.Push = "off"
+	e.step()
+	e.step()
+	e.step()
+	if n := e.reports.monthFetches; n != 2 {
+		t.Errorf("reports archive months fetched %d times in one run, want 2", n)
+	}
+	if n := e.dev.monthFetches; n != 2 {
+		t.Errorf("dev archive months fetched %d times in one run, want 2", n)
+	}
+	e.reload()
+	e.step()
+	if n := e.reports.monthFetches; n != 4 {
+		t.Errorf("reports archive months fetched %d times after a new run, want 4", n)
+	}
+}
+
+func TestArchiveReadRetriedAfterFailure(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Mode.Push = "off"
+	e.reports.monthFail = 1
+	e.step()
+	e.step()
+	if n := e.reports.monthFetches; n != 3 || e.p.Store.Meta.Archives["reports"].LastMonth == "" {
+		t.Errorf("fetches = %d cursor = %+v", n, e.p.Store.Meta.Archives["reports"])
 	}
 }
