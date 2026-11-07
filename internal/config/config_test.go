@@ -82,6 +82,8 @@ func TestValidationErrors(t *testing.T) {
 		"old api":     strings.Replace(minimal, "api/1.2", "api/1.1", 1),
 		"bad mode":    minimal + "\n  push: maybe\n",
 		"bad regexp":  minimal + "\nrules:\n  skip:\n    - subject: '('\n",
+		"bad files":   minimal + "\nrules:\n  skip:\n    - files: '('\n",
+		"empty skip":  minimal + "\nrules:\n  skip:\n    - reason: lorem\n",
 		"bad base":    minimal + "\nrules:\n  base:\n    - type: lorem\n",
 		"staging ref": minimal + "\n  staging_ref: refs/heads/x/\n",
 		"history":     minimal + "\nlimits:\n  history_window: -1d\n",
@@ -198,7 +200,8 @@ func TestSecrets(t *testing.T) {
 	env := map[string]string{"LEADTEST_APP_CLIENT_ID": " Iv23lilorem \n",
 		"LEADTEST_APP_PRIVATE_KEY": key}
 	c.LoadSecrets(func(k string) string { return env[k] })
-	if c.Secrets.AppClientID != "Iv23lilorem" || c.Secrets.AppPrivateKey != strings.TrimSpace(key) {
+	if c.Secrets.AppClientID != "Iv23lilorem" ||
+		c.Secrets.AppPrivateKey != strings.TrimSpace(key) {
 		t.Errorf("secrets = %+v", c.Secrets)
 	}
 	if logx.Redact("key loremipsumdolorsitamet") != "key [REDACTED]" {
@@ -237,7 +240,7 @@ func TestOVSExampleRules(t *testing.T) {
 	}
 	skip := func(name string) string {
 		for _, r := range c.Rules.Skip {
-			if r.Regexp().MatchString(name) {
+			if r.Regexp() != nil && r.Regexp().MatchString(name) {
 				return r.Reason
 			}
 		}

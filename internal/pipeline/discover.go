@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"leadtestkit/internal/config"
+	"leadtestkit/internal/maint"
 	"leadtestkit/internal/pw"
 	"leadtestkit/internal/state"
 )
@@ -257,19 +259,61 @@ func (p *Pipeline) skipReason(s *state.Series, ps *pw.Series, now time.Time) str
 	for _, pt := range ps.Patches {
 		names = append(names, pt.Name)
 	}
+	// Rules on files need the diffs and are checked in prepare.
 	for i := range p.Cfg.Rules.Skip {
 		r := &p.Cfg.Rules.Skip[i]
-		for _, n := range names {
-			if r.Regexp().MatchString(n) {
-				reason := r.Reason
-				if reason == "" {
-					reason = "matches " + r.Subject
-				}
-				return reason
+		if r.Files != "" {
+			continue
+		}
+		if n := firstMatch(r.Regexp(), names); n != "" {
+			p.infof("Series %d: %q matches skip rule %q.", s.ID, n, r.Subject)
+			return skipRuleReason(r, "matches "+r.Subject)
+		}
+	}
+	return ""
+}
+
+// fileSkipReason applies the skip rules on files to the fetched patches.
+func (p *Pipeline) fileSkipReason(s *state.Series, patches []*state.Patch,
+	data []patchData) string {
+	names := []string{s.Name}
+	for _, pt := range patches {
+		names = append(names, pt.Name)
+	}
+	for i := range p.Cfg.Rules.Skip {
+		r := &p.Cfg.Rules.Skip[i]
+		if r.Files == "" {
+			continue
+		}
+		if r.Subject != "" && firstMatch(r.Regexp(), names) == "" {
+			continue
+		}
+		for j, d := range data {
+			files := maint.DiffFiles(d.detail.Diff)
+			if f := firstMatch(r.FilesRegexp(), files); f != "" {
+				p.infof("%s: changes %s, which matches skip rule %q.",
+					patchName(patches[j]), f, r.Files)
+				return skipRuleReason(r, "changes "+f)
 			}
 		}
 	}
 	return ""
+}
+
+func firstMatch(re *regexp.Regexp, list []string) string {
+	for _, x := range list {
+		if re.MatchString(x) {
+			return x
+		}
+	}
+	return ""
+}
+
+func skipRuleReason(r *config.SkipRule, fallback string) string {
+	if r.Reason != "" {
+		return r.Reason
+	}
+	return fallback
 }
 
 var versionTagRe = regexp.MustCompile(`(?i)^\s*(\[[^\]]*\]\s*)+`)

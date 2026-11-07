@@ -190,6 +190,62 @@ func TestSkipRulesAndBaseSelection(t *testing.T) {
 	}
 }
 
+func TestSkipRulesOnFiles(t *testing.T) {
+	e := newEnv(t, "")
+	cfg, err := config.Parse([]byte(strings.Replace(baseConfig, "  skip:\n", `  skip:
+    - files: '^(net|include/uapi/linux)/'
+      reason: kernel patch
+    - subject: '^\[[^\]]*\bipsum\b'
+      files: '^docs/'
+      reason: ipsum docs
+`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.cfg.Rules = cfg.Rules
+	kernel := "diff --git a/net/openvswitch/flow.c b/net/openvswitch/flow.c\n" +
+		"--- a/net/openvswitch/flow.c\n+++ b/net/openvswitch/flow.c\n" +
+		"@@ -1 +1 @@\n-a\n+b\n"
+	docs := "diff --git a/docs/a.rst b/docs/a.rst\n--- a/docs/a.rst\n" +
+		"+++ b/docs/a.rst\n@@ -1 +1 @@\n-a\n+b\n"
+	// The kernel change is in the second patch only.
+	e.pw.addSeries(240, 2, "lorem", e.now)
+	e.pw.patches[24002].Diff = kernel
+	// Docs changes are skipped only with the matching subject.
+	e.pw.addSeries(241, 1, "ipsum", e.now)
+	e.pw.patches[24101].Diff = docs
+	e.pw.series[241].Patches[0].Name = "[lorem-dev,ipsum] docs: Lorem."
+	e.pw.patches[24101].Name = e.pw.series[241].Patches[0].Name
+	e.pw.addSeries(242, 1, "dolor", e.now)
+	e.pw.patches[24201].Diff = docs
+	e.step()
+
+	for id, reason := range map[int]string{240: "kernel patch", 241: "ipsum docs"} {
+		s := e.series(id)
+		if s.Status != state.SeriesSkipped || s.Reason != reason {
+			t.Errorf("series %d = %s (%s), want skipped (%s)", id, s.Status,
+				s.Reason, reason)
+		}
+		for _, pt := range s.Patches {
+			if pt.Status != state.PatchSkipped || pt.SHA != "" {
+				t.Errorf("patch %d of a skipped series: %+v", pt.ID, pt)
+			}
+		}
+	}
+	if s := e.series(242); s.Status != state.SeriesTesting {
+		t.Errorf("series 242 = %s (%s), want testing", s.Status, s.Reason)
+	}
+	for _, m := range e.mail.sent {
+		if strings.Contains(string(m.Data), "pw240") ||
+			strings.Contains(string(m.Data), "pw241") {
+			t.Errorf("a skipped series got a report:\n%s", m.Data)
+		}
+	}
+	if e.repo.applies != 1 {
+		t.Errorf("applies = %d, want only series 242", e.repo.applies)
+	}
+}
+
 func TestSupersede(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Mode.Push = "off"

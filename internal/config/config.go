@@ -159,13 +159,22 @@ type Rules struct {
 	Supersede bool `yaml:"supersede"`
 }
 
+// SkipRule matches series by the names of the series and its patches
+// (Subject) and by the files the patches change (Files).  A rule with
+// both needs both to match.
 type SkipRule struct {
 	Subject string `yaml:"subject"`
+	Files   string `yaml:"files"`
 	Reason  string `yaml:"reason"`
 	re      *regexp.Regexp
+	filesRe *regexp.Regexp
 }
 
+// Regexp is nil without Subject.
 func (s *SkipRule) Regexp() *regexp.Regexp { return s.re }
+
+// FilesRegexp is nil without Files.
+func (s *SkipRule) FilesRegexp() *regexp.Regexp { return s.filesRe }
 
 type Tree struct {
 	GitURL string `yaml:"git_url"`
@@ -552,12 +561,21 @@ func (c *Config) validate() error {
 
 	for i := range c.Rules.Skip {
 		r := &c.Rules.Skip[i]
-		re, err := regexp.Compile(r.Subject)
-		if err != nil {
-			add("rules.skip[%d]: %v", i, err)
+		if r.Subject == "" && r.Files == "" {
+			add("rules.skip[%d]: needs subject or files", i)
 			continue
 		}
-		r.re = re
+		var err error
+		if r.Subject != "" {
+			if r.re, err = regexp.Compile(r.Subject); err != nil {
+				add("rules.skip[%d].subject: %v", i, err)
+			}
+		}
+		if r.Files != "" {
+			if r.filesRe, err = regexp.Compile(r.Files); err != nil {
+				add("rules.skip[%d].files: %v", i, err)
+			}
+		}
 	}
 	for i := range c.Rules.Base {
 		r := &c.Rules.Base[i]

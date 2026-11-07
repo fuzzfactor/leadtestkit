@@ -298,6 +298,11 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		p.finishSeries(s, state.SeriesSkipped, "patches are no longer active", now)
 		return
 	}
+	if reason := p.fileSkipReason(s, patches, data); reason != "" {
+		p.infof("%s: skipping before applying: %s.", seriesName(s), reason)
+		p.finishSeries(s, state.SeriesSkipped, reason, now)
+		return
+	}
 
 	var reused []string
 	var base *state.Base
