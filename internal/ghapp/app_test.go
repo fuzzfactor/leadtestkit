@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -101,6 +102,7 @@ type server struct {
 	installation int
 	permissions  string
 	repos        []string
+	requested    map[string]string
 }
 
 func (s *server) handle(w http.ResponseWriter, r *http.Request) {
@@ -115,17 +117,20 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		fmt.Fprintf(w, `{"id":%d,"account":{"login":"ipsum"}}`, s.installation)
+		fmt.Fprintf(w, `{"id":%d,"account":{"login":"ipsum"},`+
+			`"permissions":%s}`, s.installation, s.permissions)
 	case r.Method == http.MethodPost &&
 		r.URL.Path == fmt.Sprintf("/app/installations/%d/access_tokens", s.installation):
 		s.tokens++
 		var body struct {
-			Repositories []string `json:"repositories"`
+			Repositories []string          `json:"repositories"`
+			Permissions  map[string]string `json:"permissions"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
-		s.repos = body.Repositories
+		s.repos, s.requested = body.Repositories, body.Permissions
+		perms, _ := json.Marshal(body.Permissions)
 		fmt.Fprintf(w, `{"token":"ghs_lorem%d","expires_at":"2026-03-10T13:00:00Z",`+
-			`"permissions":%s}`, s.tokens, s.permissions)
+			`"permissions":%s}`, s.tokens, perms)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -179,6 +184,11 @@ func TestToken(t *testing.T) {
 	if len(s.repos) != 1 || s.repos[0] != "lorem" {
 		t.Errorf("token not limited to the test repository: %v", s.repos)
 	}
+	want := map[string]string{"actions": "write", "checks": "read", "contents": "write",
+		"workflows": "write"}
+	if !reflect.DeepEqual(s.requested, want) {
+		t.Errorf("token not limited to the needed permissions: %v", s.requested)
+	}
 	if logx.Redact("x ghs_lorem1 x") != "x [REDACTED] x" {
 		t.Error("the token is not redacted from logs")
 	}
@@ -206,12 +216,17 @@ func TestTokenErrors(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 
-	s := &server{t: t, installation: 77, permissions: `{"contents":"read"}`}
+	s := &server{t: t, installation: 77,
+		permissions: `{"checks":"write","contents":"read","issues":"write"}`}
 	a = newApp(t, s, &now, &log)
 	if _, err := a.Token(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	want := "actions: write, checks: read, contents: write, workflows: write"
+	if !reflect.DeepEqual(s.requested, map[string]string{"checks": "read",
+		"contents": "read"}) {
+		t.Errorf("requested permissions beyond the installation's: %v", s.requested)
+	}
+	want := "actions: write, contents: write, workflows: write"
 	if !strings.Contains(log.String(), want) {
 		t.Errorf("missing permissions not reported:\n%s", log.String())
 	}

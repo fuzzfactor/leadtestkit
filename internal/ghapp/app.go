@@ -55,8 +55,10 @@ type App struct {
 
 	mu           sync.Mutex
 	installation int64
-	token        string
-	expires      time.Time
+	// granted are the permissions of the installation.
+	granted map[string]string
+	token   string
+	expires time.Time
 }
 
 func New(opts Options) (*App, error) {
@@ -189,6 +191,7 @@ func (a *App) findInstallation(ctx context.Context, jwt string) (int64, error) {
 		Account struct {
 			Login string `json:"login"`
 		} `json:"account"`
+		Permissions map[string]string `json:"permissions"`
 	}
 	if err := json.Unmarshal(resp.Body, &inst); err != nil || inst.ID == 0 {
 		return 0, fmt.Errorf("decode the GitHub App installation of %s: %v",
@@ -196,12 +199,22 @@ func (a *App) findInstallation(ctx context.Context, jwt string) (int64, error) {
 	}
 	a.log.Info(fmt.Sprintf("Using GitHub App %s, installation %d on account %s.",
 		a.opts.ClientID, inst.ID, inst.Account.Login))
+	a.granted = inst.Permissions
+	if missing := missingPermissions(inst.Permissions); len(missing) > 0 {
+		a.log.Warn(fmt.Sprintf("The GitHub App lacks permissions LeadTestKit needs: %s. "+
+			"Add them in the App settings and accept them on the installation.",
+			strings.Join(missing, ", ")))
+	}
 	return inst.ID, nil
 }
 
 func (a *App) newToken(ctx context.Context, jwt string) (string, error) {
 	name := a.opts.Repo[strings.LastIndex(a.opts.Repo, "/")+1:]
-	body, err := json.Marshal(map[string]any{"repositories": []string{name}})
+	req := map[string]any{"repositories": []string{name}}
+	if perms := requested(a.granted); len(perms) > 0 {
+		req["permissions"] = perms
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return "", err
 	}
@@ -233,11 +246,6 @@ func (a *App) newToken(ctx context.Context, jwt string) (string, error) {
 	a.log.Info(fmt.Sprintf("Got a GitHub App token for %s, valid until %s, "+
 		"with permissions: %s.", a.opts.Repo, res.ExpiresAt.UTC().Format(time.RFC3339),
 		formatPermissions(res.Permissions)))
-	if missing := missingPermissions(res.Permissions); len(missing) > 0 {
-		a.log.Warn(fmt.Sprintf("The GitHub App lacks permissions LeadTestKit needs: %s. "+
-			"Add them in the App settings and accept them on the installation.",
-			strings.Join(missing, ", ")))
-	}
 	return a.token, nil
 }
 
@@ -247,6 +255,21 @@ var Required = map[string]string{
 	"checks":    "read",
 	"contents":  "write",
 	"workflows": "write",
+}
+
+// requested limits a token to the permissions LeadTestKit uses, as far
+// as the installation has them: asking for more fails.
+func requested(have map[string]string) map[string]string {
+	out := map[string]string{}
+	for name, level := range Required {
+		switch {
+		case have[name] == level || have[name] == "write":
+			out[name] = level
+		case have[name] == "read":
+			out[name] = "read"
+		}
+	}
+	return out
 }
 
 func missingPermissions(have map[string]string) []string {
