@@ -50,8 +50,11 @@ rules:
   skip:
     - subject: '^\[[^\]]*\bRFC\b[^\]]*\]'
       reason: RFC
-    # Kernel patches cross-posted to the list, e.g. [ovs-dev,net,v2].
+    # Kernel patches cross-posted to the list, e.g. [ovs-dev,net,v2], or
+    # recognized by the kernel paths they change, which OVS does not have.
     - subject: '^\[[^\]]*\bnet(-next)?\b[^\]]*\]'
+      reason: kernel patch
+    - files: '^(net|include/uapi/linux|tools/testing/selftests)/'
       reason: kernel patch
   base:
     - type: subject

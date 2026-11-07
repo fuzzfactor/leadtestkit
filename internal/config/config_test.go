@@ -246,6 +246,14 @@ func TestOVSExampleRules(t *testing.T) {
 		}
 		return ""
 	}
+	skipFile := func(file string) string {
+		for _, r := range c.Rules.Skip {
+			if r.FilesRegexp() != nil && r.FilesRegexp().MatchString(file) {
+				return r.Reason
+			}
+		}
+		return ""
+	}
 	base := func(name string) string {
 		for _, r := range c.Rules.Base {
 			re := r.Regexp()
@@ -264,6 +272,18 @@ func TestOVSExampleRules(t *testing.T) {
 	} {
 		if got := skip(name); got != want {
 			t.Errorf("skip %q = %q, want %q", name, got, want)
+		}
+	}
+	for file, want := range map[string]string{
+		"net/openvswitch/flow.c":                         "kernel patch",
+		"include/uapi/linux/openvswitch.h":               "kernel patch",
+		"tools/testing/selftests/net/openvswitch/ovs.sh": "kernel patch",
+		"lib/netdev-linux.c":                             "",
+		"include/linux/openvswitch.h":                    "",
+		"tests/system-traffic.at":                        "",
+	} {
+		if got := skipFile(file); got != want {
+			t.Errorf("skip file %q = %q, want %q", file, got, want)
 		}
 	}
 	for name, want := range map[string]string{
