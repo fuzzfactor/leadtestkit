@@ -179,6 +179,11 @@ func TestSkipRulesAndBaseSelection(t *testing.T) {
 	if s := e.series(11); s.Status != state.SeriesSkipped || s.Reason != "RFC" {
 		t.Errorf("series 11 = %+v", s)
 	}
+	pt := e.series(11).Patches[0]
+	if pt.Status != state.PatchSkipped {
+		t.Errorf("patch of a skipped series is %s", pt.Status)
+	}
+	decision(t, pt.Decisions, state.PatchSkipped, "")
 	if s := e.series(12); s.Base == nil || s.Base.Branch != "branch-3.4" ||
 		s.Base.Why != "subject: branch-3.4" {
 		t.Errorf("series 12 base = %+v", s.Base)

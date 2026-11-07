@@ -95,6 +95,29 @@ func TestLoadRejectsBadState(t *testing.T) {
 	}
 }
 
+func TestFinishSkipsUnfinishedPatches(t *testing.T) {
+	for _, status := range []string{SeriesSkipped, SeriesError, SeriesDone} {
+		x := sampleSeries(1)
+		x.Patches = append(x.Patches,
+			&Patch{ID: 13, Status: PatchApplied}, &Patch{ID: 14, Status: PatchPushed},
+			&Patch{ID: 15, Status: PatchApplyFailed},
+			&Patch{ID: 16, Status: PatchNotApplied}, &Patch{ID: 17, Status: PatchDone})
+		x.Finish(status, "", now)
+		want := []string{PatchSkipped, PatchSkipped, PatchSkipped, PatchSkipped,
+			PatchApplyFailed, PatchNotApplied, PatchDone}
+		if status == SeriesDone {
+			want = []string{PatchPending, PatchPending, PatchApplied, PatchPushed,
+				PatchApplyFailed, PatchNotApplied, PatchDone}
+		}
+		for i, p := range x.Patches {
+			if p.Status != want[i] {
+				t.Errorf("%s: patch %d is %s, want %s", status, p.ID, p.Status,
+					want[i])
+			}
+		}
+	}
+}
+
 func TestArchiveAndReopen(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Load(dir)

@@ -268,12 +268,32 @@ func (s *Series) Patch(id int) *Patch {
 	return nil
 }
 
+// Finish ends the series.  Unless it is done, patches that did not get
+// a final status are marked skipped, so that they do not look pending.
 func (s *Series) Finish(status, reason string, now time.Time) {
 	s.Status = status
 	if reason != "" {
 		s.Reason = reason
 	}
 	s.Finished = FormatTime(now)
+	if status == SeriesDone {
+		return
+	}
+	for _, p := range s.Patches {
+		if p.Unfinished() {
+			p.Status = PatchSkipped
+		}
+	}
+}
+
+// Unfinished reports whether the patch is still on its way to a final
+// status.
+func (p *Patch) Unfinished() bool {
+	switch p.Status {
+	case PatchPending, PatchApplied, PatchPushed:
+		return true
+	}
+	return false
 }
 
 func (p *Patch) Run(kind, workflow string) *Run {

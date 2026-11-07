@@ -117,6 +117,54 @@ func TestVersionTwoRecordsHaveNoInventedDecisions(t *testing.T) {
 	}
 }
 
+func TestVersionThreeSkipsPatchesOfFinishedSeries(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var list []*Series
+	for i, status := range []string{SeriesSkipped, SeriesError, SeriesDone} {
+		x := sampleSeries(i + 1)
+		x.Status = status
+		x.Finished = FormatTime(now)
+		x.Patches[1].Status = PatchApplyFailed
+		list = append(list, x)
+	}
+	b, err := json.Marshal(queueFile{Schema: 3, Series: list})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, HistoryDir, "2026-03.json")
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.History("2026-03")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range got {
+		want := PatchSkipped
+		if x.Status == SeriesDone {
+			want = PatchPending
+		}
+		if x.Patches[0].Status != want || x.Patches[1].Status != PatchApplyFailed {
+			t.Errorf("%s series: patches %s, %s", x.Status,
+				x.Patches[0].Status, x.Patches[1].Status)
+		}
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `"status": "skipped"`) {
+		t.Error("the migrated history was not written back")
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)

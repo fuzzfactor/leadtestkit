@@ -16,7 +16,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 const (
 	kindMeta   = "meta"
@@ -26,7 +26,36 @@ const (
 // migrations[v] upgrades a file from schema v to v+1, working on the
 // raw JSON before it is decoded.  Versions without an entry only added
 // fields and need no conversion.
-var migrations = map[int]func(kind string, doc map[string]any) error{}
+var migrations = map[int]func(kind string, doc map[string]any) error{
+	3: skipUnfinishedPatches,
+}
+
+// skipUnfinishedPatches gives the patches of series skipped or failed
+// before schema 4 the status Series.Finish now sets.
+func skipUnfinishedPatches(kind string, doc map[string]any) error {
+	if kind != kindSeries {
+		return nil
+	}
+	list, _ := doc["series"].([]any)
+	for _, x := range list {
+		s, _ := x.(map[string]any)
+		if s == nil || (s["status"] != SeriesSkipped && s["status"] != SeriesError) {
+			continue
+		}
+		patches, _ := s["patches"].([]any)
+		for _, y := range patches {
+			p, _ := y.(map[string]any)
+			if p == nil {
+				continue
+			}
+			switch p["status"] {
+			case PatchPending, PatchApplied, PatchPushed:
+				p["status"] = PatchSkipped
+			}
+		}
+	}
+	return nil
+}
 
 // readState reads a state file of the given kind, upgrading it to the
 // current schema.  It reports whether the file was upgraded and has to

@@ -29,6 +29,12 @@ func (p *Pipeline) note(out *[]state.Decision, action, format string, args ...an
 }
 
 func (p *Pipeline) finishSeries(s *state.Series, status, reason string, now time.Time) {
+	var unfinished []*state.Patch
+	for _, pt := range s.Patches {
+		if pt.Unfinished() {
+			unfinished = append(unfinished, pt)
+		}
+	}
 	s.Finish(status, reason, now)
 	detail := reason
 	if detail == "" {
@@ -39,6 +45,11 @@ func (p *Pipeline) finishSeries(s *state.Series, status, reason string, now time
 		}
 	}
 	p.noteSeries(s, status, "%s", detail)
+	for _, pt := range unfinished {
+		if pt.Status == state.PatchSkipped {
+			p.notePatch(pt, state.PatchSkipped, "Series %s: %s", status, detail)
+		}
+	}
 }
 
 func (p *Pipeline) noteCheck(patchID int, action, detail string) {
