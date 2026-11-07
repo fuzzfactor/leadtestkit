@@ -70,7 +70,18 @@ limits:
   jobs_per_patch: 20
 
 workflows:
-  custom: false
+  # The push workflows of OVS.  A patch waits for both, and one that did
+  # not start is reported as a warning.  Every base branch selected
+  # above needs them, which is the case for branch-3.3 and later.
+  expected:
+    - Build and Test
+    - FreeBSD Build and Test
+
+  # Uncomment after adding workflows to the test fork's main branch for
+  # the bot to dispatch for every patch, e.g.
+  # fork-workflows/leadtest-checkpatch-ovs.yml (see SETUP.rst, step 1).
+  # Do not list them in expected: the bot waits for its own dispatches.
+  # custom: true
 
 rechecks:
   enabled: true
