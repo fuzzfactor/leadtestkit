@@ -58,7 +58,7 @@ rules:
       match: '\b(branch-\d+\.\d+)\b'
       branch: '$1'
     - type: subject
-      match: '\b(dpdk-latest|dpdk-hwol)\b'
+      match: '\b(dpdk-latest)\b'
       branch: '$1'
   supersede: true
 
