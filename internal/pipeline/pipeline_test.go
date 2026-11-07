@@ -278,6 +278,45 @@ func TestCancelledRunIsRerunOnce(t *testing.T) {
 	}
 }
 
+func TestPushOffMonitorsWithoutRerunning(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(60, 1, "lorem", e.now)
+	e.step()
+	ids := e.gh.startRuns("series_60", "sha-6001", "Build")
+	e.gh.finishRun(ids[0], "cancelled")
+	e.cfg.Mode.Push = "off"
+	e.step()
+	if len(e.gh.reruns) != 0 {
+		t.Fatalf("push mode off started reruns: %v", e.gh.reruns)
+	}
+	r := e.series(60).Patches[0].Run(state.RunPush, "Build")
+	if r == nil || r.Result != state.ResultWarning || r.Final.Email != state.StepSent {
+		t.Fatalf("cancelled run was not monitored and reported: %+v", r)
+	}
+}
+
+func TestPushOffDefersPendingDispatches(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(60, 1, "lorem", e.now)
+	e.step()
+	pt := e.series(60).Patches[0]
+	r := &state.Run{
+		Kind: state.RunDispatch, File: "leadtest-lint.yml",
+		Status: "dispatching", CorrelationID: "pending-dispatch",
+	}
+	pt.Runs = append(pt.Runs, r)
+	e.cfg.Mode.Push = "off"
+	e.step()
+	if len(e.gh.dispatches) != 0 || r.Status != "dispatching" || r.Failure != nil {
+		t.Fatalf("push mode off changed pending dispatch: %+v, %v", r, e.gh.dispatches)
+	}
+	e.cfg.Mode.Push = "live"
+	e.step()
+	if len(e.gh.dispatches) != 1 || r.Status != "requested" {
+		t.Fatalf("dispatch did not resume in live mode: %+v, %v", r, e.gh.dispatches)
+	}
+}
+
 func TestEmailFailureRetried(t *testing.T) {
 	e := newEnv(t, "")
 	e.pw.addSeries(70, 1, "lorem", e.now)

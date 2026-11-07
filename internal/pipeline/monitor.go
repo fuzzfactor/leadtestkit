@@ -188,7 +188,8 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 	if wr.Status != "completed" {
 		return
 	}
-	if wr.Conclusion == "cancelled" && p.Cfg.Workflows.RerunCancelled && r.AutoReruns < 1 {
+	if wr.Conclusion == "cancelled" && p.Cfg.Workflows.RerunCancelled && r.AutoReruns < 1 &&
+		p.Cfg.Mode.PushLive() {
 		err := p.rerun(ctx, wr.ID)
 		if err == nil {
 			p.notePatch(pt, "rerun", "Restarted cancelled %s run %d.",

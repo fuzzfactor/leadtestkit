@@ -701,6 +701,11 @@ func correlationID(seriesID, patchID int, file string, attempt int) string {
 }
 
 func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *state.Patch) {
+	if !p.Cfg.Mode.PushLive() {
+		p.infof("%s: not sending workflow dispatches; push mode is %s.",
+			patchName(pt), p.Cfg.Mode.Push)
+		return
+	}
 	base := ""
 	if s.Base != nil {
 		base = s.Base.SHA

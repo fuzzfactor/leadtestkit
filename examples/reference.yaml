@@ -101,8 +101,8 @@ report:
   # pending), which becomes the Patchwork check description.
   build_prefix: github build
 
-  # Copy the series submitter on reports that are not successful.  Only
-  # done when mode.email is live.
+  # Copy the series submitter on failure and warning reports, but not
+  # pending or success reports.  Only done when mode.email is live.
   cc_submitter: true
 
   # Email a pending report when a workflow starts.
@@ -144,12 +144,14 @@ archive:
 
   # Months before the current one that are always scanned, so that
   # messages that arrive at the end of a month are not missed.  After a
-  # pause, scanning resumes from the last month seen.  The very first
-  # scan only records existing messages, without posting them.
+  # pause, scanning resumes from the last month seen, at most 12 months
+  # back.  The first scan marks existing messages as seen, without
+  # processing them.
   lookback_months: 1
 
-  # Messages read per run, including retries, so that a backlog cannot
-  # take the whole run.
+  # Message-processing budget per archive pass, including retries.
+  # Incomplete scans and pending retries can cause further passes in
+  # the same bot invocation, each with a fresh budget.
   max_messages: 200
 
 smtp:
@@ -164,8 +166,9 @@ smtp:
   security: starttls
 
 mode:
-  # "live": push series to the test fork.  "off": do not push or rerun
-  # anything; series stay queued.
+  # "live": push patches and start workflows in the test fork.
+  # "off": no pushes, dispatches or reruns.  Unpushed patches wait;
+  # existing runs are still monitored and reported.
   push: live
 
   # "post": post checks to Patchwork (needs LEADTEST_PW_TOKEN).
@@ -236,12 +239,15 @@ limits:
   # get the next free runner.
   max_queued_jobs: 20
 
-  # Patches whose workflows are still running, across all authors.
+  # Maximum pushed patches awaiting completion, across all authors.
+  # Includes waiting for workflows to start and reports to finish.
   max_inflight_patches: 20
 
-  # While others are waiting, an author gets at most a fair share of
-  # max_inflight_patches, never more than per_author_max_share of it,
-  # and never less than per_author_min patches.
+  # Divide in-flight slots among authors with patches ready to push.
+  # Each author's limit is at least per_author_min and capped at
+  # per_author_max_share of max_inflight_patches (rounded down, but
+  # never below per_author_min), even with only one author waiting.
+  # Global limits still apply; slots are not guaranteed or reserved.
   per_author_min: 2
   per_author_max_share: 0.5
 
@@ -254,16 +260,16 @@ limits:
   # Series older than this when discovered are skipped.
   series_max_age: 7d
 
-  # How far before its very first run the bot looks for series to test.
-  # 0 means that only series completed after the first run are tested,
-  # so switching from another bot does not test old series again.  The
-  # first run is recorded in meta.json (discovery_start); deleting it
-  # makes the next run a first run.
+  # How far before the first discovery time (meta.json's discovery_start)
+  # to look for series; 0 excludes earlier series.  series_max_age still
+  # applies.  Initial event discovery reads at most 3 pages; the safety
+  # scan checks only the newest 50 series per invocation.
+  # Increasing this does not rewind an existing event cursor.
   initial_backfill: 0s
 
-  # Series that Patchwork does not report as complete within this time
-  # are skipped.  Also how long a series waits for its Depends-on
-  # series before being tested on the default base.
+  # Time from discovery before skipping an incomplete series.  Also the
+  # deadline for waiting for a known, active Depends-on series to be
+  # applied; after that, use the normal base-selection rules.
   complete_timeout: 3d
 
   # A patch without any workflow run this long after the push gets a
@@ -274,13 +280,14 @@ limits:
   # Runs not finished this long after the push get a warning report.
   run_timeout: 30h
 
-  # Without workflows.expected, a patch is complete when no run has
-  # finished for this long, in case more workflows start late.
+  # Without workflows.expected, wait this long after all known workflows
+  # finish for additional workflows to appear before completing a patch.
   grace_after_runs: 20m
 
   # A failing operation is retried with growing delays and given up
   # this long after its first failure; giving up is reported in the job
-  # summary and on the pages.
+  # summary and on the pages.  Exceptions: monitoring uses 24h and
+  # archive message processing uses 7d.
   retry_deadline: 2d
 
   # Test branches and staging refs of series that finished longer ago
@@ -288,9 +295,10 @@ limits:
   # series the bot does not know about are never deleted.
   branch_retention: 730d
 
-  # How far back to search finished series to recognize them, their
-  # reports and dependencies.  0 searches all history.  History files
-  # are retained regardless of this setting; rechecks.window is separate.
+  # How far back to search finished series to avoid testing them again,
+  # find Depends-on dependencies, and attach reports to saved patch records.
+  # Age is measured from completion; 0 searches all history.  This does not
+  # delete records, limit Pages, or change rechecks.window or branch_retention.
   history_window: 0
 
 workflows:
@@ -335,15 +343,17 @@ rechecks:
   # Labels accepted in Recheck-request lines.  Empty means report.label.
   labels: []
 
-  # Patches can be rechecked for this long after they were tested.
+  # Search for recheck targets in series finished within this period.
+  # Queued series are always included, regardless of age.
   # 0 allows rechecks from all retained history.
   window: 30d
 
 runner:
-  # Each scheduled run keeps working for loop_duration, repeating all
-  # stages every loop_interval, so that new runners are used sooner
-  # than the 15 minute schedule allows.  0 runs a single step.
+  # How long an invocation polls before its final cycle, which does not
+  # schedule new patches.  0 runs only that final cycle.
   loop_duration: 13m
+
+  # Sleep between cycles, in addition to the time spent doing work.
   loop_interval: 3m
 
   # A step that is still running after loop_duration is allowed to
