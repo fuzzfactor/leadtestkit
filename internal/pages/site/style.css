@@ -30,24 +30,53 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
 #controls input { flex: 1; min-width: 200px; padding: 4px 8px; }
 #controls input, #controls select, #pager button { background: var(--bg); color: var(--fg);
   border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
-.series { border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; }
-.series > .head { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px;
+.series { border: 1px solid var(--line); border-radius: 6px; margin: 6px 0; }
+.series > .head { display: flex; gap: 8px; align-items: baseline; padding: 4px 10px;
   background: var(--row); cursor: pointer; flex-wrap: wrap; }
-.series .name { flex: 1; font-weight: 600; min-width: 300px; }
-.series .info { color: var(--muted); font-size: 12px; padding: 2px 10px 6px; }
-.patches { display: none; padding: 0 10px 8px; }
-.series.open .patches { display: block; }
-.patch { border-top: 1px solid var(--line); padding: 4px 0; }
-.patch .pname { font-family: ui-monospace, monospace; font-size: 12px; }
-.runs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.series .name { flex: 1 1 300px; font-weight: 600; }
+.head .right { display: flex; gap: 8px; align-items: baseline; margin-left: auto; }
+.series .who { width: 150px; text-align: right; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 3.5em; }
+.when { font-size: 12px; width: 4.5em; flex: none; text-align: right; }
+.links { font-size: 11px; font-weight: normal; font-family: system-ui, sans-serif; }
+.links a { color: var(--muted); }
+.links a:hover { color: var(--pending); }
+.counts { display: inline-flex; gap: 2px; font-variant-numeric: tabular-nums; }
+.count { display: inline-block; min-width: 1.7em; text-align: center; font-size: 12px;
+  border-radius: 3px; color: #fff; }
+.count.zero { color: var(--muted); }
+.count.success { background: var(--success); }
+.count.warning { background: var(--warning); }
+.count.fail { background: var(--fail); }
+.count.pending { background: var(--pending); }
+.state { font-size: 12px; border: 1px solid var(--line); border-radius: 10px;
+  padding: 0 8px; white-space: nowrap; max-width: 220px; overflow: hidden;
+  text-overflow: ellipsis; color: var(--muted); }
+.head .state { font-weight: normal; display: inline-block; vertical-align: middle; }
+.detail .state { max-width: none; }
+.state.active, .state.pushed { color: var(--pending); border-color: var(--pending); }
+.state.done { color: var(--success); border-color: var(--success); }
+.state.error { color: var(--fail); border-color: var(--fail); }
+.body { display: none; padding: 0 10px 6px; }
+.series.open .body { display: block; }
+.info { color: var(--muted); font-size: 12px; padding: 4px 0; }
+.info:empty { display: none; }
+.patch { border-top: 1px solid var(--line); padding: 3px 0; }
+.patch .row { display: flex; gap: 4px 12px; align-items: center; flex-wrap: wrap; }
+.patch .pname { font-family: ui-monospace, monospace; font-size: 12px; flex: 1 1 300px; }
+.patch .detail { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center;
+  justify-content: flex-end; margin-left: auto; font-size: 12px; }
+.patch .detail:empty { display: none; }
 .badge { display: inline-block; border-radius: 10px; padding: 0 8px; font-size: 12px;
   color: #fff; background: var(--other); white-space: nowrap; }
-.badge.success, .badge.done { background: var(--success); }
-.badge.fail, .badge.error { background: var(--fail); }
-.badge.warning, .badge.skipped, .badge.apply-failed { background: var(--warning); }
-.badge.pending, .badge.testing, .badge.pushed, .badge.running { background: var(--pending); }
+.badge.success { background: var(--success); }
+.badge.fail { background: var(--fail); }
+.badge.warning { background: var(--warning); }
+.badge.pending { background: var(--pending); }
 .error { color: var(--fail); font-size: 12px; }
-.decisions { margin: 6px 0; font-size: 12px; }
-.decisions summary { cursor: pointer; color: var(--muted); }
-.decisions ol { margin: 4px 0; padding-left: 24px; }
-.decisions li { margin: 4px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.toggle { font-size: 11px; color: var(--muted); background: none; border: 1px solid var(--line);
+  border-radius: 10px; padding: 0 6px; cursor: pointer; margin-left: 4px; }
+.toggle.on { color: var(--fg); border-color: var(--muted); }
+.decisions { margin: 2px 0 6px; padding-left: 24px; font-size: 12px; }
+.decisions li { margin: 2px 0; overflow-wrap: anywhere; white-space: pre-wrap; }

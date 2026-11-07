@@ -43,17 +43,41 @@ function age(ts) {
   return Math.round(s / 86400) + "d ago";
 }
 
-function runState(r) {
-  if (r.result) return r.result;
-  if (r.status === "completed") return "warning";
-  if (!r.status || r.status === "requested" || r.status === "dispatching") return "queued";
-  return r.status === "in_progress" ? "running" : r.status;
+const RESULTS = ["success", "warning", "fail", "pending"];
+const FINISHED = ["done", "apply-failed", "not-applied", "skipped"];
+
+// result is the check state of a run as posted to Patchwork.
+function result(r) {
+  if (r.result) return RESULTS.includes(r.result) ? r.result : "warning";
+  return r.status === "completed" ? "warning" : "pending";
 }
 
 function runLabel(r) {
-  if (r.kind === "apply") return r.workflow || "apply";
+  if (r.kind === "apply") return "apply";
   if (r.kind === "missing") return (r.workflow || "workflows") + " (missing)";
   return r.workflow || r.file || "workflow";
+}
+
+function countChecks(runs) {
+  const c = { success: 0, warning: 0, fail: 0, pending: 0 };
+  for (const r of runs) c[result(r)]++;
+  return c;
+}
+
+// counts shows the checks like Patchwork: passed, warnings, failed,
+// and the ones still pending.
+function counts(c) {
+  const title = c.success + " passed, " + c.warning + " warnings, " + c.fail + " failed, " +
+    c.pending + " pending";
+  return el("span", { class: "counts", title },
+    RESULTS.map(k => el("span", { class: "count " + (c[k] ? k : "zero") },
+      c[k] ? String(c[k]) : "-")));
+}
+
+function when(ts) {
+  if (!ts) return el("span", { class: "muted when" });
+  return el("time", { class: "muted when", datetime: ts,
+    title: new Date(ts).toLocaleString() + " (" + ts + ")" }, age(ts));
 }
 
 function archiveLink(msgid, format) {
@@ -62,39 +86,103 @@ function archiveLink(msgid, format) {
   return format.replace("{}", encodeURIComponent(msgid.replace(/^<|>$/g, "")));
 }
 
-function renderDecisions(decisions) {
-  if (!decisions || !decisions.length) return null;
-  const rows = decisions.slice().reverse().map(d => el("li", {},
-    el("time", { datetime: d.time }, d.time), " · ",
-    el("strong", {}, d.action.replace(/-/g, " ")), ": ", d.detail, " ",
+function archiveName(url) {
+  return /lore\.kernel\.org|\binbox\./.test(url) ? "lore" : "archive";
+}
+
+function links(items) {
+  const out = items.filter(i => i && i[0]);
+  return el("span", { class: "links" },
+    out.map(([href, text], i) => [i ? " " : "", link(href, text)]));
+}
+
+// toggle returns a small button and the panel it shows and hides, so
+// that details take no space until asked for.
+function toggle(text, panel) {
+  if (!panel) return [null, null];
+  panel.hidden = true;
+  const b = el("button", { class: "toggle", type: "button" }, text);
+  b.onclick = e => {
+    e.stopPropagation();
+    panel.hidden = !panel.hidden;
+    b.classList.toggle("on", !panel.hidden);
+  };
+  return [b, panel];
+}
+
+function decisions(list) {
+  if (!list || !list.length) return [null, null];
+  const rows = list.slice().reverse().map(d => el("li", {},
+    when(d.time), " ", el("strong", {}, d.action.replace(/-/g, " ")), ": ", d.detail, " ",
     d.run_url ? link(d.run_url, "bot run logs") : null));
-  return el("details", { class: "decisions" },
-    el("summary", {}, "Decision history (" + decisions.length + ")"),
-    el("ol", {}, rows));
+  return toggle("history (" + list.length + ")", el("ol", { class: "decisions" }, rows));
+}
+
+// seriesState says where the bot is with a series and whether its
+// checks are final.
+function seriesState(s) {
+  const patches = s.patches || [];
+  const finished = patches.filter(p => FINISHED.includes(p.status)).length;
+  switch (s.status) {
+  case "new":
+    return ["active", s.checked ? "incomplete" : "new", s.checked
+      ? "Waiting for Patchwork to receive all patches." : "Checking if it can be tested."];
+  case "queued":
+    return ["active", "queued", "Waiting for free CI capacity."];
+  case "waiting":
+    return ["active", s.reason || "waiting", "Waiting for a dependency."];
+  case "testing":
+    return ["active", "testing " + finished + "/" + patches.length,
+      finished + " of " + patches.length + " patches have final checks."];
+  case "done":
+    return ["done", "done", "All checks are final."];
+  case "skipped":
+    return ["skipped", "skipped" + (s.reason ? ": " + s.reason : ""), s.reason || "Not tested."];
+  default:
+    return ["error", s.status + (s.reason ? ": " + s.reason : ""), s.reason || ""];
+  }
+}
+
+// patchState explains a patch whose checks do not tell the story.
+function patchState(s, p) {
+  switch (p.status) {
+  case "pending": return "waiting to be applied";
+  case "applied": return "applied, waiting for CI capacity";
+  case "pushed": return "testing";
+  case "not-applied": return "not applied: an earlier patch failed to apply";
+  case "skipped": return "not tested" + (s.reason ? ": " + s.reason : "");
+  default: return null;
+  }
 }
 
 function renderPatch(s, p) {
-  const runs = el("div", { class: "runs" });
-  for (const r of p.runs || []) {
-    const st = runState(r);
-    const title = [r.conclusion, r.details, r.failure && r.failure.last_error]
-      .filter(Boolean).join("\n");
-    const badge = el("span", { class: "badge " + st, title: title || null },
-      runLabel(r) + ": " + st);
-    runs.append(link(r.url, badge));
+  const runs = p.runs || [];
+  // A badge leads to its report when it was sent, which links the run,
+  // and to the run otherwise.
+  const chips = runs.map(r => {
+    const st = result(r);
     const report = archiveLink(r.final && r.final.message_id);
-    if (report) runs.append(link(report, "report"));
-  }
-  const pwLink = index.patchwork_web + "/patch/" + p.id + "/";
+    const title = [r.conclusion, r.details, r.failure && r.failure.last_error,
+      report ? "Opens the report." : r.url ? "Opens the workflow run." : ""]
+      .filter(Boolean).join("\n");
+    return link(report || r.url,
+      el("span", { class: "badge " + st, title: title || null }, runLabel(r) + ": " + st));
+  });
+  const mail = archiveLink(p.msgid, index.patch_archive_url_format);
+  const [historyButton, history] = decisions(p.decisions);
+  const state = patchState(s, p);
   return el("div", { class: "patch" },
-    el("span", { class: "badge " + p.status }, p.status), " ",
-    link(pwLink, "pw" + p.id), " ",
-    el("span", { class: "pname" }, p.name || ""),
-    ...(archiveLink(p.msgid, index.patch_archive_url_format)
-      ? [" ", link(archiveLink(p.msgid, index.patch_archive_url_format), "email")] : []),
-    p.sha ? el("span", { class: "muted" }, " " + p.sha.slice(0, 12)) : null,
-    p.failure ? el("div", { class: "error" }, p.failure.op + ": " + p.failure.last_error) : null,
-    runs, renderDecisions(p.decisions));
+    el("div", { class: "row" },
+      el("span", { class: "pname" }, p.name || "", " ",
+        links([[index.patchwork_web + "/patch/" + p.id + "/", "pw"],
+          [mail, mail && archiveName(mail)]])),
+      el("span", { class: "detail" },
+        p.failure ? el("span", { class: "error" }, p.failure.op + ": " +
+          p.failure.last_error) : null,
+        state ? el("span", { class: "state " + p.status }, state) : null,
+        chips,
+        historyButton)),
+    history);
 }
 
 function renderSeries(s) {
@@ -103,26 +191,37 @@ function renderSeries(s) {
   const branch = s.branch
     ? "https://" + index.git_host + "/" + index.test_repo + "/tree/" + s.branch
     : null;
+  const [cls, label, explanation] = seriesState(s);
+  const runs = (s.patches || []).flatMap(p => p.runs || []);
   const head = el("div", { class: "head" },
-    el("span", { class: "badge " + s.status }, s.status),
-    link(pwSeries, "#" + s.id),
-    el("span", { class: "name" }, s.name || "(details not fetched yet)"),
-    el("span", { class: "muted" }, (s.submitter && (s.submitter.name || s.submitter.email)) || ""),
-    el("span", { class: "muted" }, age(s.finished || s.started || s.discovered)));
+    el("span", { class: "muted num" }, "#" + s.id),
+    el("span", { class: "name" }, s.name || "(details not fetched yet)", " ",
+      links([[pwSeries, "pw"], [branch, "branch"]]), " ",
+      el("span", { class: "state " + cls, title: explanation || null }, label)),
+    el("span", { class: "right" },
+      el("span", { class: "muted who" },
+        (s.submitter && (s.submitter.name || s.submitter.email)) || ""),
+      counts(countChecks(runs)),
+      when(s.finished || s.started || s.discovered)));
   const info = [];
-  if (s.reason) info.push(s.reason);
+  // The state already shows the reason of skipped, failed and waiting
+  // series.
+  if (s.reason && !["skipped", "error", "waiting"].includes(s.status)) info.push(s.reason);
   if (s.base) {
     info.push("base: " + (s.base.branch || "") + (s.base.why ? " (" + s.base.why + ")" : ""));
   }
   if (s.hold) info.push("on hold");
+  const [historyButton, history] = decisions(s.decisions);
   const box = el("div", { class: open.has(s.id) ? "series open" : "series" }, head,
-    el("div", { class: "info" }, ...info.map((t, i) => (i ? " · " : "") + t),
-      branch ? [" · ", link(branch, s.branch)] : []),
-    s.failure ? el("div", { class: "info error" }, s.failure.op + ": " + s.failure.last_error +
-      " (" + s.failure.attempts + " attempts)") : null,
-    el("div", { class: "patches" }, renderDecisions(s.decisions),
-      ...(s.patches || []).map(p => renderPatch(s, p))));
-  head.onclick = () => {
+    el("div", { class: "body" },
+      el("div", { class: "info" }, info.map((t, i) => [i ? " · " : "", t]),
+        s.failure ? el("span", { class: "error" }, " " + s.failure.op + ": " +
+          s.failure.last_error + " (" + s.failure.attempts + " attempts)") : null,
+        historyButton),
+      history,
+      (s.patches || []).map(p => renderPatch(s, p))));
+  head.onclick = e => {
+    if (e.target.closest && e.target.closest("a, button")) return;
     if (box.classList.toggle("open")) open.add(s.id);
     else open.delete(s.id);
   };
