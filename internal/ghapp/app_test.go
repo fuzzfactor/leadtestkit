@@ -117,7 +117,7 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		fmt.Fprintf(w, `{"id":%d,"account":{"login":"ipsum"},`+
+		fmt.Fprintf(w, `{"id":%d,"account":{"login":"ipsum"},"app_slug":"lorem-app",`+
 			`"permissions":%s}`, s.installation, s.permissions)
 	case r.Method == http.MethodPost &&
 		r.URL.Path == fmt.Sprintf("/app/installations/%d/access_tokens", s.installation):
@@ -177,9 +177,15 @@ func TestToken(t *testing.T) {
 	a := newApp(t, s, &now, &log)
 	ctx := context.Background()
 
+	if a.BotLogin() != "" {
+		t.Error("the bot login is known before the installation")
+	}
 	auth, err := a.Authorization(ctx)
 	if err != nil || auth != "Bearer ghs_lorem1" {
 		t.Fatalf("auth = %q, %v", auth, err)
+	}
+	if a.BotLogin() != "lorem-app[bot]" {
+		t.Errorf("bot login = %q", a.BotLogin())
 	}
 	if len(s.repos) != 1 || s.repos[0] != "lorem" {
 		t.Errorf("token not limited to the test repository: %v", s.repos)

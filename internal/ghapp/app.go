@@ -57,6 +57,7 @@ type App struct {
 	installation int64
 	// granted are the permissions of the installation.
 	granted map[string]string
+	slug    string
 	token   string
 	expires time.Time
 }
@@ -138,6 +139,17 @@ func (a *App) JWT() (string, error) {
 	return unsigned + "." + enc.EncodeToString(sig), nil
 }
 
+// BotLogin is the login of the App's bot user, which starts the
+// workflows the App dispatches, or "" before the first token.
+func (a *App) BotLogin() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.slug == "" {
+		return ""
+	}
+	return a.slug + "[bot]"
+}
+
 // Authorization returns the Authorization header value for API
 // requests, renewing the token when needed.
 func (a *App) Authorization(ctx context.Context) (string, error) {
@@ -192,6 +204,7 @@ func (a *App) findInstallation(ctx context.Context, jwt string) (int64, error) {
 			Login string `json:"login"`
 		} `json:"account"`
 		Permissions map[string]string `json:"permissions"`
+		AppSlug     string            `json:"app_slug"`
 	}
 	if err := json.Unmarshal(resp.Body, &inst); err != nil || inst.ID == 0 {
 		return 0, fmt.Errorf("decode the GitHub App installation of %s: %v",
@@ -200,6 +213,7 @@ func (a *App) findInstallation(ctx context.Context, jwt string) (int64, error) {
 	a.log.Info(fmt.Sprintf("Using GitHub App %s, installation %d on account %s.",
 		a.opts.ClientID, inst.ID, inst.Account.Login))
 	a.granted = inst.Permissions
+	a.slug = inst.AppSlug
 	if missing := missingPermissions(inst.Permissions); len(missing) > 0 {
 		a.log.Warn(fmt.Sprintf("The GitHub App lacks permissions LeadTestKit needs: %s. "+
 			"Add them in the App settings and accept them on the installation.",

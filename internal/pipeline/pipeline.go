@@ -86,6 +86,9 @@ type Pipeline struct {
 	Now     func() time.Time
 	Log     *slog.Logger
 	RunURL  string
+	// Actor returns the login of the bot on the test fork, or "" if
+	// unknown.  Dispatched runs started by anyone else are ignored.
+	Actor func() string
 
 	// Checkpoint saves and publishes the state.  It may replace Store
 	// when the remote state changed.

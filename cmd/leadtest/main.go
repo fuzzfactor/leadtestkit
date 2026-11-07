@@ -338,6 +338,7 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 	// anonymously.
 	var ghAuth func(context.Context) (string, error)
 	var gitAuth func(context.Context) ([]string, error)
+	var actor func() string
 	if cfg.Secrets.AppClientID != "" {
 		app, err := ghapp.New(ghapp.Options{
 			APIURL:     cfg.TestRepo.APIURL,
@@ -350,6 +351,7 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 			return nil, err
 		}
 		ghAuth = app.Authorization
+		actor = app.BotLogin
 		gitAuth = func(ctx context.Context) ([]string, error) {
 			tok, err := app.Token(ctx)
 			if err != nil {
@@ -415,6 +417,7 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 		Mail:   sender,
 		Log:    log,
 		RunURL: runURL(),
+		Actor:  actor,
 	}
 	if r := newArchive(cfg.Archive.ReportsURL, "reports-archive"); r != nil {
 		p.Reports = r

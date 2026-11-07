@@ -89,7 +89,7 @@ func (p *Pipeline) dispatchedRuns(ctx context.Context) map[string]gh.WorkflowRun
 	out := map[string]gh.WorkflowRun{}
 	for _, r := range runs {
 		id, ok := strings.CutPrefix(r.DisplayTitle, dispatchTitlePrefix)
-		if !ok {
+		if !ok || !p.ownDispatch(r) {
 			continue
 		}
 		if cur, seen := out[id]; !seen || r.ID > cur.ID {

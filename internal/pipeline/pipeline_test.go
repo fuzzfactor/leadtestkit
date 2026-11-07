@@ -624,6 +624,39 @@ func TestCustomWorkflows(t *testing.T) {
 	}
 }
 
+func TestForeignDispatchedRunsIgnored(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Workflows.Custom = true
+	e.cfg.Report.ApplySuccess = false
+	e.p.Actor = func() string { return "lorem-app[bot]" }
+	e.gh.files["leadtest-checkpatch.yml"] = "name: Checkpatch\non: workflow_dispatch\n"
+	// A workflow of another patch dispatched a run with the name the
+	// bot will use, before the bot does.
+	forged := gh.WorkflowRun{ID: 6000, Name: "Checkpatch",
+		DisplayTitle: "leadtest 141-14101-leadtest-checkpatch-1", Status: "completed",
+		Conclusion: "success", RunAttempt: 1,
+		Actor: gh.User{Login: "github-actions[bot]"}}
+	e.gh.dispatched = []gh.WorkflowRun{forged}
+	e.pw.addSeries(141, 1, "lorem", e.now)
+	e.step()
+	if len(e.gh.dispatches) != 1 {
+		t.Fatalf("a foreign run kept the bot from dispatching: %v", e.gh.dispatches)
+	}
+	e.step()
+	r := runByFile(e.series(141).Patches[0], "leadtest-checkpatch.yml")
+	if r.ID != 0 || r.Result != "" {
+		t.Fatalf("a foreign run was taken as the result: %+v", r)
+	}
+	own := forged
+	own.ID, own.Conclusion = 6001, "failure"
+	own.Actor = gh.User{Login: "lorem-app[bot]"}
+	e.gh.dispatched = append(e.gh.dispatched, own)
+	e.step()
+	if r.ID != 6001 || r.Result != state.ResultFail {
+		t.Fatalf("the bot's own run was not used: %+v", r)
+	}
+}
+
 func TestDispatchFailureRetried(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Workflows.Custom = true

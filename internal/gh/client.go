@@ -165,6 +165,10 @@ func (c *Client) MatchingRefs(ctx context.Context, prefix string) (map[string]st
 	return out, nil
 }
 
+type User struct {
+	Login string `json:"login"`
+}
+
 type WorkflowRun struct {
 	ID           int64     `json:"id"`
 	Name         string    `json:"name"`
@@ -179,6 +183,7 @@ type WorkflowRun struct {
 	RunAttempt   int       `json:"run_attempt"`
 	RunNumber    int       `json:"run_number"`
 	CheckSuiteID int64     `json:"check_suite_id"`
+	Actor        User      `json:"actor"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

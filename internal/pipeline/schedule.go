@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"leadtestkit/internal/gh"
 	"leadtestkit/internal/maint"
 	"leadtestkit/internal/pw"
 	"leadtestkit/internal/sched"
@@ -793,11 +794,28 @@ func (p *Pipeline) dispatchedTitles(ctx context.Context, s *state.Series) (map[s
 	}
 	titles := map[string]bool{}
 	for _, r := range runs {
-		if id, ok := strings.CutPrefix(r.DisplayTitle, dispatchTitlePrefix); ok {
+		if id, ok := strings.CutPrefix(r.DisplayTitle, dispatchTitlePrefix); ok &&
+			p.ownDispatch(r) {
 			titles[id] = true
 		}
 	}
 	return titles, nil
+}
+
+// ownDispatch reports whether the bot started a dispatched run.
+// Workflows of tested patches can dispatch runs with the same names, to
+// fake the results of other patches.
+func (p *Pipeline) ownDispatch(r gh.WorkflowRun) bool {
+	want := ""
+	if p.Actor != nil {
+		want = p.Actor()
+	}
+	if want == "" || strings.EqualFold(r.Actor.Login, want) {
+		return true
+	}
+	p.warnf("Ignoring dispatched run %d (%s): it was started by %s, not by %s.",
+		r.ID, r.DisplayTitle, r.Actor.Login, want)
+	return false
 }
 
 func (p *Pipeline) customWorkflows(ctx context.Context) ([]string, error) {
