@@ -51,6 +51,22 @@ also kept in ``refs/leadtest/series_<id>`` and
 ``refs/leadtest/patch_<id>``, which do not start workflows; they let
 the bot recover without running anything twice if it loses its state.
 
+The workflows of a tested patch can write to the test fork, so protect
+its branches once the App of step 2 exists, as described in
+`SECURITY.rst <SECURITY.rst>`_:
+
+1. Settings, Rules, Rulesets, *New ruleset*, *New branch ruleset*.
+2. **Ruleset name**: ``leadtest``; **Enforcement status**: *Active*.
+3. **Bypass list**: *Add bypass*, the App of step 2, and the
+   *Repository admin* role for maintaining ``main`` by hand.
+4. **Target branches**: *Add target*, *Include all branches*.
+5. **Rules**: *Restrict creations*, *Restrict updates*, *Restrict
+   deletions* and *Block force pushes*.
+
+Also set Settings, Actions, General, **Workflow permissions** to *Read
+repository contents and packages permissions*, and keep the fork free
+of secrets, environments and self-hosted runners.
+
 
 2. Create a GitHub App for the test fork
 ----------------------------------------

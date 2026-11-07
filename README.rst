@@ -33,7 +33,8 @@ everyone else.
 
 See `SETUP.rst <SETUP.rst>`_ to run an instance, and `SCHEDULER.rst
 <SCHEDULER.rst>`_ to start it from a scheduler outside GitHub, which is
-more punctual than GitHub's scheduled workflows.
+more punctual than GitHub's scheduled workflows.  `SECURITY.rst
+<SECURITY.rst>`_ describes what has which permissions and the risks.
 
 
 Development
