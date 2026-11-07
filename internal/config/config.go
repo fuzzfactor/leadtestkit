@@ -303,7 +303,7 @@ func defaults() Config {
 			RunTimeout:         Duration(30 * time.Hour),
 			GraceAfterRuns:     Duration(20 * time.Minute),
 			RetryDeadline:      Duration(2 * 24 * time.Hour),
-			BranchRetention:    Duration(30 * 24 * time.Hour),
+			BranchRetention:    Duration(730 * 24 * time.Hour),
 			HistoryWindow:      0,
 		},
 		Workflows: Workflows{RerunCancelled: true, RerunJobs: "failed",

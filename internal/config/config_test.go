@@ -60,6 +60,9 @@ func TestParseMinimalDefaults(t *testing.T) {
 	if c.Limits.HistoryWindow != 0 {
 		t.Errorf("history should be unlimited by default: %v", c.Limits.HistoryWindow.D())
 	}
+	if c.Limits.BranchRetention.D() != 730*24*time.Hour {
+		t.Errorf("branch retention = %v, want 730d", c.Limits.BranchRetention.D())
+	}
 }
 
 func TestUnknownFieldRejected(t *testing.T) {
@@ -133,6 +136,26 @@ func TestHistoryWindow(t *testing.T) {
 		}
 		if c.Rechecks.Window.D() != 30*24*time.Hour {
 			t.Error("history_window changed the independent recheck window")
+		}
+	}
+}
+
+func TestBranchRetentionOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  time.Duration
+	}{
+		{"0", 0},
+		{"30d", 30 * 24 * time.Hour},
+		{"365d", 365 * 24 * time.Hour},
+	} {
+		data := minimal + "\nlimits:\n  branch_retention: " + tc.value + "\n"
+		c, err := Parse([]byte(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Limits.BranchRetention.D() != tc.want {
+			t.Errorf("branch_retention %s = %v", tc.value, c.Limits.BranchRetention.D())
 		}
 	}
 }

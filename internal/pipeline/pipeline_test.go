@@ -603,7 +603,14 @@ func TestGC(t *testing.T) {
 		"refs/heads/series_5":       "x",
 		"refs/leadtest/patch_16001": "x", "refs/leadtest/patch_5": "x",
 	}
+	finished := e.now
 	e.now = e.now.AddDate(0, 2, 0)
+	e.reload()
+	e.step()
+	if len(e.gh.deleted) != 0 {
+		t.Fatalf("refs deleted before the retention period expired: %v", e.gh.deleted)
+	}
+	e.now = finished.Add(e.cfg.Limits.BranchRetention.D() + 24*time.Hour)
 	e.reload()
 	e.step()
 	if strings.Join(e.gh.deleted,

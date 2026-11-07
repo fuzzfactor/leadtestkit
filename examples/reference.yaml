@@ -286,7 +286,7 @@ limits:
   # Test branches and staging refs of series that finished longer ago
   # are deleted from the test fork.  0 keeps them forever.  Refs of
   # series the bot does not know about are never deleted.
-  branch_retention: 30d
+  branch_retention: 730d
 
   # How far back to search finished series to recognize them, their
   # reports and dependencies.  0 searches all history.  History files

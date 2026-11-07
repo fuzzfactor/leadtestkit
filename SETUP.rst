@@ -153,6 +153,10 @@ lookups are also unlimited by default (``limits.history_window: 0``).
 Set a duration to restrict lookups to recent history.  This does not
 delete records or change ``rechecks.window`` or branch cleanup.
 
+Test branches and recovery refs become eligible for cleanup 730 days
+after a series finishes.  Set ``limits.branch_retention`` to change
+this period, or to ``0`` to keep them indefinitely.
+
 Every change is a commit, so ``git log -p`` on the branch shows what
 the bot did.  You can edit the files and push; the bot rebases over
 your changes.  Useful fields on a series:
