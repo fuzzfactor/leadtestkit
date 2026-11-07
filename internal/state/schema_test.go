@@ -165,6 +165,33 @@ func TestVersionThreeSkipsPatchesOfFinishedSeries(t *testing.T) {
 	}
 }
 
+func TestVersionFourDropsUnpushedBranches(t *testing.T) {
+	dir := t.TempDir()
+	never, pushed := sampleSeries(1), sampleSeries(2)
+	for _, x := range []*Series{never, pushed} {
+		x.Branch = fmt.Sprintf("series_%d", x.ID)
+		x.Base = &Base{Branch: "main", SHA: "lorem"}
+	}
+	pushed.Patches[0].Pushed = FormatTime(now)
+	b, err := json.Marshal(queueFile{Schema: 4, Series: []*Series{never, pushed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, QueueFile), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Queue[0].Branch != "" || s.Queue[0].Base.Branch != "main" {
+		t.Errorf("series without pushes: %+v, base %+v", s.Queue[0], s.Queue[0].Base)
+	}
+	if s.Queue[1].Branch != "series_2" {
+		t.Errorf("the branch of a pushed series was dropped: %+v", s.Queue[1])
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)

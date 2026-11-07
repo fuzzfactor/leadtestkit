@@ -190,6 +190,32 @@ func TestSkipRulesAndBaseSelection(t *testing.T) {
 	}
 }
 
+func TestBranchRecordedOnlyWhenPushed(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(250, 2, "lorem", e.now)
+	e.repo.failAt[250] = 0
+	e.pw.addSeries(251, 2, "ipsum", e.now)
+	e.repo.failAt[251] = 1
+	e.step()
+	if s := e.series(250); s.Branch != "" || e.gh.branches["series_250"] != "" {
+		t.Errorf("series without pushes has branch %q", s.Branch)
+	}
+	if s := e.series(251); s.Branch != "series_251" {
+		t.Errorf("series with a pushed patch has branch %q", s.Branch)
+	}
+	for _, m := range e.mail.sent {
+		if strings.Contains(string(m.Data), "tree/series_250") {
+			t.Errorf("a report links a branch that does not exist:\n%s", m.Data)
+		}
+	}
+
+	s := e.series(251)
+	resetSeries(s)
+	if s.Branch != "" {
+		t.Errorf("a retried series keeps branch %q", s.Branch)
+	}
+}
+
 func TestSkipRulesOnFiles(t *testing.T) {
 	e := newEnv(t, "")
 	cfg, err := config.Parse([]byte(strings.Replace(baseConfig, "  skip:\n", `  skip:

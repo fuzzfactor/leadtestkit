@@ -334,6 +334,7 @@ func resetSeries(s *state.Series) {
 	s.Started = ""
 	s.Finished = ""
 	s.Base = nil
+	s.Branch = ""
 	s.Failure = nil
 	for _, pt := range s.Patches {
 		pt.Status = state.PatchPending
@@ -382,6 +383,10 @@ func (p *Pipeline) rerun(ctx context.Context, runID int64) error {
 func (p *Pipeline) branchURL(branch string) string {
 	return fmt.Sprintf("https://%s/%s/tree/%s", p.Cfg.TestRepo.GitHost,
 		p.Cfg.TestRepo.Repo, branch)
+}
+
+func (p *Pipeline) branchName(s *state.Series) string {
+	return fmt.Sprintf("%s%d", p.Cfg.TestRepo.BranchPrefix, s.ID)
 }
 
 func (p *Pipeline) stagingRef(s *state.Series) string {

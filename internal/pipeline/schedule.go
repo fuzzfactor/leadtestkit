@@ -191,9 +191,10 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 	}
 	// After a lost state the branch may already be at this or a later
 	// patch; moving it would start the workflows again.
+	branch := p.branchName(s)
 	p.infof("%s: checking branch %s before pushing commit %s.",
-		patchName(pt), s.Branch, short(pt.SHA))
-	cur, err := p.GH.RefSHA(ctx, "heads/"+s.Branch)
+		patchName(pt), branch, short(pt.SHA))
+	cur, err := p.GH.RefSHA(ctx, "heads/"+branch)
 	if err != nil {
 		pushFailed(err)
 		return
@@ -210,25 +211,25 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 			for _, x := range ordered[:head+1] {
 				if x.Status == state.PatchApplied {
 					p.notePatch(x, "push-recovered", "Already on %s at %s.",
-						s.Branch, cur)
+						branch, cur)
 					p.markPushed(ctx, s, x, now)
 					p.infof("%s: already on %s; not triggering CI again.",
-						patchName(x), s.Branch)
+						patchName(x), branch)
 				}
 			}
 			return
 		}
 	}
 	p.infof("%s: updating branch %s to %s to trigger push workflows.",
-		patchName(pt), s.Branch, short(pt.SHA))
-	if err := p.GH.SetBranch(ctx, s.Branch, pt.SHA); err != nil {
+		patchName(pt), branch, short(pt.SHA))
+	if err := p.GH.SetBranch(ctx, branch, pt.SHA); err != nil {
 		pushFailed(err)
 		return
 	}
 	p.Stats.Pushed++
-	p.notePatch(pt, "pushed", "Updated branch %s to %s.", s.Branch, pt.SHA)
+	p.notePatch(pt, "pushed", "Updated branch %s to %s.", branch, pt.SHA)
 	p.infof("%s: pushed to %s at %s; waiting for GitHub workflows.",
-		patchName(pt), s.Branch, short(pt.SHA))
+		patchName(pt), branch, short(pt.SHA))
 	p.markPushed(ctx, s, pt, now)
 }
 
@@ -237,6 +238,8 @@ func (p *Pipeline) markPushed(ctx context.Context, s *state.Series,
 	pt.Failure = nil
 	pt.Status = state.PatchPushed
 	pt.Pushed = state.FormatTime(now)
+	// Only recorded once the branch exists.
+	s.Branch = p.branchName(s)
 	p.dispatch(ctx, s, pt)
 }
 
@@ -391,7 +394,6 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	s.Failure = nil
 	s.Reapply = false
 	s.Base = base
-	s.Branch = fmt.Sprintf("%s%d", p.Cfg.TestRepo.BranchPrefix, s.ID)
 	s.Status = state.SeriesTesting
 	s.Started = state.FormatTime(now)
 	p.Stats.Applied++
@@ -586,8 +588,8 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 		if err != nil {
 			return nil, false, err
 		}
-		return &state.Base{GitURL: p.Cfg.Upstream.GitURL, Branch: dep.Branch, SHA: sha,
-			Why: fmt.Sprintf("depends on series %d", depID)}, true, nil
+		return &state.Base{GitURL: p.Cfg.Upstream.GitURL, Branch: p.branchName(dep),
+			SHA: sha, Why: fmt.Sprintf("depends on series %d", depID)}, true, nil
 	}
 	if dep != nil && dep.Active() &&
 		now.Sub(state.ParseTime(s.Discovered)) < p.Cfg.Limits.CompleteTimeout.D() {

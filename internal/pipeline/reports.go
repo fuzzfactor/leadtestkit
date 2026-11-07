@@ -227,7 +227,7 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 		return id, nil
 	}
 	buildURL := r.URL
-	if buildURL == "" && pt.SHA != "" {
+	if buildURL == "" && pt.Pushed != "" && s.Branch != "" {
 		buildURL = p.branchURL(s.Branch)
 	}
 	var cc []string

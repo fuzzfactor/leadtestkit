@@ -16,7 +16,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 const (
 	kindMeta   = "meta"
@@ -28,6 +28,34 @@ const (
 // fields and need no conversion.
 var migrations = map[int]func(kind string, doc map[string]any) error{
 	3: skipUnfinishedPatches,
+	4: dropUnpushedBranches,
+}
+
+// dropUnpushedBranches removes the test branch of series that never
+// pushed anything: before schema 5 it was recorded before pushing.
+func dropUnpushedBranches(kind string, doc map[string]any) error {
+	if kind != kindSeries {
+		return nil
+	}
+	list, _ := doc["series"].([]any)
+	for _, x := range list {
+		s, _ := x.(map[string]any)
+		if s == nil {
+			continue
+		}
+		pushed := false
+		patches, _ := s["patches"].([]any)
+		for _, y := range patches {
+			if p, _ := y.(map[string]any); p != nil && p["pushed"] != nil &&
+				p["pushed"] != "" {
+				pushed = true
+			}
+		}
+		if !pushed {
+			delete(s, "branch")
+		}
+	}
+	return nil
 }
 
 // skipUnfinishedPatches gives the patches of series skipped or failed
