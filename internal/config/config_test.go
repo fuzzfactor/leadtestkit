@@ -57,6 +57,9 @@ func TestParseMinimalDefaults(t *testing.T) {
 	if c.Limits.SeriesMaxAge.D() != 7*24*time.Hour {
 		t.Errorf("series max age = %v", c.Limits.SeriesMaxAge.D())
 	}
+	if c.Limits.HistoryWindow != 0 {
+		t.Errorf("history should be unlimited by default: %v", c.Limits.HistoryWindow.D())
+	}
 }
 
 func TestUnknownFieldRejected(t *testing.T) {
@@ -76,6 +79,7 @@ func TestValidationErrors(t *testing.T) {
 		"bad regexp":  minimal + "\nrules:\n  skip:\n    - subject: '('\n",
 		"bad base":    minimal + "\nrules:\n  base:\n    - type: lorem\n",
 		"staging ref": minimal + "\n  staging_ref: refs/heads/x/\n",
+		"history":     minimal + "\nlimits:\n  history_window: -1d\n",
 		"no dev archive for rechecks": strings.Replace(minimal,
 			"archive:\n  dev_url: https://lists.example.org/pipermail/lorem-dev/\n",
 			"", 1),
@@ -109,6 +113,27 @@ func TestDuration(t *testing.T) {
 	}
 	if _, err := Parse([]byte(minimal + "\nlimits:\n  series_max_age: lorem\n")); err == nil {
 		t.Error("expected error for invalid duration")
+	}
+}
+
+func TestHistoryWindow(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  time.Duration
+	}{
+		{"0", 0},
+		{"30d", 30 * 24 * time.Hour},
+	} {
+		c, err := Parse([]byte(minimal + "\nlimits:\n  history_window: " + tc.value + "\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Limits.HistoryWindow.D() != tc.want {
+			t.Errorf("history_window %s = %v", tc.value, c.Limits.HistoryWindow.D())
+		}
+		if c.Rechecks.Window.D() != 30*24*time.Hour {
+			t.Error("history_window changed the independent recheck window")
+		}
 	}
 }
 

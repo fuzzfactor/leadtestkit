@@ -148,6 +148,11 @@ The state is plain JSON on the ``state`` branch:
 - ``history/YYYY-MM.json``: finished series;
 - ``meta.json``: event and archive cursors.
 
+Finished series and patch records are retained indefinitely.  History
+lookups are also unlimited by default (``limits.history_window: 0``).
+Set a duration to restrict lookups to recent history.  This does not
+delete records or change ``rechecks.window`` or branch cleanup.
+
 Every change is a commit, so ``git log -p`` on the branch shows what
 the bot did.  You can edit the files and push; the bot rebases over
 your changes.  Useful fields on a series:

@@ -304,7 +304,7 @@ func defaults() Config {
 			GraceAfterRuns:     Duration(20 * time.Minute),
 			RetryDeadline:      Duration(2 * 24 * time.Hour),
 			BranchRetention:    Duration(30 * 24 * time.Hour),
-			HistoryWindow:      Duration(30 * 24 * time.Hour),
+			HistoryWindow:      0,
 		},
 		Workflows: Workflows{RerunCancelled: true, RerunJobs: "failed",
 			CustomPrefix: "leadtest-"},
@@ -574,6 +574,9 @@ func (c *Config) validate() error {
 	}
 
 	l := c.Limits
+	if l.HistoryWindow < 0 {
+		add("limits.history_window must be >= 0 (0 searches all history)")
+	}
 	if l.MaxQueuedJobs < 1 || l.MaxInflightPatches < 1 || l.PerAuthorMin < 1 ||
 		l.JobsPerPatch < 1 {
 		add("limits: max_queued_jobs, max_inflight_patches, per_author_min " +

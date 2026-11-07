@@ -139,6 +139,65 @@ func TestArchiveAndReopen(t *testing.T) {
 	}
 }
 
+func TestHistoryWindows(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := []time.Time{
+		now.AddDate(-2, 0, 0),
+		now.Add(-32 * 24 * time.Hour),
+		now.Add(-48 * time.Hour),
+		now.Add(-24 * time.Hour),
+		now.Add(-time.Hour),
+	}
+	for i, stamp := range finished {
+		x := sampleSeries(i + 1)
+		x.Finish(SeriesDone, "", stamp)
+		if err := s.Archive(x); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queued := sampleSeries(100)
+	queued.Discovered = FormatTime(now.AddDate(-2, 0, 0))
+	s.Add(queued)
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		window time.Duration
+		want   []int
+	}{
+		{0, []int{1, 2, 3, 4, 5, 100}},
+		{24 * time.Hour, []int{4, 5, 100}},
+		{48 * time.Hour, []int{3, 4, 5, 100}},
+	} {
+		t.Run(tc.window.String(), func(t *testing.T) {
+			loaded, err := Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			list, err := loaded.Recent(now, tc.window)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := map[int]bool{}
+			for _, series := range list {
+				ids[series.ID] = true
+			}
+			if len(ids) != len(tc.want) {
+				t.Fatalf("got %v, want %v", ids, tc.want)
+			}
+			for _, id := range tc.want {
+				if !ids[id] {
+					t.Errorf("series %d missing from %v", id, ids)
+				}
+			}
+		})
+	}
+}
+
 func TestRecordFailure(t *testing.T) {
 	var f *Failure
 	if !f.Due(now) {

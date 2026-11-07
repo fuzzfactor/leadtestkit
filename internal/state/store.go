@@ -299,7 +299,7 @@ func (s *Store) Reopen(x *Series) error {
 }
 
 // Recent returns queued series plus history series finished within the
-// window, newest shards first.
+// window, newest shards first.  A zero window includes all history.
 func (s *Store) Recent(now time.Time, window time.Duration) ([]*Series, error) {
 	out := append([]*Series(nil), s.Queue...)
 	cutoff := now.Add(-window)
@@ -309,7 +309,7 @@ func (s *Store) Recent(now time.Time, window time.Duration) ([]*Series, error) {
 	}
 	for _, m := range months {
 		t, err := time.Parse("2006-01", m)
-		if err != nil || t.AddDate(0, 1, 0).Before(cutoff) {
+		if err != nil || window != 0 && t.AddDate(0, 1, 0).Before(cutoff) {
 			continue
 		}
 		list, err := s.History(m)
@@ -317,7 +317,8 @@ func (s *Store) Recent(now time.Time, window time.Duration) ([]*Series, error) {
 			return nil, err
 		}
 		for _, x := range list {
-			if f := ParseTime(x.Finished); !f.IsZero() && f.Before(cutoff) {
+			if f := ParseTime(x.Finished); window != 0 && !f.IsZero() &&
+				f.Before(cutoff) {
 				continue
 			}
 			out = append(out, x)

@@ -288,9 +288,10 @@ limits:
   # series the bot does not know about are never deleted.
   branch_retention: 30d
 
-  # Finished series are remembered for this long to recognize them and
-  # their reports.
-  history_window: 30d
+  # How far back to search finished series to recognize them, their
+  # reports and dependencies.  0 searches all history.  History files
+  # are retained regardless of this setting; rechecks.window is separate.
+  history_window: 0
 
 workflows:
   # Names (as shown in GitHub Actions) of the push workflows that must
@@ -335,6 +336,7 @@ rechecks:
   labels: []
 
   # Patches can be rechecked for this long after they were tested.
+  # 0 allows rechecks from all retained history.
   window: 30d
 
 runner:

@@ -409,7 +409,10 @@ func (p *Pipeline) patchRef(pt *state.Patch) string {
 }
 
 func (p *Pipeline) known() (map[int]bool, error) {
-	window := max(p.Cfg.Limits.HistoryWindow.D(), p.Cfg.Limits.SeriesMaxAge.D()) + 24*time.Hour
+	window := p.Cfg.Limits.HistoryWindow.D()
+	if window != 0 {
+		window = max(window, p.Cfg.Limits.SeriesMaxAge.D()) + 24*time.Hour
+	}
 	list, err := p.Store.Recent(p.now(), window)
 	if err != nil {
 		return nil, err
