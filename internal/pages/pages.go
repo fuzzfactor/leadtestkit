@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"leadtestkit/internal/config"
+	"leadtestkit/internal/pw"
 	"leadtestkit/internal/state"
 )
 
@@ -64,7 +65,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 		Name:             cfg.Name,
 		Generated:        state.FormatTime(now),
 		RunURL:           runURL,
-		PatchworkWeb:     cfg.PatchworkWebURL(),
+		PatchworkWeb:     pw.UpgradeHTTP(cfg.PatchworkWebURL()),
 		Project:          cfg.Patchwork.Project,
 		TestRepo:         cfg.TestRepo.Repo,
 		GitHost:          cfg.TestRepo.GitHost,
@@ -75,10 +76,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 		Queue:  len(st.Queue),
 		Months: []Month{},
 	}
-	queue := st.Queue
-	if queue == nil {
-		queue = []*state.Series{}
-	}
+	queue := upgradeLinks(st.Queue)
 	if err := writeJSON(filepath.Join(data, "queue.json"),
 		seriesFile{Schema: state.SchemaVersion, Series: queue}); err != nil {
 		return err
@@ -97,12 +95,27 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 			n += len(s.Patches)
 		}
 		idx.Months = append(idx.Months, Month{Month: m, Series: len(list), Patches: n})
-		if err := writeJSON(filepath.Join(data, "history", m+".json"),
-			seriesFile{Schema: state.SchemaVersion, Series: list}); err != nil {
+		file := seriesFile{Schema: state.SchemaVersion, Series: upgradeLinks(list)}
+		if err := writeJSON(filepath.Join(data, "history", m+".json"), file); err != nil {
 			return err
 		}
 	}
 	return writeJSON(filepath.Join(data, "index.json"), idx)
+}
+
+// upgradeLinks returns the series with https:// Patchwork links, copying
+// the changed ones so that the state itself is left alone.
+func upgradeLinks(list []*state.Series) []*state.Series {
+	out := make([]*state.Series, 0, len(list))
+	for _, s := range list {
+		if u := pw.UpgradeHTTP(s.WebURL); u != s.WebURL {
+			c := *s
+			c.WebURL = u
+			s = &c
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func writeJSON(path string, v any) error {

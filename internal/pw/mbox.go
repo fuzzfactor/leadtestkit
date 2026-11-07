@@ -17,6 +17,15 @@ import (
 
 var headerFoldRe = regexp.MustCompile(`\r?\n[ \t]+`)
 
+// UpgradeHTTP converts http:// URLs to https://.  Patchwork reports
+// http:// links even when it is served over https://.
+func UpgradeHTTP(u string) string {
+	if strings.HasPrefix(u, "http://") {
+		return "https://" + u[len("http://"):]
+	}
+	return u
+}
+
 func compactHeader(s string) string {
 	return strings.TrimSpace(headerFoldRe.ReplaceAllString(s, " "))
 }

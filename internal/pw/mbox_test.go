@@ -8,6 +8,20 @@ import (
 	"testing"
 )
 
+func TestUpgradeHTTP(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"http://pw.example.com/patch/1/", "https://pw.example.com/patch/1/"},
+		{"https://pw.example.com/patch/1/", "https://pw.example.com/patch/1/"},
+		{"", ""},
+		{"ftp://example.com", "ftp://example.com"},
+	}
+	for _, tt := range tests {
+		if got := UpgradeHTTP(tt.in); got != tt.want {
+			t.Errorf("UpgradeHTTP(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestAuthor(t *testing.T) {
 	tests := []struct {
 		name    string

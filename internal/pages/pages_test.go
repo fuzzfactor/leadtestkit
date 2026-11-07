@@ -5,8 +5,10 @@ package pages
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,5 +87,56 @@ func TestRender(t *testing.T) {
 	s := history.Series[0]
 	if s.Decisions[0].RunURL != botURL || s.Patches[0].Decisions[0].RunURL != botURL {
 		t.Fatalf("decision links were lost in Pages data: %+v", s)
+	}
+}
+
+func TestRenderUpgradesPatchworkLinks(t *testing.T) {
+	cfg, err := config.Parse([]byte(strings.Replace(cfgYAML,
+		"https://pw.example.org", "http://pw.example.org", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := state.Load(t.TempDir())
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	series := func(id int) *state.Series {
+		return &state.Series{ID: id, Status: state.SeriesQueued,
+			Patches: []*state.Patch{},
+			WebURL: fmt.Sprintf("http://pw.example.org/project/lorem/list/?series=%d",
+				id)}
+	}
+	done := series(1)
+	st.Add(done)
+	done.Finish(state.SeriesDone, "", now)
+	if err := st.Archive(done); err != nil {
+		t.Fatal(err)
+	}
+	queued := series(2)
+	st.Add(queued)
+	out := t.TempDir()
+	if err := Render(st, cfg, out, now, ""); err != nil {
+		t.Fatal(err)
+	}
+	var idx Index
+	b, _ := os.ReadFile(filepath.Join(out, "data", "index.json"))
+	if err := json.Unmarshal(b, &idx); err != nil {
+		t.Fatal(err)
+	}
+	if idx.PatchworkWeb != "https://pw.example.org" {
+		t.Errorf("patchwork web = %q", idx.PatchworkWeb)
+	}
+	for _, f := range []string{"queue.json", "history/2026-03.json"} {
+		var data seriesFile
+		b, _ := os.ReadFile(filepath.Join(out, "data", f))
+		if err := json.Unmarshal(b, &data); err != nil {
+			t.Fatal(err)
+		}
+		if len(data.Series) != 1 ||
+			!strings.HasPrefix(data.Series[0].WebURL, "https://pw.example.org/") {
+			t.Errorf("%s: series links = %+v", f, data.Series)
+		}
+	}
+	if !strings.HasPrefix(queued.WebURL, "http://") ||
+		!strings.HasPrefix(done.WebURL, "http://") {
+		t.Error("rendering changed the saved state")
 	}
 }
