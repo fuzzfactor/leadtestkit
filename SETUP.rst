@@ -183,6 +183,15 @@ Open the workflow run in GitHub Actions and expand the step running
 ``leadtest``.  Each polling cycle ends with a queue summary and totals
 for the run.  Failed operations include their next retry time.
 
+Expand a series on Pages and open its *Decision history*, or the
+history under an individual patch.  Each entry includes a timestamp,
+the decision or action, and a *bot run logs* link to the GitHub Actions
+run attempt that handled it.  The same entries are stored in the
+``decisions`` arrays in ``queue.json`` and history files.  Links are
+recorded when the bot runs in GitHub Actions; local runs have no link.
+Older records have no decision history until the bot next acts on them.
+Linked logs are subject to the repository's Actions retention settings.
+
 If no tests start, check the logs for:
 
 - the discovery cutoff and saved event cursor, especially when using

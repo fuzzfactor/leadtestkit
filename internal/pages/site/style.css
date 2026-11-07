@@ -43,3 +43,7 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
 .badge.warning, .badge.skipped, .badge.apply-failed { background: var(--warning); }
 .badge.pending, .badge.testing, .badge.pushed, .badge.running { background: var(--pending); }
 .error { color: var(--fail); font-size: 12px; }
+.decisions { margin: 6px 0; font-size: 12px; }
+.decisions summary { cursor: pointer; color: var(--muted); }
+.decisions ol { margin: 4px 0; padding-left: 24px; }
+.decisions li { margin: 4px 0; overflow-wrap: anywhere; white-space: pre-wrap; }

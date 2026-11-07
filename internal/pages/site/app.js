@@ -59,6 +59,17 @@ function archiveLink(msgid, format) {
   return format.replace("{}", encodeURIComponent(msgid.replace(/^<|>$/g, "")));
 }
 
+function renderDecisions(decisions) {
+  if (!decisions || !decisions.length) return null;
+  const rows = decisions.slice().reverse().map(d => el("li", {},
+    el("time", { datetime: d.time }, d.time), " · ",
+    el("strong", {}, d.action.replace(/-/g, " ")), ": ", d.detail, " ",
+    d.run_url ? link(d.run_url, "bot run logs") : null));
+  return el("details", { class: "decisions" },
+    el("summary", {}, "Decision history (" + decisions.length + ")"),
+    el("ol", {}, rows));
+}
+
 function renderPatch(s, p) {
   const runs = el("div", { class: "runs" });
   for (const r of p.runs || []) {
@@ -80,7 +91,7 @@ function renderPatch(s, p) {
       ? [" ", link(archiveLink(p.msgid, index.patch_archive_url_format), "email")] : []),
     p.sha ? el("span", { class: "muted" }, " " + p.sha.slice(0, 12)) : null,
     p.failure ? el("div", { class: "error" }, p.failure.op + ": " + p.failure.last_error) : null,
-    runs);
+    runs, renderDecisions(p.decisions));
 }
 
 function renderSeries(s) {
@@ -106,7 +117,8 @@ function renderSeries(s) {
       branch ? [" · ", link(branch, s.branch)] : []),
     s.failure ? el("div", { class: "info error" }, s.failure.op + ": " + s.failure.last_error +
       " (" + s.failure.attempts + " attempts)") : null,
-    el("div", { class: "patches" }, ...(s.patches || []).map(p => renderPatch(s, p))));
+    el("div", { class: "patches" }, renderDecisions(s.decisions),
+      ...(s.patches || []).map(p => renderPatch(s, p))));
   head.onclick = () => box.classList.toggle("open");
   return box;
 }

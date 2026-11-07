@@ -84,6 +84,7 @@ type Pipeline struct {
 	Mail    mail.Sender
 	Now     func() time.Time
 	Log     *slog.Logger
+	RunURL  string
 
 	// Checkpoint saves and publishes the state.  It may replace Store
 	// when the remote state changed.
@@ -311,7 +312,7 @@ func (p *Pipeline) applyManual(ctx context.Context) {
 		if s.Skip != "" && s.Active() {
 			p.infof("%s: skipping at the operator's request: %s.",
 				seriesName(s), s.Skip)
-			s.Finish(state.SeriesSkipped, "manual: "+s.Skip, now)
+			p.finishSeries(s, state.SeriesSkipped, "manual: "+s.Skip, now)
 		}
 		if s.Retry {
 			s.Retry = false
@@ -321,12 +322,14 @@ func (p *Pipeline) applyManual(ctx context.Context) {
 			if s.Status == state.SeriesError || s.Status == state.SeriesSkipped ||
 				s.Status == state.SeriesDone {
 				resetSeries(s)
+				p.noteSeries(s, "retry", "Queued again for a fresh apply attempt.")
 				p.infof("%s: queued again for a fresh apply attempt.",
 					seriesName(s))
 			}
 		}
 		for _, pt := range s.Patches {
 			if pt.Retry {
+				p.notePatch(pt, "retry", "Cleared patch and workflow retry delays.")
 				p.infof("%s: clearing retry delays on manual request.",
 					patchName(pt))
 				pt.Retry = false

@@ -184,6 +184,18 @@ func (s *Store) Find(id int) *Series {
 	return nil
 }
 
+// PatchChanged marks the history shard of a modified cached patch for saving.
+func (s *Store) PatchChanged(pt *Patch) {
+	for month, list := range s.history {
+		for _, series := range list {
+			if series.Patch(pt.ID) == pt {
+				s.dirty[month] = true
+				return
+			}
+		}
+	}
+}
+
 func (s *Store) Add(x *Series) {
 	s.Queue = append(s.Queue, x)
 	sortSeries(s.Queue)

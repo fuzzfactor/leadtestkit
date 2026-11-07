@@ -180,11 +180,13 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 	now := p.now()
 	pushFailed := func(err error) {
 		if p.fail(&pt.Failure, "push", err) {
-			s.Finish(state.SeriesError, "push: "+pt.Failure.LastError, now)
+			p.finishSeries(s, state.SeriesError, "push: "+pt.Failure.LastError, now)
 			p.errorf("series %d: giving up pushing patch %d: %v", s.ID, pt.ID, err)
 		} else {
 			p.warnf("%s: could not push for series %d: %v", patchName(pt), s.ID, err)
 		}
+		p.notePatch(pt, "push-failed", "Attempt %d: %s. Next retry: %s.",
+			pt.Failure.Attempts, pt.Failure.LastError, pt.Failure.Next)
 	}
 	// After a lost state the branch may already be at this or a later
 	// patch; moving it would start the workflows again.
@@ -206,6 +208,8 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 		if head >= 0 && ordered[head].Number >= pt.Number {
 			for _, x := range ordered[:head+1] {
 				if x.Status == state.PatchApplied {
+					p.notePatch(x, "push-recovered", "Already on %s at %s.",
+						s.Branch, cur)
 					p.markPushed(ctx, s, x, now)
 					p.infof("%s: already on %s; not triggering CI again.",
 						patchName(x), s.Branch)
@@ -221,6 +225,7 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 		return
 	}
 	p.Stats.Pushed++
+	p.notePatch(pt, "pushed", "Updated branch %s to %s.", s.Branch, pt.SHA)
 	p.infof("%s: pushed to %s at %s; waiting for GitHub workflows.",
 		patchName(pt), s.Branch, short(pt.SHA))
 	p.markPushed(ctx, s, pt, now)
@@ -246,10 +251,12 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	p.infof("%s: preparing %d patches for testing.", seriesName(s), len(s.Patches))
 	retry := func(op string, err error) {
 		if p.fail(&s.Failure, op, err) {
-			s.Finish(state.SeriesError, op+": "+s.Failure.LastError, now)
+			p.finishSeries(s, state.SeriesError, op+": "+s.Failure.LastError, now)
 			p.errorf("series %d: giving up (%s): %v", s.ID, op, err)
 			return
 		}
+		p.noteSeries(s, "prepare-failed", "%s, attempt %d: %s. Next retry: %s.",
+			op, s.Failure.Attempts, s.Failure.LastError, s.Failure.Next)
 		p.warnf("%s: preparation failed while trying to %s: %v", seriesName(s), op, err)
 	}
 
@@ -267,7 +274,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		if d.PullURL != nil && *d.PullURL != "" {
 			p.infof("%s: skipping because patch %d is a pull request.",
 				seriesName(s), pt.ID)
-			s.Finish(state.SeriesSkipped, "pull request", now)
+			p.finishSeries(s, state.SeriesSkipped, "pull request", now)
 			return
 		}
 		if terminalPatchStates[d.State] {
@@ -279,7 +286,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		if err != nil {
 			p.infof("%s: skipping because patch %d cannot be made into an email: %v",
 				seriesName(s), pt.ID, err)
-			s.Finish(state.SeriesSkipped, err.Error(), now)
+			p.finishSeries(s, state.SeriesSkipped, err.Error(), now)
 			return
 		}
 		data[i] = patchData{detail: d, mbox: mbox}
@@ -287,7 +294,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	if terminal == len(patches) {
 		p.infof("%s: skipping because all patches are in terminal Patchwork states.",
 			seriesName(s))
-		s.Finish(state.SeriesSkipped, "patches are no longer active", now)
+		p.finishSeries(s, state.SeriesSkipped, "patches are no longer active", now)
 		return
 	}
 
@@ -336,6 +343,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	}
 	p.infof("%s: selected base %s at %s: %s.",
 		seriesName(s), base.Branch, short(base.SHA), base.Why)
+	p.noteSeries(s, "base-selected", "%s at %s: %s.", base.Branch, base.SHA, base.Why)
 
 	shas, failed, output := reused, -1, ""
 	if len(reused) < len(data) {
@@ -387,6 +395,13 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		case failed < 0 || i < failed:
 			pt.SHA = shas[i]
 			pt.Status = state.PatchApplied
+			if i < len(reused) {
+				p.notePatch(pt, "apply-recovered", "Reused saved commit %s.",
+					pt.SHA)
+			} else {
+				p.notePatch(pt, "applied", "Commit %s on base %s (%s).",
+					pt.SHA, base.Branch, base.SHA)
+			}
 			p.infof("%s: applied as commit %s.", patchName(pt), short(pt.SHA))
 			if p.Cfg.Report.ApplySuccess {
 				pt.Runs = append(pt.Runs, p.applyRun(state.ResultSuccess,
@@ -397,11 +412,13 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 			p.warnf("%s: failed to apply on %s at %s:\n%s",
 				patchName(pt), base.Branch, short(base.SHA), output)
 			pt.Status = state.PatchApplyFailed
+			p.notePatch(pt, "apply-failed", "%s", applyFailure(base, output))
 			pt.Runs = append(pt.Runs,
 				p.applyRun(state.ResultFail, applyFailure(base, output)))
 		default:
 			p.infof("%s: not applied because an earlier patch failed.", patchName(pt))
 			pt.Status = state.PatchNotApplied
+			p.notePatch(pt, "not-applied", "An earlier patch failed to apply.")
 		}
 	}
 	p.infof("%s: preparation finished; %d of %d patches applied (%d reused).",
@@ -554,6 +571,10 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 	}
 	if dep != nil && dep.Active() &&
 		now.Sub(state.ParseTime(s.Discovered)) < p.Cfg.Limits.CompleteTimeout.D() {
+		if s.Status != state.SeriesWaiting {
+			p.noteSeries(s, "dependency-wait", "Waiting for series %d to be applied.",
+				depID)
+		}
 		p.infof("%s: waiting for dependency series %d to be applied.", seriesName(s), depID)
 		s.Status = state.SeriesWaiting
 		s.Reason = fmt.Sprintf("waiting for series %d", depID)
@@ -706,6 +727,8 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 			}
 		}
 		if existing[r.CorrelationID] {
+			p.notePatch(pt, "dispatch-recovered", "Found existing %s dispatch (%s).",
+				r.File, r.CorrelationID)
 			p.infof("%s: found an existing dispatch for %s (%s); not sending it again.",
 				patchName(pt), r.File, r.CorrelationID)
 			r.Status = "requested"
@@ -732,6 +755,8 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 				r.Details = "Failed to start the workflow: " + r.Failure.LastError
 				r.Completed = state.FormatTime(p.now())
 			}
+			p.notePatch(pt, "dispatch-failed", "%s, attempt %d: %s.",
+				r.File, r.Failure.Attempts, r.Failure.LastError)
 			p.warnf("%s: could not dispatch %s: %v", patchName(pt), r.File, err)
 			continue
 		}
@@ -739,6 +764,8 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 		r.Status = "requested"
 		r.Updated = state.FormatTime(p.now())
 		p.Stats.Dispatched++
+		p.notePatch(pt, "dispatched", "%s from %s for commit %s (request %s).",
+			r.File, p.Cfg.TestRepo.ToolsBranch, pt.SHA, r.CorrelationID)
 		p.infof("%s: GitHub accepted the %s dispatch; waiting for the run to appear.",
 			patchName(pt), r.File)
 	}

@@ -40,6 +40,11 @@ func TestRender(t *testing.T) {
 	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	done := &state.Series{ID: 1, Status: state.SeriesDone, Discovered: state.FormatTime(now),
 		Patches: []*state.Patch{{ID: 11, Status: state.PatchDone}}}
+	botURL := "https://github.com/x/y/actions/runs/1/attempts/2"
+	done.Decisions = []state.Decision{{Time: state.FormatTime(now),
+		Action: "discovered", Detail: "Found in Patchwork.", RunURL: botURL}}
+	done.Patches[0].Decisions = []state.Decision{{Time: state.FormatTime(now),
+		Action: "pushed", Detail: "Updated the test branch.", RunURL: botURL}}
 	st.Add(done)
 	done.Finish(state.SeriesDone, "", now)
 	if err := st.Archive(done); err != nil {
@@ -68,5 +73,17 @@ func TestRender(t *testing.T) {
 		idx.Months[0].Patches != 1 ||
 		idx.PatchworkWeb != "https://pw.example.org" {
 		t.Errorf("index = %+v", idx)
+	}
+	b, err = os.ReadFile(filepath.Join(out, "data", "history", "2026-03.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var history seriesFile
+	if err := json.Unmarshal(b, &history); err != nil {
+		t.Fatal(err)
+	}
+	s := history.Series[0]
+	if s.Decisions[0].RunURL != botURL || s.Patches[0].Decisions[0].RunURL != botURL {
+		t.Fatalf("decision links were lost in Pages data: %+v", s)
 	}
 }

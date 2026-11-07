@@ -4,6 +4,7 @@
 package state
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -88,6 +89,31 @@ func TestFileWithoutSchemaIsVersionOne(t *testing.T) {
 	s, err := Load(dir)
 	if err != nil || len(s.Queue) != 1 {
 		t.Fatalf("queue=%v err=%v", s, err)
+	}
+}
+
+func TestVersionTwoRecordsHaveNoInventedDecisions(t *testing.T) {
+	dir := t.TempDir()
+	x := sampleSeries(1)
+	b, err := json.Marshal(queueFile{Schema: 2, Series: []*Series{x}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, QueueFile), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Queue[0].Decisions) != 0 || len(s.Queue[0].Patches[0].Decisions) != 0 {
+		t.Fatal("migration invented decision provenance")
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(dir); err != nil {
+		t.Fatal(err)
 	}
 }
 

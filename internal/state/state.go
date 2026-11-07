@@ -93,6 +93,13 @@ type Base struct {
 	Why string `json:"why,omitempty"`
 }
 
+type Decision struct {
+	Time   string `json:"time"`
+	Action string `json:"action"`
+	Detail string `json:"detail"`
+	RunURL string `json:"run_url,omitempty"`
+}
+
 type Series struct {
 	ID        int    `json:"id"`
 	Name      string `json:"name"`
@@ -125,8 +132,9 @@ type Series struct {
 	Started  string `json:"started,omitempty"`
 	Finished string `json:"finished,omitempty"`
 
-	Failure *Failure `json:"failure,omitempty"`
-	Patches []*Patch `json:"patches"`
+	Failure   *Failure   `json:"failure,omitempty"`
+	Patches   []*Patch   `json:"patches"`
+	Decisions []Decision `json:"decisions,omitempty"`
 }
 
 type Patch struct {
@@ -146,11 +154,12 @@ type Patch struct {
 	// Recheck requests a rerun of the failed runs and RecheckChecks of
 	// the runs with these Patchwork check names, from a Recheck-request
 	// comment or a human.
-	Recheck       bool     `json:"recheck,omitempty"`
-	RecheckChecks []string `json:"recheck_checks,omitempty"`
-	Retry         bool     `json:"retry,omitempty"`
-	Failure       *Failure `json:"failure,omitempty"`
-	Runs          []*Run   `json:"runs,omitempty"`
+	Recheck       bool       `json:"recheck,omitempty"`
+	RecheckChecks []string   `json:"recheck_checks,omitempty"`
+	Retry         bool       `json:"retry,omitempty"`
+	Failure       *Failure   `json:"failure,omitempty"`
+	Runs          []*Run     `json:"runs,omitempty"`
+	Decisions     []Decision `json:"decisions,omitempty"`
 }
 
 type Run struct {

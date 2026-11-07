@@ -118,6 +118,12 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 			all, names := ParseRecheck(c.Content, labels)
 			checks := p.matchChecks(t.patch, names)
 			if all || len(checks) > 0 {
+				target := strings.Join(checks, ", ")
+				if all {
+					target = "all eligible workflows"
+				}
+				p.notePatch(t.patch, "recheck-requested", "Comment %d: recheck %s.",
+					c.ID, target)
 				if all {
 					p.infof("%s: comment %d requests a recheck by bot label.",
 						patchName(t.patch), c.ID)
@@ -275,12 +281,15 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 		}
 	}
 	if len(rerun)+len(redispatch) == 0 {
+		p.notePatch(pt, "recheck-skipped", "No completed workflows qualify.")
 		p.infof("%s: no workflows qualify for this recheck; clearing the request.",
 			patchName(pt))
 		done()
 		return
 	}
 	if !p.Cfg.Mode.PushLive() {
+		p.notePatch(pt, "recheck-skipped", "Push mode is %s; clearing the request.",
+			p.Cfg.Mode.Push)
 		p.infof("%s: would restart %d workflows, but push mode is %s; clearing request.",
 			patchName(pt), len(rerun)+len(redispatch), p.Cfg.Mode.Push)
 		done()
@@ -304,6 +313,7 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 			err = p.rerun(ctx, r.ID)
 		}
 		if err != nil {
+			p.notePatch(pt, "rerun-failed", "%s run %d: %v", p.label(r), r.ID, err)
 			if p.fail(&pt.Failure, "recheck", err) {
 				done()
 				pt.Failure = nil
@@ -313,6 +323,8 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 			return
 		}
 		r.MinAttempt = r.Attempt
+		p.notePatch(pt, "rerun", "Restarted %s run %d after attempt %d.",
+			p.label(r), r.ID, r.Attempt)
 		reset(r)
 		p.infof("%s: rerun accepted for %s; waiting for a newer attempt.",
 			patchName(pt), p.label(r))
@@ -348,6 +360,8 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 	}
 	p.sendDispatches(ctx, s, pt)
 	p.Stats.Rechecks++
+	p.notePatch(pt, "recheck-started", "%d reruns accepted; %d workflows queued for dispatch.",
+		len(rerun), len(redispatch))
 	p.infof("%s: recheck started; %d reruns accepted and %d workflows queued for redispatch.",
 		patchName(pt), len(rerun), len(redispatch))
 }

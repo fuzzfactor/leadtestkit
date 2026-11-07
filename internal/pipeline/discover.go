@@ -27,12 +27,14 @@ func (p *Pipeline) track(id int, known map[int]bool) {
 		return
 	}
 	known[id] = true
-	p.Store.Add(&state.Series{
+	s := &state.Series{
 		ID:         id,
 		Status:     state.SeriesNew,
 		Discovered: state.FormatTime(p.now()),
 		Patches:    []*state.Patch{},
-	})
+	}
+	p.noteSeries(s, "discovered", "Found in Patchwork.")
+	p.Store.Add(s)
 	p.Stats.Discovered++
 	p.infof("Found series %d; fetching its details during eligibility checks.", id)
 }
@@ -164,20 +166,26 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		ps, err := p.PW.GetSeries(ctx, s.ID)
 		if err != nil {
 			if p.fail(&s.Failure, "fetch series", err) {
-				s.Finish(state.SeriesError,
+				p.finishSeries(s, state.SeriesError,
 					"fetch series: "+s.Failure.LastError, now)
 				p.errorf("series %d: giving up fetching details: %v", s.ID, err)
 			}
+			p.noteSeries(s, "fetch-failed", "Attempt %d: %s. Next retry: %s.",
+				s.Failure.Attempts, s.Failure.LastError, s.Failure.Next)
 			continue
 		}
 		s.Failure = nil
 		p.fill(s, ps)
 		if reason := p.skipReason(s, ps, now); reason != "" {
 			p.infof("%s: skipping: %s.", seriesName(s), reason)
-			s.Finish(state.SeriesSkipped, reason, now)
+			p.finishSeries(s, state.SeriesSkipped, reason, now)
 			continue
 		}
 		if !ps.ReceivedAll {
+			if s.Checked == "" {
+				p.noteSeries(s, "incomplete", "Waiting for all %d patches.",
+					ps.Total)
+			}
 			p.infof("%s: received %d of %d patches; waiting for the rest.",
 				seriesName(s), len(ps.Patches), ps.Total)
 			s.Checked = state.FormatTime(now)
@@ -185,6 +193,7 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		}
 		s.Checked = ""
 		s.Status = state.SeriesQueued
+		p.noteSeries(s, "queued", "Eligible for testing; %d patches.", len(s.Patches))
 		p.infof("%s: eligible; queued %d patches for testing.",
 			seriesName(s), len(s.Patches))
 		p.supersede(s, now)
@@ -217,6 +226,7 @@ func (p *Pipeline) fill(s *state.Series, ps *pw.Series) {
 		pt := existing[sum.ID]
 		if pt == nil {
 			pt = &state.Patch{ID: sum.ID, Status: state.PatchPending}
+			p.notePatch(pt, "discovered", "Found in series %d.", s.ID)
 		}
 		pt.Number = i + 1
 		pt.Name = sum.Name
@@ -282,6 +292,7 @@ func (p *Pipeline) supersede(s *state.Series, now time.Time) {
 			continue
 		}
 		p.infof("%s: skipping because series %d is a newer version.", seriesName(o), s.ID)
-		o.Finish(state.SeriesSkipped, "superseded by a newer version", now)
+		p.finishSeries(o, state.SeriesSkipped,
+			"superseded by a newer version", now)
 	}
 }

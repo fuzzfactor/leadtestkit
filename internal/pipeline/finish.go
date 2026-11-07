@@ -89,7 +89,7 @@ func (p *Pipeline) finish(ctx context.Context) {
 				}
 			}
 			if done {
-				s.Finish(state.SeriesDone, "", now)
+				p.finishSeries(s, state.SeriesDone, "", now)
 				p.infof("%s: all patches and reports are complete.", seriesName(s))
 			} else {
 				p.infof("%s: keeping queued; patches or reports are unfinished.",

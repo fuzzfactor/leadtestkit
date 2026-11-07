@@ -136,7 +136,11 @@ func runURL() string {
 	if server == "" || repo == "" || id == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s/actions/runs/%s", server, repo, id)
+	u := fmt.Sprintf("%s/%s/actions/runs/%s", server, repo, id)
+	if attempt := os.Getenv("GITHUB_RUN_ATTEMPT"); attempt != "" {
+		u += "/attempts/" + attempt
+	}
+	return u
 }
 
 func githubOutput(key, value string) error {
@@ -378,13 +382,14 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 		Committer: cfg.Runner.CommitAuthor,
 	}
 	p := &pipeline.Pipeline{
-		Cfg:   cfg,
-		Store: st,
-		PW:    pwc,
-		GH:    ghc,
-		Repo:  work,
-		Mail:  sender,
-		Log:   log,
+		Cfg:    cfg,
+		Store:  st,
+		PW:     pwc,
+		GH:     ghc,
+		Repo:   work,
+		Mail:   sender,
+		Log:    log,
+		RunURL: runURL(),
 	}
 	if r := newArchive(cfg.Archive.ReportsURL, "reports-archive"); r != nil {
 		p.Reports = r

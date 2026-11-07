@@ -46,6 +46,8 @@ func (p *Pipeline) monitorPatch(ctx context.Context, s *state.Series, pt *state.
 		p.warnf("%s: cannot list workflow runs: %v", patchName(pt), err)
 		done := state.RecordFailure(&pt.Failure, "monitor", err, p.now(), monitorDeadline)
 		p.logFailure(pt.Failure, done)
+		p.notePatch(pt, "monitor-failed", "Attempt %d: %s. Next retry: %s.",
+			pt.Failure.Attempts, pt.Failure.LastError, pt.Failure.Next)
 		if done {
 			p.abandonRuns(pt, "Lost track of the workflow runs: "+pt.Failure.LastError)
 		}
@@ -164,6 +166,15 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 		return
 	}
 	now := state.FormatTime(p.now())
+	if r.ID != wr.ID || r.Attempt != wr.RunAttempt || r.Status != wr.Status ||
+		r.Conclusion != wr.Conclusion {
+		status := wr.Status
+		if wr.Conclusion != "" {
+			status += ": " + wr.Conclusion
+		}
+		p.notePatch(pt, "workflow-updated", "%s run %d, attempt %d: %s.",
+			r.Workflow, wr.ID, wr.RunAttempt, status)
+	}
 	if r.ID != wr.ID || r.Attempt != wr.RunAttempt || r.Status != wr.Status {
 		r.Updated = now
 	}
@@ -180,6 +191,8 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 	if wr.Conclusion == "cancelled" && p.Cfg.Workflows.RerunCancelled && r.AutoReruns < 1 {
 		err := p.rerun(ctx, wr.ID)
 		if err == nil {
+			p.notePatch(pt, "rerun", "Restarted cancelled %s run %d.",
+				r.Workflow, wr.ID)
 			p.infof("%s: restarted cancelled run %d; this is its one automatic retry.",
 				patchName(pt), wr.ID)
 			r.AutoReruns++
@@ -188,6 +201,7 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 			return
 		}
 		p.warnf("%s: could not restart cancelled run %d: %v", patchName(pt), wr.ID, err)
+		p.notePatch(pt, "rerun-failed", "Cancelled %s run %d: %v", r.Workflow, wr.ID, err)
 	}
 	r.Result = conclusionResult(wr.Conclusion)
 	r.Completed = now
@@ -212,6 +226,7 @@ func conclusionResult(c string) string {
 }
 
 func (p *Pipeline) abandonRuns(pt *state.Patch, details string) {
+	p.notePatch(pt, "monitor-abandoned", "%s", details)
 	p.warnf("%s: marking unfinished workflows as warnings: %s", patchName(pt), details)
 	now := state.FormatTime(p.now())
 	for _, r := range pt.Runs {
@@ -246,6 +261,7 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	stamp := state.FormatTime(now)
 
 	warn := func(r *state.Run, details string) {
+		p.notePatch(pt, "workflow-warning", "%s: %s", p.label(r), details)
 		p.warnf("%s: workflow %s is being marked as a warning: %s",
 			patchName(pt), r.Workflow, details)
 		r.Status, r.Result = "completed", state.ResultWarning
@@ -334,6 +350,7 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 		}
 	}
 	pt.Status = state.PatchDone
+	p.notePatch(pt, "done", "Testing and reporting are complete.")
 	p.recordJobs(ctx, pt)
 	p.infof("%s: testing and reporting are complete.", patchName(pt))
 }

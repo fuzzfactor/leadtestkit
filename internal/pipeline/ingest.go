@@ -6,6 +6,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -262,6 +263,9 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	p.Stats.Ingested++
 	if !p.Cfg.Mode.PostChecks() {
+		p.noteCheck(patchID, "check-logged",
+			fmt.Sprintf("Would post %s check %s from %s.",
+				chk.State, chk.Context, msgURL))
 		p.infof("Patch %d (%s): would post %s check %s linking to %s (%s); "+
 			"checks mode: %s.",
 			patchID, name, chk.State, chk.Context,
@@ -273,13 +277,19 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	if err := p.PW.CreateCheck(ctx, patchID, chk); err != nil {
 		if code := httpx.StatusCode(err); code >= 400 && code < 500 &&
 			code != http.StatusTooManyRequests {
+			p.noteCheck(patchID, "check-rejected",
+				fmt.Sprintf("Check %s from %s: %v", chk.Context, msgURL, err))
 			p.warnf("Patch %d (%s): check %s rejected; not retrying this report: %v",
 				patchID, name, chk.Context, err)
 			return errSkip
 		}
+		p.noteCheck(patchID, "check-failed",
+			fmt.Sprintf("Check %s from %s: %v", chk.Context, msgURL, err))
 		return err
 	}
 	p.Stats.Checks++
+	p.noteCheck(patchID, "check-posted",
+		fmt.Sprintf("%s check %s from %s.", chk.State, chk.Context, msgURL))
 	p.infof("Patch %d (%s): posted %s check %s.", patchID, name, chk.State, chk.Context)
 	return nil
 }

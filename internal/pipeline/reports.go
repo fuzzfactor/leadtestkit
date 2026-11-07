@@ -78,6 +78,8 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 	}
 	if r.Pending.Check == "" {
 		if !p.Cfg.Report.PendingCheck {
+			p.notePatch(pt, "check-skipped", "Pending checks disabled for %s.",
+				p.label(r))
 			p.infof("%s: pending checks disabled; not posting one for %s.",
 				patchName(pt), p.label(r))
 			r.Pending.Check = state.StepSkipped
@@ -94,6 +96,8 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 					patchName(pt), chk.Context, chk.TargetURL,
 					p.Cfg.Mode.Checks)
 				r.Pending.Check = state.StepLogged
+				p.notePatch(pt, "check-logged", "Would post pending check %s: %s.",
+					chk.Context, chk.TargetURL)
 			} else {
 				p.infof("%s: posting pending check %s linking to %s.",
 					patchName(pt), chk.Context, chk.TargetURL)
@@ -104,10 +108,14 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 						r.Pending.Check = state.StepFailed
 						r.Failure = nil
 					}
+					p.notePatch(pt, "check-failed", "Pending check %s: %v",
+						chk.Context, err)
 					return
 				}
 				r.Pending.Check = state.StepPosted
 				p.Stats.Checks++
+				p.notePatch(pt, "check-posted", "Pending check %s linking to %s.",
+					chk.Context, chk.TargetURL)
 				p.infof("%s: pending check %s posted successfully.",
 					patchName(pt), chk.Context)
 			}
@@ -115,6 +123,8 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 	}
 	if r.Pending.Email == "" {
 		if !p.Cfg.Report.PendingEmail {
+			p.notePatch(pt, "report-skipped", "Pending emails disabled for %s.",
+				p.label(r))
 			p.infof("%s: pending emails disabled; not sending one for %s.",
 				patchName(pt), p.label(r))
 			r.Pending.Email = state.StepSkipped
@@ -122,6 +132,8 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 		}
 		id, err := p.sendReport(ctx, s, pt, r, state.ResultPending, "pending", "")
 		if err != nil {
+			p.notePatch(pt, "report-failed", "Pending email for %s: %v",
+				p.label(r), err)
 			p.warnf("%s: pending email for %s failed: %v",
 				patchName(pt), p.label(r), err)
 			if p.fail(&r.Failure, "pending email", err) {
@@ -159,11 +171,16 @@ func (p *Pipeline) reportFinal(ctx context.Context, s *state.Series,
 			}
 			if attempts+1 < logFetchAttempts {
 				p.fail(&r.Failure, "logs", err)
+				p.notePatch(pt, "report-delayed",
+					"%s: cannot fetch logs; retry at %s: %v",
+					p.label(r), r.Failure.Next, err)
 				p.warnf("%s: cannot fetch logs for run %d; delaying its report: %v",
 					patchName(pt), r.ID, err)
 				return
 			}
 			logs = "Build logs are not available: " + err.Error()
+			p.notePatch(pt, "report-without-logs", "%s: no logs after %d attempts: %v",
+				p.label(r), attempts+1, err)
 			p.warnf("%s: sending without build logs after %d failed attempts: %v",
 				patchName(pt), attempts+1, err)
 		}
@@ -171,6 +188,7 @@ func (p *Pipeline) reportFinal(ctx context.Context, s *state.Series,
 	}
 	id, err := p.sendReport(ctx, s, pt, r, r.Result, "final", extra)
 	if err != nil {
+		p.notePatch(pt, "report-failed", "Final email for %s: %v", p.label(r), err)
 		p.warnf("%s: final report email for %s failed: %v", patchName(pt), p.label(r), err)
 		if p.fail(&r.Failure, "report email", err) {
 			r.Final.Email = state.StepFailed
@@ -202,6 +220,8 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 	id := report.MessageID(p.Cfg.Report.MessageIDDomain, s.ID, pt.ID, label,
 		fmt.Sprintf("%s.%d", kind, generation), max(r.Attempt, 1))
 	if p.Cfg.Mode.EmailOff() {
+		p.notePatch(pt, "report-skipped", "%s email for %s (%s): email is off.",
+			kind, label, result)
 		p.infof("%s: not sending the %s email for %s (%s); email mode is off.",
 			patchName(pt), kind, label, result)
 		return id, nil
@@ -243,6 +263,8 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 		return "", err
 	}
 	p.Stats.Emails++
+	p.notePatch(pt, "report-sent", "Sent %s email for %s (%s). Message-ID: %s.",
+		kind, label, result, id)
 	p.infof("%s: %s report for %s (%s) sent. Message-ID: %s.",
 		patchName(pt), kind, label, result, id)
 	if kind == "final" {
