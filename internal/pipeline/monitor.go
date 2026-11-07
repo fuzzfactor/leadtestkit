@@ -5,6 +5,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -104,10 +105,18 @@ func (p *Pipeline) updatePushRuns(ctx context.Context, s *state.Series, pt *stat
 	runs []gh.WorkflowRun) {
 	latest := map[string]gh.WorkflowRun{}
 	for _, r := range runs {
-		if r.Event != "push" || r.HeadBranch != s.Branch || r.HeadSHA != pt.SHA {
-			p.infof("%s: ignoring run %d (%s): "+
-				"its event, branch or commit does not match this patch's push.",
-				patchName(pt), r.ID, r.Name)
+		var why string
+		switch {
+		case r.Event != "push":
+			why = "it was started by " + r.Event + ", not by a push"
+		case r.HeadBranch != s.Branch:
+			why = fmt.Sprintf("it ran on branch %s, not %s", r.HeadBranch, s.Branch)
+		case r.HeadSHA != pt.SHA:
+			why = fmt.Sprintf("it tested commit %s, not %s", short(r.HeadSHA),
+				short(pt.SHA))
+		}
+		if why != "" {
+			p.infof("%s: ignoring run %d (%s): %s.", patchName(pt), r.ID, r.Name, why)
 			continue
 		}
 		if cur, ok := latest[r.Name]; !ok || r.ID > cur.ID {
@@ -361,7 +370,7 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	}
 	for _, r := range pt.Runs {
 		if !r.Settled() {
-			p.infof("%s: waiting for the %s report to be sent or skipped.",
+			p.infof("%s: waiting for the final %s report to be sent.",
 				patchName(pt), p.label(r))
 			return
 		}

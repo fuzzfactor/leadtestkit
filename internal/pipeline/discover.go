@@ -23,9 +23,16 @@ const (
 )
 
 func (p *Pipeline) track(id int, known map[int]bool) {
-	if id <= 0 || known[id] {
-		p.infof("Not adding series %d: invalid or already tracked in the queue or history.",
-			id)
+	switch {
+	case id <= 0:
+		p.warnf("Ignoring series ID %d from Patchwork: not a valid ID.", id)
+		return
+	case known[id]:
+		if s := p.Store.Find(id); s != nil {
+			p.infof("Series %d is already in the queue (%s).", id, s.Status)
+		} else {
+			p.infof("Series %d was already handled; it is in the history.", id)
+		}
 		return
 	}
 	known[id] = true

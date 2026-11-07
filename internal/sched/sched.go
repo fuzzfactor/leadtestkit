@@ -5,6 +5,7 @@
 package sched
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"time"
@@ -112,15 +113,22 @@ func Pick(in Input) []int {
 		queued += l.JobsPerPatch
 		out = append(out, c.SeriesID)
 	}
+	selected := ""
+	if len(out) > 0 {
+		selected = fmt.Sprintf(", plus about %d for the %d patches selected now,",
+			queued-in.QueuedJobs, len(out))
+	}
 	if queued >= l.MaxQueuedJobs {
-		explain("Stopped selecting patches: "+
-			"%d queued or estimated jobs meet the limit of %d.",
-			queued, l.MaxQueuedJobs)
+		explain("Stopped selecting patches: %d jobs waiting for a runner on GitHub%s "+
+			"reach the limit of %d.", in.QueuedJobs, selected, l.MaxQueuedJobs)
 	}
 	if total >= l.MaxInflightPatches {
-		explain("Stopped selecting patches: "+
-			"%d in-flight or selected patches meet limit %d.",
-			total, l.MaxInflightPatches)
+		selected = ""
+		if len(out) > 0 {
+			selected = fmt.Sprintf(", plus %d selected now,", len(out))
+		}
+		explain("Stopped selecting patches: %d patches being tested%s reach the "+
+			"limit of %d.", total-len(out), selected, l.MaxInflightPatches)
 	}
 	return out
 }

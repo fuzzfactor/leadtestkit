@@ -261,15 +261,29 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 	var rerun, redispatch []*state.Run
 	explicit := map[*state.Run]bool{}
 	for _, r := range pt.Runs {
-		if !rerunnable(r) || r.Status != "completed" {
-			p.infof("%s: not rerunning %s; it is not a completed push or dispatch run.",
-				patchName(pt), p.label(r))
+		if !rerunnable(r) {
+			what := "the result of applying the patch"
+			if r.Kind == state.RunMissing {
+				what = "a warning about a workflow that never started"
+			}
+			p.infof("%s: not rerunning %s; it is %s, not a workflow run.",
+				patchName(pt), p.label(r), what)
+			continue
+		}
+		if r.Status != "completed" {
+			p.infof("%s: not rerunning %s; it has not finished yet (%s).",
+				patchName(pt), p.label(r), r.Status)
 			continue
 		}
 		explicit[r] = containsFold(pt.RecheckChecks, report.Context(p.label(r)))
-		if !explicit[r] && (!pt.Recheck || failedOnly && r.Result == state.ResultSuccess) {
-			p.infof("%s: not rerunning %s; not selected by request or rerun policy.",
+		if !explicit[r] && !pt.Recheck {
+			p.infof("%s: not rerunning %s; the request names other checks.",
 				patchName(pt), p.label(r))
+			continue
+		}
+		if !explicit[r] && failedOnly && r.Result == state.ResultSuccess {
+			p.infof("%s: not rerunning %s; it passed, and workflows.rerun_jobs "+
+				"only reruns failures.", patchName(pt), p.label(r))
 			continue
 		}
 		switch {

@@ -5,6 +5,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -77,23 +78,45 @@ func patchFinal(pt *state.Patch) bool {
 	return true
 }
 
+// unfinished describes what keeps a series from being done, or returns
+// "" if nothing does.
+func unfinished(s *state.Series) string {
+	testing, reports := 0, 0
+	for _, pt := range s.Patches {
+		switch pt.Status {
+		case state.PatchDone, state.PatchNotApplied, state.PatchSkipped,
+			state.PatchApplyFailed:
+		default:
+			testing++
+			continue
+		}
+		for _, r := range pt.Runs {
+			if !r.Settled() {
+				reports++
+			}
+		}
+	}
+	var parts []string
+	if testing > 0 {
+		parts = append(parts, fmt.Sprintf("%d of %d patches are still being tested",
+			testing, len(s.Patches)))
+	}
+	if reports > 0 {
+		parts = append(parts, fmt.Sprintf("%d reports of tested patches are not sent yet",
+			reports))
+	}
+	return strings.Join(parts, "; ")
+}
+
 func (p *Pipeline) finish(ctx context.Context) {
 	now := p.now()
 	for _, s := range append([]*state.Series(nil), p.Store.Queue...) {
 		if s.Status == state.SeriesTesting {
-			done := true
-			for _, pt := range s.Patches {
-				if !patchFinal(pt) {
-					done = false
-					break
-				}
-			}
-			if done {
+			if waiting := unfinished(s); waiting != "" {
+				p.infof("%s: staying in the queue: %s.", seriesName(s), waiting)
+			} else {
 				p.finishSeries(s, state.SeriesDone, "", now)
 				p.infof("%s: all patches and reports are complete.", seriesName(s))
-			} else {
-				p.infof("%s: keeping queued; patches or reports are unfinished.",
-					seriesName(s))
 			}
 		}
 		if s.Active() {
@@ -190,9 +213,14 @@ func (p *Pipeline) gc(ctx context.Context) {
 			if err != nil || !pr.ids[id] {
 				continue
 			}
-			if deleted >= maxRefDeletes || ctx.Err() != nil {
-				p.infof("Stopping cleanup: %d deletions; budget or cancellation.",
-					deleted)
+			if deleted >= maxRefDeletes {
+				p.infof("Stopping cleanup after %d deletions, the most per "+
+					"invocation; the rest is deleted later.", deleted)
+				return
+			}
+			if ctx.Err() != nil {
+				p.infof("Stopping cleanup after %d deletions: %v.", deleted,
+					ctx.Err())
 				return
 			}
 			p.infof("Deleting old ref %s.", name)

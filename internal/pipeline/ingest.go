@@ -119,8 +119,14 @@ func (p *Pipeline) ingest(ctx context.Context) {
 	sort.Strings(urls)
 	for _, u := range urls {
 		f := c.Retry[u]
-		if budget <= 0 || ctx.Err() != nil {
-			p.infof("Stopping report retries: budget exhausted or polling cancelled.")
+		if budget <= 0 {
+			p.infof("Stopping report retries: all %d message slots of this pass "+
+				"are used.",
+				p.Cfg.Archive.MaxMessages)
+			return
+		}
+		if ctx.Err() != nil {
+			p.infof("Stopping report retries: %v.", ctx.Err())
 			return
 		}
 		if !f.Due(now) {
@@ -148,8 +154,13 @@ func (p *Pipeline) ingest(ctx context.Context) {
 	for _, mm := range months {
 		for _, m := range mm.msgs {
 			if budget <= 0 || ctx.Err() != nil {
-				p.infof("Stopping ingestion in %s: budget exhausted or cancelled. "+
-					"Remaining messages will be picked up later.", mm.key)
+				why := fmt.Sprintf("all %d message slots of this pass are used",
+					p.Cfg.Archive.MaxMessages)
+				if budget > 0 {
+					why = ctx.Err().Error()
+				}
+				p.infof("Stopping ingestion in %s: %s. The remaining messages "+
+					"are read later.", mm.key, why)
 				c.LastMonth = monthOfKey(mm.key)
 				return
 			}

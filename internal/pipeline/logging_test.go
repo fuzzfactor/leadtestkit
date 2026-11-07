@@ -6,6 +6,7 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -161,7 +162,8 @@ func TestLogsExplainCapacityAndHolds(t *testing.T) {
 	e.p.schedule(context.Background())
 	requireLogs(t, &buf,
 		"1 queued jobs (limit 1)",
-		"Stopped selecting patches: 1 queued or estimated jobs meet the limit of 1",
+		"Stopped selecting patches: 1 jobs waiting for a runner on GitHub reach the "+
+			"limit of 1.",
 		"selected 0 patch slots",
 	)
 }
@@ -239,4 +241,58 @@ func TestLogsExplainArchiveInitializationAndIngestion(t *testing.T) {
 		"posting success check lab",
 		"posted success check lab",
 	)
+}
+
+func TestLogsNameTheExactReason(t *testing.T) {
+	e := newEnv(t, "")
+	var buf bytes.Buffer
+	e.p.Log = logx.New(&buf, false)
+	e.pw.addSeries(7, 2, "lorem", e.now)
+	e.step()
+	known, err := e.p.known()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.p.track(7, known)
+	e.p.track(0, known)
+	requireLogs(t, &buf,
+		"Series 7 is already in the queue (testing).",
+		"Ignoring series ID 0 from Patchwork: not a valid ID.",
+	)
+
+	// A run of another branch, and a series waiting for its runs.
+	buf.Reset()
+	other := e.gh.startRuns("series_8", "sha-701", "Build")[0]
+	e.gh.startRuns("series_7", "sha-701", "Build")
+	e.advance(3 * time.Minute)
+	e.step()
+	requireLogs(t, &buf,
+		"ignoring run "+strconv.FormatInt(other, 10)+
+			" (Build): it ran on branch series_8, not series_7.",
+		"staying in the queue: 2 of 2 patches are still being tested.",
+	)
+
+	// Recheck reasons for each run that is not rerun.
+	buf.Reset()
+	pt := e.series(7).Patches[0]
+	pt.Runs = append(pt.Runs, &state.Run{Kind: state.RunPush, Workflow: "Lint",
+		Status: "completed", Result: state.ResultSuccess, ID: 99})
+	pt.Recheck = true
+	e.p.doRecheck(context.Background(), e.series(7), pt)
+	requireLogs(t, &buf,
+		"not rerunning apply-robot; it is the result of applying the patch, "+
+			"not a workflow run.",
+		"not rerunning github-robot: Build; it has not finished yet (in_progress).",
+		"not rerunning github-robot: Lint; it passed, and workflows.rerun_jobs only "+
+			"reruns failures.",
+	)
+
+	buf.Reset()
+	e.p.track(7, map[int]bool{7: true})
+	e.series(7).Finish(state.SeriesDone, "", e.now)
+	if err := e.p.Store.Archive(e.series(7)); err != nil {
+		t.Fatal(err)
+	}
+	e.p.track(7, map[int]bool{7: true})
+	requireLogs(t, &buf, "Series 7 was already handled; it is in the history.")
 }
