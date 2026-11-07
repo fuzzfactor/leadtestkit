@@ -120,7 +120,9 @@ update the secret and delete the old key in the App settings.
 -------------------------------
 
 1. Fork leadtestkit and enable GitHub Actions, including scheduled
-   workflows (forks have them disabled by default).
+   workflows (forks have them disabled by default).  GitHub often
+   starts scheduled workflows late; `SCHEDULER.rst <SCHEDULER.rst>`_
+   explains how to start the bot from a scheduler elsewhere.
 2. Add the repository secrets (Settings, Secrets and variables,
    Actions):
 

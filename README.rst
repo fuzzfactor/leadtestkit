@@ -31,7 +31,9 @@ pages instead of being dropped.  Patches are pushed with admission
 control and per-author fairness, so one large series does not block
 everyone else.
 
-See `SETUP.rst <SETUP.rst>`_ to run an instance.
+See `SETUP.rst <SETUP.rst>`_ to run an instance, and `SCHEDULER.rst
+<SCHEDULER.rst>`_ to start it from a scheduler outside GitHub, which is
+more punctual than GitHub's scheduled workflows.
 
 
 Development
