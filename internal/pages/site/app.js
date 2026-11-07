@@ -6,6 +6,9 @@
 const PAGE_SIZE = 50;
 let index = null;
 let current = { tab: "queue", series: [], page: 0 };
+// Downloaded series lists by data path, kept until Refresh.
+const cache = new Map();
+const open = new Set();
 
 function el(tag, attrs, ...children) {
   const e = document.createElement(tag);
@@ -112,14 +115,17 @@ function renderSeries(s) {
     info.push("base: " + (s.base.branch || "") + (s.base.why ? " (" + s.base.why + ")" : ""));
   }
   if (s.hold) info.push("on hold");
-  const box = el("div", { class: "series" }, head,
+  const box = el("div", { class: open.has(s.id) ? "series open" : "series" }, head,
     el("div", { class: "info" }, ...info.map((t, i) => (i ? " · " : "") + t),
       branch ? [" · ", link(branch, s.branch)] : []),
     s.failure ? el("div", { class: "info error" }, s.failure.op + ": " + s.failure.last_error +
       " (" + s.failure.attempts + " attempts)") : null,
     el("div", { class: "patches" }, renderDecisions(s.decisions),
       ...(s.patches || []).map(p => renderPatch(s, p))));
-  head.onclick = () => box.classList.toggle("open");
+  head.onclick = () => {
+    if (box.classList.toggle("open")) open.add(s.id);
+    else open.delete(s.id);
+  };
   return box;
 }
 
@@ -162,38 +168,51 @@ function render() {
   }
 }
 
-async function selectTab(tab) {
-  current.tab = tab;
-  current.page = 0;
-  location.hash = tab;
+function markActive() {
   for (const b of document.querySelectorAll("nav button")) {
-    b.classList.toggle("active", b.dataset.tab === tab);
+    b.classList.toggle("active", b.dataset.tab === current.tab);
   }
-  document.getElementById("list").replaceChildren(el("p", { class: "muted" }, "Loading..."));
+}
+
+async function selectTab(tab, keepPage) {
+  current.tab = tab;
+  if (!keepPage) current.page = 0;
+  location.hash = tab;
+  markActive();
   const path = tab === "queue" ? "data/queue.json" : "data/history/" + tab + ".json";
-  try {
-    const data = await getJSON(path);
-    current.series = (data.series || []).slice().sort((a, b) => b.id - a.id);
-  } catch (e) {
-    current.series = [];
-    document.getElementById("list").replaceChildren(el("p", { class: "error" }, e.message));
-    return;
+  if (!cache.has(path)) {
+    document.getElementById("list").replaceChildren(el("p", { class: "muted" }, "Loading..."));
+    try {
+      const data = await getJSON(path);
+      cache.set(path, (data.series || []).slice().sort((a, b) => b.id - a.id));
+    } catch (e) {
+      if (current.tab === tab) {
+        current.series = [];
+        document.getElementById("list").replaceChildren(
+          el("p", { class: "error" }, e.message));
+      }
+      return;
+    }
   }
+  // Another tab may have been selected while this one was loading.
+  if (current.tab !== tab) return;
+  current.series = cache.get(path);
   render();
 }
 
-async function main() {
+async function loadIndex() {
   index = await getJSON("data/index.json");
   document.title = index.title;
   document.getElementById("title").textContent = index.title;
   const mode = index.mode;
-  document.getElementById("meta").append(
+  document.getElementById("meta").replaceChildren(
     "Updated " + age(index.generated) + " · ",
     link(index.patchwork_web + "/project/" + index.project + "/list/", "patchwork"), " · ",
     link("https://" + index.git_host + "/" + index.test_repo, index.test_repo),
     ...(index.run_url ? [" · ", link(index.run_url, "last run")] : []),
     " · push " + mode.push + ", checks " + mode.checks + ", email " + mode.email);
   const tabs = document.getElementById("tabs");
+  tabs.replaceChildren();
   const add = (tab, text) => {
     const b = el("button", { onclick: () => selectTab(tab) }, text);
     b.dataset.tab = tab;
@@ -201,11 +220,35 @@ async function main() {
   };
   add("queue", "In progress (" + index.queue + ")");
   for (const m of index.months) add(m.month, m.month + " (" + m.series + ")");
+  markActive();
+}
+
+function knownTab(tab) {
+  return tab === "queue" || index.months.some(m => m.month === tab);
+}
+
+async function refresh() {
+  const button = document.getElementById("refresh");
+  button.disabled = true;
+  try {
+    cache.clear();
+    await loadIndex();
+    const tab = knownTab(current.tab) ? current.tab : "queue";
+    await selectTab(tab, tab === current.tab);
+  } catch (e) {
+    document.getElementById("list").replaceChildren(el("p", { class: "error" }, e.message));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function main() {
+  await loadIndex();
+  document.getElementById("refresh").onclick = refresh;
   document.getElementById("filter").oninput = () => { current.page = 0; render(); };
   document.getElementById("status").onchange = () => { current.page = 0; render(); };
   const wanted = location.hash.slice(1);
-  const known = wanted === "queue" || index.months.some(m => m.month === wanted);
-  await selectTab(known ? wanted : "queue");
+  await selectTab(knownTab(wanted) ? wanted : "queue");
 }
 
 main().catch(e => {
