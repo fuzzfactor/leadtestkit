@@ -27,8 +27,17 @@ The test fork runs code from anyone who sends a patch to the list.
 
      git switch main
      cp <leadtestkit>/fork-workflows/leadtest-checkpatch-ovs.yml .github/workflows/
-     git add .github && git commit -m "LeadTestKit workflows."
+     $EDITOR Makefile.am
+     git add .github Makefile.am && git commit -m "LeadTestKit workflows."
      git push origin main
+
+   Open vSwitch and OVN check in every build that all files in git are
+   distributed, so list the new files in ``EXTRA_DIST`` in
+   ``Makefile.am``, next to the existing ``.github/workflows/`` entries.
+   Otherwise the project's workflows fail on ``main``, including the
+   runs after the weekly sync that fill the caches.  If an upstream
+   change near these lines makes the sync conflict, merge by hand as
+   described below.
 
    File names must start with ``leadtest-``; the project's own
    workflows on the branch are never started by the bot.  Workflows
