@@ -2,9 +2,10 @@ Starting the bot from an external scheduler
 ===========================================
 
 The bot repository's workflow (``.github/workflows/leadtest.yml``) runs
-on a ``schedule``.  GitHub starts scheduled workflows late, sometimes by
-an hour, and skips them when it is busy.  For steady reaction times,
-start the workflow from a scheduler outside GitHub with a
+on a ``schedule``.  GitHub starts scheduled workflows late, sometimes
+by several hours (delays of seven hours have been seen), and drops some
+of them altogether when it is busy.  For steady reaction times, start
+the workflow from a scheduler outside GitHub with a
 ``workflow_dispatch`` request:
 
 .. code-block:: text
@@ -13,10 +14,12 @@ start the workflow from a scheduler outside GitHub with a
   Authorization: Bearer <token>
   Accept: application/vnd.github+json
   X-GitHub-Api-Version: 2022-11-28
+  Content-Type: application/json
 
   {"ref": "main"}
 
-GitHub answers ``204 No Content`` when the run is queued.
+Any ``2xx`` answer means that the run is queued: GitHub answers
+``204 No Content``, or ``200 OK`` with details of the run.
 
 Every 15 minutes matches the default ``runner.loop_duration`` of 13
 minutes.  Runs never overlap: the workflow's ``concurrency`` group
@@ -68,9 +71,12 @@ only one repository permission:
 
 - Actions: read and write (Metadata: read-only is added automatically).
 
-Install it on the bot repository only, and note its Client ID (or App
-ID) and private key.  The examples below find the installation from the repository
-name and ask for a token limited to that repository and to Actions.
+As for the first App, clear *Active* under *Webhook*: the App needs
+no webhook, and without one GitHub sends no events anywhere.  Install
+it on the bot repository only, and note its Client ID (or App ID) and
+private key.  The examples below find the installation from the
+repository name and ask for a token limited to that repository and to
+Actions.
 
 
 Cloudflare Worker
@@ -87,6 +93,9 @@ Cloudflare's free plan.  Everything can be done in the dashboard:
    variables listed with the code.  Use type *Secret* for credentials.
 4. In *Settings*, *Trigger events*, add a *Cron trigger*, for example
    ``*/15 * * * *``.
+5. In *Settings*, *Domains & Routes*, disable the ``workers.dev``
+   domain and the preview URLs.  Cron triggers work without them, and
+   the Worker then has no public address at all.
 
 To test it, use the *Schedule* button in the code editor's preview, or
 wait for the trigger; the run appears in the bot repository's Actions
@@ -192,7 +201,9 @@ key once:
     if (!resp.ok) {
       throw new Error(`${method} ${path}: HTTP ${resp.status}: ${await resp.text()}`);
     }
-    return resp.status === 204 ? null : resp.json();
+    // A dispatch may answer 204 without a body or 200 with one.
+    const text = await resp.text();
+    return text ? JSON.parse(text) : null;
   }
 
   // Exchanges the JWT for a token limited to the bot repository and
@@ -241,7 +252,9 @@ Create a cronjob with:
 
   - **Request body**: ``{"ref": "main"}``.
 
-*Test run* shows GitHub's answer; ``204`` means the run was queued.
+*Test run* shows GitHub's answer; ``204`` or ``200`` means the run was
+queued.  The job's settings may have to accept ``2xx`` answers other
+than ``200`` as successful.
 Enable failure notifications to learn when the token expires.
 
 
