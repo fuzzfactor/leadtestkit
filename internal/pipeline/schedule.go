@@ -768,6 +768,15 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 		r.Failure = nil
 		r.Status = "requested"
 		r.Updated = state.FormatTime(p.now())
+		// The workflow timeouts count from the push; a dispatch sent in a
+		// later cycle (after a retry or with push mode off) restarts them.
+		if pushed := state.ParseTime(pt.Pushed); p.now().Sub(pushed) >=
+			p.Cfg.Runner.LoopInterval.D() {
+			pt.Pushed = state.FormatTime(p.now())
+			p.infof("%s: restarting workflow timeouts; "+
+				"the dispatch was delayed since %s.",
+				patchName(pt), state.FormatTime(pushed))
+		}
 		p.Stats.Dispatched++
 		p.notePatch(pt, "dispatched", "%s from %s for commit %s (request %s).",
 			r.File, p.Cfg.TestRepo.ToolsBranch, pt.SHA, r.CorrelationID)

@@ -150,8 +150,9 @@ archive:
   lookback_months: 1
 
   # Message-processing budget per archive pass, including retries.
-  # Incomplete scans and pending retries can cause further passes in
-  # the same bot invocation, each with a fresh budget.
+  # Messages left over go to the next invocation.  A failed index read,
+  # or retries using up the whole budget, repeats the pass in the next
+  # cycle of the same invocation with a fresh budget.
   max_messages: 200
 
 smtp:
@@ -167,8 +168,9 @@ smtp:
 
 mode:
   # "live": push patches and start workflows in the test fork.
-  # "off": no pushes, dispatches or reruns.  Unpushed patches wait;
-  # existing runs are still monitored and reported.
+  # "off": no pushes, dispatches or reruns.  Unpushed patches and
+  # unsent dispatches wait without timing out; existing runs are still
+  # monitored and reported.
   push: live
 
   # "post": post checks to Patchwork (needs LEADTEST_PW_TOKEN).
@@ -278,6 +280,8 @@ limits:
   no_run_timeout: 2h
 
   # Runs not finished this long after the push get a warning report.
+  # Both timeouts restart on a recheck and when a dispatch is sent in a
+  # later cycle than the push.
   run_timeout: 30h
 
   # Without workflows.expected, wait this long after all known workflows

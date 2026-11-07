@@ -278,6 +278,10 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	}
 
 	runs := ciRuns(pt)
+	// Dispatches held back by push mode off wait without timing out.
+	held := func(r *state.Run) bool {
+		return r.Status == "dispatching" && !p.Cfg.Mode.PushLive()
+	}
 	if now.Sub(pushed) > lim.NoRunTimeout.D() {
 		if len(runs) == 0 {
 			missing("", "No workflow runs were started for this patch.")
@@ -296,7 +300,7 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	}
 	if now.Sub(pushed) > lim.RunTimeout.D() {
 		for _, r := range ciRuns(pt) {
-			if r.Status != "completed" || r.Result == "" {
+			if (r.Status != "completed" || r.Result == "") && !held(r) {
 				warn(r, "Timed out waiting for the workflow to finish.")
 			}
 		}
@@ -310,6 +314,11 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	}
 	var last time.Time
 	for _, r := range runs {
+		if held(r) {
+			p.infof("%s: %s is not dispatched while push mode is %s; waiting.",
+				patchName(pt), r.File, p.Cfg.Mode.Push)
+			return
+		}
 		if r.Status != "completed" || r.Result == "" {
 			p.infof("%s: waiting for workflow %s to finish; timeout at %s.",
 				patchName(pt), r.Workflow,

@@ -307,13 +307,24 @@ func TestPushOffDefersPendingDispatches(t *testing.T) {
 	pt.Runs = append(pt.Runs, r)
 	e.cfg.Mode.Push = "off"
 	e.step()
-	if len(e.gh.dispatches) != 0 || r.Status != "dispatching" || r.Failure != nil {
+	e.advance(e.cfg.Limits.RunTimeout.D() + time.Hour)
+	e.step()
+	if len(e.gh.dispatches) != 0 || r.Status != "dispatching" || r.Failure != nil ||
+		r.Result != "" {
 		t.Fatalf("push mode off changed pending dispatch: %+v, %v", r, e.gh.dispatches)
 	}
 	e.cfg.Mode.Push = "live"
 	e.step()
-	if len(e.gh.dispatches) != 1 || r.Status != "requested" {
+	if len(e.gh.dispatches) != 1 || r.Status != "requested" || r.Result != "" {
 		t.Fatalf("dispatch did not resume in live mode: %+v, %v", r, e.gh.dispatches)
+	}
+	if pt.Pushed != state.FormatTime(e.now) {
+		t.Errorf("timeouts were not restarted by the delayed dispatch: %s", pt.Pushed)
+	}
+	e.advance(e.cfg.Limits.NoRunTimeout.D() + time.Minute)
+	e.step()
+	if r.Result != state.ResultWarning {
+		t.Errorf("restarted timeout did not expire: %+v", r)
 	}
 }
 
