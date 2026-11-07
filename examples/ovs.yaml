@@ -48,17 +48,17 @@ mode:
 
 rules:
   skip:
-    - subject: '\bRFC\b'
+    - subject: '^\[[^\]]*\bRFC\b[^\]]*\]'
       reason: RFC
     # Kernel patches cross-posted to the list, e.g. [ovs-dev,net,v2].
     - subject: '^\[[^\]]*\bnet(-next)?\b[^\]]*\]'
       reason: kernel patch
   base:
     - type: subject
-      match: '\b(branch-\d+\.\d+)\b'
+      match: '^\[[^\]]*\b(branch-\d+\.\d+)\b[^\]]*\]'
       branch: '$1'
     - type: subject
-      match: '\b(dpdk-latest)\b'
+      match: '^\[[^\]]*\b(dpdk-latest)\b[^\]]*\]'
       branch: '$1'
   supersede: true
 

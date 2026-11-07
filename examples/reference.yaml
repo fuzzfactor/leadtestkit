@@ -193,10 +193,12 @@ mode:
 rules:
   # Series not to test.  `subject` is a regular expression matched
   # against the series name and every patch name; `reason` is recorded
-  # in the state and shown on the pages.
+  # in the state and shown on the pages.  Patch names keep the subject
+  # prefix, e.g. "[ovs-dev,RFC,v2,1/3] lorem: Ipsum.", so matching only
+  # inside the leading brackets ignores words in the title itself.
   skip: []
   # skip:
-  #   - subject: '\bRFC\b'
+  #   - subject: '^\[[^\]]*\bRFC\b[^\]]*\]'
   #     reason: RFC
 
   # Base branch selection.  Rules are tried in order and the first
@@ -208,7 +210,7 @@ rules:
   #   # Regular expression on the series and patch names.  `branch` may
   #   # use groups like $1.  `git_url` defaults to upstream.git_url.
   #   - type: subject
-  #     match: '\b(branch-\d+\.\d+)\b'
+  #     match: '^\[[^\]]*\b(branch-\d+\.\d+)\b[^\]]*\]'
   #     branch: '$1'
   #
   #   # Patchwork username of the delegate of the series.

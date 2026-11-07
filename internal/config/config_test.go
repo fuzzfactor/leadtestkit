@@ -230,6 +230,51 @@ func TestSecrets(t *testing.T) {
 	}
 }
 
+func TestOVSExampleRules(t *testing.T) {
+	c, err := Load("../../examples/ovs.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	skip := func(name string) string {
+		for _, r := range c.Rules.Skip {
+			if r.Regexp().MatchString(name) {
+				return r.Reason
+			}
+		}
+		return ""
+	}
+	base := func(name string) string {
+		for _, r := range c.Rules.Base {
+			re := r.Regexp()
+			if m := re.FindStringSubmatchIndex(name); m != nil {
+				return string(re.ExpandString(nil, r.Branch, name, m))
+			}
+		}
+		return ""
+	}
+	for name, want := range map[string]string{
+		"[ovs-dev,RFC,v2,1/3] lorem: Ipsum.":          "RFC",
+		"[ovs-dev,RFC] lorem: Ipsum.":                 "RFC",
+		"[ovs-dev,net-next,v2] lorem: Ipsum.":         "kernel patch",
+		"[ovs-dev] lorem: Implement RFC 8200 bits.":   "",
+		"[ovs-dev,v2,1/3] lorem: Drop net-next hack.": "",
+	} {
+		if got := skip(name); got != want {
+			t.Errorf("skip %q = %q, want %q", name, got, want)
+		}
+	}
+	for name, want := range map[string]string{
+		"[ovs-dev,branch-3.4,v2,1/2] lorem: Ipsum.":     "branch-3.4",
+		"[ovs-dev,dpdk-latest] lorem: Ipsum.":           "dpdk-latest",
+		"[ovs-dev,v2] lorem: Backport from branch-3.4.": "",
+		"[ovs-dev] lorem: Test with dpdk-latest.":       "",
+	} {
+		if got := base(name); got != want {
+			t.Errorf("base %q = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestExamplesParse(t *testing.T) {
 	files, err := filepath.Glob("../../examples/*.yaml")
 	if err != nil || len(files) == 0 {

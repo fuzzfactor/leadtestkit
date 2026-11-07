@@ -49,7 +49,7 @@ mode:
 
 rules:
   skip:
-    - subject: '\bRFC\b'
+    - subject: '^\[[^\]]*\bRFC\b[^\]]*\]'
       reason: RFC
   base:
     - type: maintainers
