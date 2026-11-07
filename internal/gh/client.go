@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"leadtestkit/internal/httpx"
@@ -21,8 +20,10 @@ import (
 type Options struct {
 	APIURL string
 	// Repo is "owner/name".
-	Repo   string
-	Token  string
+	Repo string
+	// Auth returns the Authorization header value for GitHub API
+	// requests, or "" for none.
+	Auth   func(ctx context.Context) (string, error)
 	Logger *slog.Logger
 	HTTP   *httpx.Client
 }
@@ -31,9 +32,6 @@ type Client struct {
 	http *httpx.Client
 	api  string
 	repo string
-
-	mu     sync.Mutex
-	expiry string
 }
 
 func New(opts Options) (*Client, error) {
@@ -43,19 +41,15 @@ func New(opts Options) (*Client, error) {
 	}
 	hc := opts.HTTP
 	if hc == nil {
-		auth := ""
-		if opts.Token != "" {
-			auth = "Bearer " + opts.Token
-		}
 		hc = httpx.New(httpx.Options{
 			Name: "github",
 			Header: http.Header{
 				"Accept":               {"application/vnd.github+json"},
 				"X-Github-Api-Version": {"2022-11-28"},
 			},
-			Authorization: auth,
-			AuthHost:      u.Hostname(),
-			Logger:        opts.Logger,
+			Auth:     opts.Auth,
+			AuthHost: u.Hostname(),
+			Logger:   opts.Logger,
 		})
 	}
 	return &Client{http: hc, api: strings.TrimRight(opts.APIURL, "/"), repo: opts.Repo}, nil
@@ -63,28 +57,12 @@ func New(opts Options) (*Client, error) {
 
 func (c *Client) Repo() string { return c.repo }
 
-// TokenExpiry is the expiration time reported by GitHub for the token,
-// or "" if unknown or not expiring.
-func (c *Client) TokenExpiry() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.expiry
-}
-
 func (c *Client) repoURL(path string) string {
 	return c.api + "/repos/" + c.repo + path
 }
 
 func (c *Client) do(ctx context.Context, r httpx.Request) (*httpx.Response, error) {
-	resp, err := c.http.Do(ctx, r)
-	if resp != nil {
-		if exp := resp.Header.Get("Github-Authentication-Token-Expiration"); exp != "" {
-			c.mu.Lock()
-			c.expiry = exp
-			c.mu.Unlock()
-		}
-	}
-	return resp, err
+	return c.http.Do(ctx, r)
 }
 
 func (c *Client) getJSON(ctx context.Context, u string, dest any) (*httpx.Response, error) {

@@ -52,18 +52,66 @@ also kept in ``refs/leadtest/series_<id>`` and
 the bot recover without running anything twice if it loses its state.
 
 
-2. Create the token for the test fork
--------------------------------------
+2. Create a GitHub App for the test fork
+----------------------------------------
 
-Create a fine-grained personal access token (or a GitHub App token)
-with access to the test fork only:
+LeadTestKit works on the test fork as a GitHub App installed on that
+repository only.  The App needs no server and no webhook: it is an
+identity with permissions.  For every run the bot signs a request with
+the App's private key and gets a token for the test fork that is valid
+for an hour, so there is no token to renew.  Changes in the test fork
+show up as made by ``<app name>[bot]``.
 
-- Contents: read and write (pushing test branches);
-- Workflows: read and write (patches may change workflow files);
-- Actions: read and write (reading runs, reruns, dispatching).
+Create the App in the account that owns the test fork.  An App limited
+to its own account can only be installed there, so an App created in
+your user account cannot be installed in an organization.
 
-Fine-grained tokens expire; LeadTestKit warns in the job log two weeks
-before the expiration date.
+- Test fork in your user account: open
+  https://github.com/settings/apps/new (Settings, Developer settings,
+  GitHub Apps, *New GitHub App*).
+- Test fork in an organization, here ``<org>``: open
+  ``https://github.com/organizations/<org>/settings/apps/new``.  The
+  list of the organization's own Apps is at
+  ``https://github.com/organizations/<org>/settings/apps``; in the
+  settings menu it is Developer settings, GitHub Apps.  Do not confuse
+  it with Third-party access, GitHub Apps
+  (``.../settings/installations``), which lists Apps installed in the
+  organization, not Apps it owns.  Creating Apps needs an organization
+  owner or a member an owner made *App manager* (on the
+  ``.../settings/apps`` page).
+
+Fill in the form:
+
+- **GitHub App name**: any name not taken on GitHub; names are global,
+  so include your project, for example ``ovs-leadtestkit``.
+- **Homepage URL**: required but unused, for example the URL of the
+  bot repository.
+- **Webhook**: clear *Active*.
+- **Repository permissions**:
+
+  - Actions: read and write (reading runs, reruns, dispatching);
+  - Contents: read and write (pushing test branches);
+  - Workflows: read and write (patches may change workflow files);
+  - Metadata: read-only (selected automatically).
+
+- **Where can this GitHub App be installed?**: *Only on this account*.
+
+Then *Create GitHub App* and, on the App's settings page:
+
+1. Note the **Client ID** at the top (``Iv23...``).  The App ID shown
+   next to it works as well.  The App needs no client secret.
+2. Under *Private keys*, *Generate a private key*.  A ``.pem`` file is
+   downloaded; it goes into a secret below.  Do not keep other copies.
+3. In the left menu, *Install App*, choose the account, then *Only
+   select repositories* and the test fork.  The App must not be
+   installed on other repositories.
+
+LeadTestKit logs the permissions of every token it gets and warns about
+missing ones.  After changing the App's permissions, accept the change
+on the installation (the account's settings, Applications or
+Third-party access, GitHub Apps, *Configure*), or the tokens keep the
+old permissions.  To replace the private key, generate a new one,
+update the secret and delete the old key in the App settings.
 
 
 3. Configure the bot repository
@@ -74,12 +122,17 @@ before the expiration date.
 2. Add the repository secrets (Settings, Secrets and variables,
    Actions):
 
-   ==========================  ==========================================
-   ``LEADTEST_GITHUB_TOKEN``   token from step 2
-   ``LEADTEST_PW_TOKEN``       Patchwork API token, needed to post checks
-   ``LEADTEST_SMTP_USERNAME``  SMTP user name
-   ``LEADTEST_SMTP_PASSWORD``  SMTP password
-   ==========================  ==========================================
+   ============================  ==========================================
+   ``LEADTEST_APP_CLIENT_ID``    Client ID (or App ID) from step 2
+   ``LEADTEST_APP_PRIVATE_KEY``  the whole ``.pem`` file from step 2,
+                                 including the BEGIN and END lines
+   ``LEADTEST_PW_TOKEN``         Patchwork API token, needed to post checks
+   ``LEADTEST_SMTP_USERNAME``    SMTP user name
+   ``LEADTEST_SMTP_PASSWORD``    SMTP password
+   ============================  ==========================================
+
+   The App secrets are needed when ``mode.push`` is ``live``.  Without
+   them the public test fork is read anonymously.
 
 3. In Settings, Pages, set the source to *GitHub Actions*.
 4. Create the ``state`` branch with your configuration::

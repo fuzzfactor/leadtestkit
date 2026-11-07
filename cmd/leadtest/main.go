@@ -19,6 +19,7 @@ import (
 	"leadtestkit/internal/archive"
 	"leadtestkit/internal/config"
 	"leadtestkit/internal/gh"
+	"leadtestkit/internal/ghapp"
 	"leadtestkit/internal/gitrepo"
 	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/logx"
@@ -333,10 +334,34 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 	if err != nil {
 		return nil, err
 	}
+	// Without an App (push mode off), the public test fork is read
+	// anonymously.
+	var ghAuth func(context.Context) (string, error)
+	var gitAuth func(context.Context) ([]string, error)
+	if cfg.Secrets.AppClientID != "" {
+		app, err := ghapp.New(ghapp.Options{
+			APIURL:     cfg.TestRepo.APIURL,
+			Repo:       cfg.TestRepo.Repo,
+			ClientID:   cfg.Secrets.AppClientID,
+			PrivateKey: cfg.Secrets.AppPrivateKey,
+			Logger:     log,
+		})
+		if err != nil {
+			return nil, err
+		}
+		ghAuth = app.Authorization
+		gitAuth = func(ctx context.Context) ([]string, error) {
+			tok, err := app.Token(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return gitrepo.AuthEnv(cfg.TestRepo.GitHost, tok), nil
+		}
+	}
 	ghc, err := gh.New(gh.Options{
 		APIURL: cfg.TestRepo.APIURL,
 		Repo:   cfg.TestRepo.Repo,
-		Token:  cfg.Secrets.GitHubToken,
+		Auth:   ghAuth,
 		Logger: log,
 	})
 	if err != nil {
@@ -378,7 +403,7 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 		},
 		TestRemote: fmt.Sprintf("https://%s/%s.git",
 			cfg.TestRepo.GitHost, cfg.TestRepo.Repo),
-		TestEnv:   gitrepo.AuthEnv(cfg.TestRepo.GitHost, cfg.Secrets.GitHubToken),
+		TestAuth:  gitAuth,
 		Committer: cfg.Runner.CommitAuthor,
 	}
 	p := &pipeline.Pipeline{

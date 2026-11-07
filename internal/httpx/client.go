@@ -74,8 +74,10 @@ type Options struct {
 
 	Header http.Header
 
-	// Authorization is only sent to AuthHost.
+	// Authorization, or the value returned by Auth when set, is only
+	// sent to AuthHost.  Auth lets short-lived tokens be renewed.
 	Authorization string
+	Auth          func(ctx context.Context) (string, error)
 	AuthHost      string
 
 	HTTPClient *http.Client
@@ -105,6 +107,8 @@ type Request struct {
 	// NoRetry disables retries for non-idempotent requests where a
 	// duplicate would be harmful.
 	NoRetry bool
+
+	auth string
 }
 
 type Response struct {
@@ -225,6 +229,9 @@ func (c *Client) Get(ctx context.Context, rawURL string) (*Response, error) {
 func (c *Client) Do(ctx context.Context, r Request) (*Response, error) {
 	if r.Method == "" {
 		r.Method = http.MethodGet
+	}
+	if err := c.resolveAuth(ctx, &r); err != nil {
+		return nil, err
 	}
 	notFound := 0
 	var lastErr error
@@ -354,10 +361,29 @@ func (c *Client) newRequest(ctx context.Context, r Request) (*http.Request, erro
 	if r.Body != nil && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.opts.Authorization != "" && sameHost(req.URL, c.opts.AuthHost) {
-		req.Header.Set("Authorization", c.opts.Authorization)
+	if r.auth != "" && sameHost(req.URL, c.opts.AuthHost) {
+		req.Header.Set("Authorization", r.auth)
 	}
 	return req, nil
+}
+
+// resolveAuth obtains the Authorization value once per request, so that
+// retries do not ask for a new token each time.
+func (c *Client) resolveAuth(ctx context.Context, r *Request) error {
+	r.auth = c.opts.Authorization
+	if c.opts.Auth == nil {
+		return nil
+	}
+	u, err := url.Parse(r.URL)
+	if err != nil || !sameHost(u, c.opts.AuthHost) {
+		return nil
+	}
+	auth, err := c.opts.Auth(ctx)
+	if err != nil {
+		return fmt.Errorf("authorization for %s: %w", r.URL, err)
+	}
+	r.auth = auth
+	return nil
 }
 
 func sameHost(u *url.URL, host string) bool {

@@ -5,6 +5,7 @@ package gitrepo
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -145,6 +146,44 @@ func TestResolveMissingBranch(t *testing.T) {
 	w := newWork(t, test)
 	if _, err := w.Resolve(context.Background(), upstream, "branch-0.0"); err == nil {
 		t.Error("expected error for missing branch")
+	}
+}
+
+func TestTestAuthAskedForEveryRequest(t *testing.T) {
+	upstream, test, patches := setup(t)
+	ctx := context.Background()
+	w := newWork(t, test)
+	calls := 0
+	w.TestAuth = func(ctx context.Context) ([]string, error) {
+		calls++
+		return []string{"LEADTEST_LOREM=1"}, nil
+	}
+	base, _ := w.Resolve(ctx, upstream, "main")
+	if calls != 0 {
+		t.Errorf("credentials for the test fork were sent to upstream")
+	}
+	shas, _, _, err := w.Apply(ctx, base, patches[:1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.PushRefs(ctx, map[string]string{"refs/leadtest/patch_1": shas[0]}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.TestRefs(ctx, []string{"refs/leadtest/patch_1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.ResolveTestRef(ctx, "refs/leadtest/patch_1"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 3 {
+		t.Errorf("credentials asked %d times, want once per test fork request", calls)
+	}
+	w.TestAuth = func(ctx context.Context) ([]string, error) {
+		return nil, errors.New("lorem key rejected")
+	}
+	err = w.PushRefs(ctx, map[string]string{"refs/leadtest/patch_2": shas[0]})
+	if err == nil || !strings.Contains(err.Error(), "lorem key rejected") {
+		t.Errorf("err = %v", err)
 	}
 }
 

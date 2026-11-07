@@ -255,9 +255,12 @@ type Pages struct {
 
 type Secrets struct {
 	PatchworkToken string
-	GitHubToken    string
-	SMTPUsername   string
-	SMTPPassword   string
+	// AppClientID and AppPrivateKey identify the GitHub App installed
+	// on the test fork.  The App ID works in place of the Client ID.
+	AppClientID   string
+	AppPrivateKey string
+	SMTPUsername  string
+	SMTPPassword  string
 }
 
 func defaults() Config {
@@ -353,12 +356,18 @@ func Load(path string) (*Config, error) {
 func (c *Config) LoadSecrets(getenv func(string) string) {
 	c.Secrets = Secrets{
 		PatchworkToken: strings.TrimSpace(getenv("LEADTEST_PW_TOKEN")),
-		GitHubToken:    strings.TrimSpace(getenv("LEADTEST_GITHUB_TOKEN")),
+		AppClientID:    strings.TrimSpace(getenv("LEADTEST_APP_CLIENT_ID")),
+		AppPrivateKey:  strings.TrimSpace(getenv("LEADTEST_APP_PRIVATE_KEY")),
 		SMTPUsername:   strings.TrimSpace(getenv("LEADTEST_SMTP_USERNAME")),
 		SMTPPassword:   getenv("LEADTEST_SMTP_PASSWORD"),
 	}
 	logx.AddSecret(c.Secrets.PatchworkToken)
-	logx.AddSecret(c.Secrets.GitHubToken)
+	// Line by line: a key would show up in logs split into lines.
+	for _, line := range strings.Split(c.Secrets.AppPrivateKey, "\n") {
+		if !strings.HasPrefix(line, "-----") {
+			logx.AddSecret(strings.TrimSpace(line))
+		}
+	}
 	logx.AddSecret(c.Secrets.SMTPPassword)
 }
 
@@ -367,8 +376,14 @@ func (c *Config) CheckSecrets() error {
 	if c.Mode.PostChecks() && c.Secrets.PatchworkToken == "" {
 		missing = append(missing, "LEADTEST_PW_TOKEN")
 	}
-	if c.Mode.PushLive() && c.Secrets.GitHubToken == "" {
-		missing = append(missing, "LEADTEST_GITHUB_TOKEN")
+	app := c.Secrets.AppClientID != "" || c.Secrets.AppPrivateKey != ""
+	if c.Mode.PushLive() || app {
+		if c.Secrets.AppClientID == "" {
+			missing = append(missing, "LEADTEST_APP_CLIENT_ID")
+		}
+		if c.Secrets.AppPrivateKey == "" {
+			missing = append(missing, "LEADTEST_APP_PRIVATE_KEY")
+		}
 	}
 	if !c.Mode.EmailOff() && c.Secrets.SMTPUsername != "" && c.Secrets.SMTPPassword == "" {
 		missing = append(missing, "LEADTEST_SMTP_PASSWORD")

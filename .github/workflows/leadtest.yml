@@ -75,7 +75,8 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         env:
           LEADTEST_PW_TOKEN: ${{ secrets.LEADTEST_PW_TOKEN }}
-          LEADTEST_GITHUB_TOKEN: ${{ secrets.LEADTEST_GITHUB_TOKEN }}
+          LEADTEST_APP_CLIENT_ID: ${{ secrets.LEADTEST_APP_CLIENT_ID }}
+          LEADTEST_APP_PRIVATE_KEY: ${{ secrets.LEADTEST_APP_PRIVATE_KEY }}
           LEADTEST_SMTP_USERNAME: ${{ secrets.LEADTEST_SMTP_USERNAME }}
           LEADTEST_SMTP_PASSWORD: ${{ secrets.LEADTEST_SMTP_PASSWORD }}
           ONCE: ${{ inputs.once && '--once' || '' }}

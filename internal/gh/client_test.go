@@ -199,17 +199,13 @@ func TestWorkflowFilesAndFile(t *testing.T) {
 	}
 }
 
-func TestTokenExpiry(t *testing.T) {
+func TestJobs(t *testing.T) {
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Github-Authentication-Token-Expiration", "2026-04-01 00:00:00 UTC")
 		io.WriteString(w, `{"jobs":[{"id":1,"name":"build","conclusion":"failure"}]}`)
 	})
 	jobs, err := c.Jobs(context.Background(), 1)
-	if err != nil || len(jobs) != 1 {
-		t.Fatal(err)
-	}
-	if c.TokenExpiry() != "2026-04-01 00:00:00 UTC" {
-		t.Errorf("expiry = %q", c.TokenExpiry())
+	if err != nil || len(jobs) != 1 || jobs[0].Name != "build" {
+		t.Fatalf("jobs = %+v, %v", jobs, err)
 	}
 }
 

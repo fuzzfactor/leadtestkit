@@ -326,8 +326,6 @@ func (f *fakeGH) File(ctx context.Context, path, ref string) ([]byte, error) {
 	return []byte(f.files[strings.TrimPrefix(path, ".github/workflows/")]), nil
 }
 
-func (f *fakeGH) TokenExpiry() string { return "" }
-
 func (f *fakeGH) MergeUpstream(ctx context.Context, branch string) (string, error) {
 	f.merges = append(f.merges, branch)
 	if f.mergeErr != nil {

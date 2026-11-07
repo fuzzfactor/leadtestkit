@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"leadtestkit/internal/logx"
 )
 
 const minimal = `
@@ -191,23 +193,36 @@ func TestSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"LEADTEST_GITHUB_TOKEN": " lorem-gh-token \n"}
+	key := "-----BEGIN RSA PRIVATE KEY-----\nloremipsumdolorsitamet\n" +
+		"-----END RSA PRIVATE KEY-----\n"
+	env := map[string]string{"LEADTEST_APP_CLIENT_ID": " Iv23lilorem \n",
+		"LEADTEST_APP_PRIVATE_KEY": key}
 	c.LoadSecrets(func(k string) string { return env[k] })
-	if c.Secrets.GitHubToken != "lorem-gh-token" {
-		t.Errorf("token = %q", c.Secrets.GitHubToken)
+	if c.Secrets.AppClientID != "Iv23lilorem" || c.Secrets.AppPrivateKey != strings.TrimSpace(key) {
+		t.Errorf("secrets = %+v", c.Secrets)
+	}
+	if logx.Redact("key loremipsumdolorsitamet") != "key [REDACTED]" {
+		t.Error("the private key is not redacted")
 	}
 	if err := c.CheckSecrets(); err != nil {
 		t.Errorf("log mode needs no patchwork token: %v", err)
 	}
-	c.Secrets.GitHubToken = ""
-	if err := c.CheckSecrets(); err == nil {
-		t.Error("pushing needs a GitHub token")
+	c.Secrets.AppPrivateKey = ""
+	if err := c.CheckSecrets(); err == nil ||
+		!strings.Contains(err.Error(), "LEADTEST_APP_PRIVATE_KEY") {
+		t.Errorf("a Client ID without a key must be refused: %v", err)
 	}
 	c.Mode.Push = "off"
+	c.Secrets.AppClientID = ""
 	if err := c.CheckSecrets(); err != nil {
-		t.Errorf("no push needs no GitHub token: %v", err)
+		t.Errorf("no push needs no GitHub App: %v", err)
 	}
-	c.Secrets.GitHubToken = "lorem-gh-token"
+	c.Mode.Push = "live"
+	if err := c.CheckSecrets(); err == nil ||
+		!strings.Contains(err.Error(), "LEADTEST_APP_CLIENT_ID, LEADTEST_APP_PRIVATE_KEY") {
+		t.Errorf("pushing needs the GitHub App: %v", err)
+	}
+	c.Secrets.AppClientID, c.Secrets.AppPrivateKey = "Iv23lilorem", key
 	c.Mode.Checks = "post"
 	if err := c.CheckSecrets(); err == nil ||
 		!strings.Contains(err.Error(), "LEADTEST_PW_TOKEN") {

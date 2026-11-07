@@ -52,7 +52,6 @@ type GitHub interface {
 	WorkflowFiles(ctx context.Context, ref string) ([]string, error)
 	File(ctx context.Context, path, ref string) ([]byte, error)
 	MergeUpstream(ctx context.Context, branch string) (string, error)
-	TokenExpiry() string
 }
 
 type Archive interface {
@@ -95,7 +94,6 @@ type Pipeline struct {
 	steps         int
 	customFiles   []string
 	customLoaded  bool
-	expiryWarned  bool
 	safetyNetDone bool
 	syncDone      bool
 	// Archives are read once per run; reports there are not urgent and
@@ -251,7 +249,6 @@ func (p *Pipeline) Step(ctx context.Context, final bool) {
 		}
 	}
 	p.checkpoint(ctx, "step")
-	p.warnTokenExpiry()
 	p.infof("Polling cycle %d finished: %s. Run totals: %s.",
 		p.steps, p.queueSummary(), p.Stats.Summary())
 	p.infof("Polling cycle %d took %s.", p.steps, time.Since(started).Round(time.Millisecond))
@@ -283,25 +280,6 @@ func stageDescription(name string) string {
 		return "Checking for old test branches and recovery refs to delete."
 	default:
 		return "Starting stage: " + name + "."
-	}
-}
-
-func (p *Pipeline) warnTokenExpiry() {
-	if p.expiryWarned || p.GH == nil {
-		return
-	}
-	exp := p.GH.TokenExpiry()
-	if exp == "" {
-		return
-	}
-	t, err := time.Parse("2006-01-02 15:04:05 MST", exp)
-	if err != nil {
-		return
-	}
-	if t.Sub(p.now()) < 14*24*time.Hour {
-		p.expiryWarned = true
-		p.warnf("The test repository token expires soon: %s.", exp)
-		logx.Annotate("warning", "LEADTEST_GITHUB_TOKEN expires on %s", exp)
 	}
 }
 

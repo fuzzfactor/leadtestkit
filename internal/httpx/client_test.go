@@ -83,6 +83,46 @@ func TestAuthorizationOnlyForAuthHost(t *testing.T) {
 	}
 }
 
+func TestAuthFunc(t *testing.T) {
+	var got []string
+	c, srv := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get("Authorization"))
+		if len(got) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Write([]byte(`{}`))
+	}, Options{Attempts: 3})
+	calls := 0
+	c.opts.Auth = func(ctx context.Context) (string, error) {
+		calls++
+		return "Bearer lorem-" + string(rune('0'+calls)), nil
+	}
+	u, _ := url.Parse(srv.URL)
+	c.opts.AuthHost = u.Hostname()
+	if _, err := c.Get(context.Background(), srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || len(got) != 2 || got[0] != "Bearer lorem-1" || got[1] != got[0] {
+		t.Errorf("retries must reuse one authorization: calls %d, sent %q", calls, got)
+	}
+
+	c.opts.AuthHost = "ipsum.example"
+	c.Get(context.Background(), srv.URL)
+	if calls != 1 || got[2] != "" {
+		t.Errorf("authorization asked for another host: calls %d, sent %q", calls, got)
+	}
+
+	c.opts.AuthHost = u.Hostname()
+	c.opts.Auth = func(ctx context.Context) (string, error) {
+		return "", errors.New("lorem key rejected")
+	}
+	if _, err := c.Get(context.Background(), srv.URL); err == nil ||
+		!strings.Contains(err.Error(), "lorem key rejected") || len(got) != 3 {
+		t.Errorf("a failed authorization must not send the request: %v, %q", err, got)
+	}
+}
+
 func TestUserAgentAndHeaders(t *testing.T) {
 	var ua, accept string
 	c, srv := testClient(t, func(w http.ResponseWriter, r *http.Request) {

@@ -23,8 +23,10 @@ type WorkRepo struct {
 	Git *Git
 	// TestRemote is the HTTPS URL of the test fork.
 	TestRemote string
-	// TestEnv authenticates requests to the test fork.
-	TestEnv []string
+	// TestAuth returns the environment that authenticates requests to
+	// the test fork, see AuthEnv.  It is asked every time, so that
+	// short-lived tokens can be renewed.
+	TestAuth func(ctx context.Context) ([]string, error)
 	// Committer is "Name <email>".
 	Committer string
 
@@ -106,7 +108,9 @@ func (w *WorkRepo) fetch(ctx context.Context, url, src, dst string) (string, err
 	}
 	g := *w.Git
 	if url == w.TestRemote {
-		g.Env = append(append([]string(nil), g.Env...), w.TestEnv...)
+		if g, err = w.testGit(ctx); err != nil {
+			return "", err
+		}
 	}
 	dst = "refs/leadtest-cache/" + name + "/" + dst
 	w.Git.log().Info(fmt.Sprintf("Fetching %s from %s into the work repository.", src, url))
@@ -194,10 +198,26 @@ func (w *WorkRepo) PushRefs(ctx context.Context, refs map[string]string) error {
 		w.Git.log().Info(fmt.Sprintf("Publishing recovery ref %s at %s.", ref, refs[ref]))
 		args = append(args, refs[ref]+":"+ref)
 	}
-	g := *w.Git
-	g.Env = append(append([]string(nil), g.Env...), w.TestEnv...)
+	g, err := w.testGit(ctx)
+	if err != nil {
+		return err
+	}
 	_, err = g.Run(ctx, args...)
 	return err
+}
+
+// testGit returns the git runner for requests to the test fork.
+func (w *WorkRepo) testGit(ctx context.Context) (Git, error) {
+	g := *w.Git
+	if w.TestAuth == nil {
+		return g, nil
+	}
+	env, err := w.TestAuth(ctx)
+	if err != nil {
+		return g, fmt.Errorf("test fork credentials: %w", err)
+	}
+	g.Env = append(append([]string(nil), g.Env...), env...)
+	return g, nil
 }
 
 // TestRefs fetches those of the given refs that exist in the test
@@ -207,8 +227,10 @@ func (w *WorkRepo) TestRefs(ctx context.Context, refs []string) (map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	g := *w.Git
-	g.Env = append(append([]string(nil), g.Env...), w.TestEnv...)
+	g, err := w.testGit(ctx)
+	if err != nil {
+		return nil, err
+	}
 	w.Git.log().Info(fmt.Sprintf("Looking up %d recovery refs in the test fork.", len(refs)))
 	out, err := g.Run(ctx, append([]string{"ls-remote", name}, refs...)...)
 	if err != nil {
