@@ -64,20 +64,28 @@ func (p *Pipeline) newMessages(ctx context.Context, a Archive,
 	c *state.ArchiveCursor) ([]monthMessages, string, bool) {
 	now := p.now()
 	first := c.LastMonth == ""
+	if first {
+		p.infof("First scan of this archive: recording existing messages as seen, " +
+			"not processing historical messages.")
+	}
 	var out []monthMessages
 	for _, m := range scanMonths(c, now, p.Cfg.Archive.LookbackMonths) {
+		p.infof("Reading archive index for %s.", m.Format("2006-01"))
 		msgs, err := a.FetchMonth(ctx, m.Year(), m.Month())
 		if err != nil {
-			p.log().Warn("cannot read archive",
-				"month", m.Format("2006-01"), "err", err)
+			p.warnf("Cannot read archive index for %s: %v", m.Format("2006-01"), err)
 			return out, m.Format("2006-01"), false
 		}
 		key := archive.MonthKey(m.Year(), m.Month())
 		if first {
 			c.Months[key] = max(c.Months[key], maxNumber(msgs))
+			p.infof("Archive %s: marked %d messages as seen through message %d.",
+				key, len(msgs), c.Months[key])
 			continue
 		}
 		fresh := archive.FilterNewMessages(msgs, c.Months[key])
+		p.infof("Archive %s: %d messages, %d new after saved message %d.",
+			key, len(msgs), len(fresh), c.Months[key])
 		sort.Slice(fresh, func(i, j int) bool { return fresh[i].Number < fresh[j].Number })
 		out = append(out, monthMessages{key: key, msgs: fresh})
 	}
@@ -85,9 +93,20 @@ func (p *Pipeline) newMessages(ctx context.Context, a Archive,
 }
 
 func (p *Pipeline) ingest(ctx context.Context) {
-	if !p.Cfg.Archive.Ingest || p.Reports == nil || p.reportsScanned {
+	if !p.Cfg.Archive.Ingest {
+		p.infof("Not ingesting reports: archive ingestion is disabled.")
 		return
 	}
+	if p.Reports == nil {
+		p.infof("Not ingesting reports: no reports archive is configured.")
+		return
+	}
+	if p.reportsScanned {
+		p.infof("Not rescanning reports: the archive was already read in this invocation.")
+		return
+	}
+	p.infof("Scanning the reports archive; at most %d messages will be processed this cycle.",
+		p.Cfg.Archive.MaxMessages)
 	c := p.Store.Cursor(reportsCursor)
 	budget := p.Cfg.Archive.MaxMessages
 	now := p.now()
@@ -100,12 +119,15 @@ func (p *Pipeline) ingest(ctx context.Context) {
 	for _, u := range urls {
 		f := c.Retry[u]
 		if budget <= 0 || ctx.Err() != nil {
+			p.infof("Stopping report retries: budget exhausted or polling cancelled.")
 			return
 		}
 		if !f.Due(now) {
+			p.infof("Report %s: waiting until %s to retry ingestion.", u, f.Next)
 			continue
 		}
 		budget--
+		p.infof("Retrying report ingestion: %s.", u)
 		err := p.ingestMessage(ctx, u)
 		if err == nil || errors.Is(err, errSkip) {
 			delete(c.Retry, u)
@@ -117,6 +139,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			continue
 		}
 		c.Retry[u] = f
+		p.logFailure(f, false)
 	}
 
 	months, next, ok := p.newMessages(ctx, p.Reports, c)
@@ -124,6 +147,8 @@ func (p *Pipeline) ingest(ctx context.Context) {
 	for _, mm := range months {
 		for _, m := range mm.msgs {
 			if budget <= 0 || ctx.Err() != nil {
+				p.infof("Stopping ingestion in %s: budget exhausted or cancelled. "+
+					"Remaining messages will be picked up later.", mm.key)
 				c.LastMonth = monthOfKey(mm.key)
 				return
 			}
@@ -136,8 +161,8 @@ func (p *Pipeline) ingest(ctx context.Context) {
 					c.Retry = map[string]*state.Failure{}
 				}
 				c.Retry[u] = f
-				p.log().Warn("report ingest failed, will retry",
-					"url", u, "err", err)
+				p.warnf("Report %s: ingestion failed; will retry at %s: %v",
+					u, f.Next, err)
 			}
 			c.Months[mm.key] = m.Number
 		}
@@ -145,6 +170,8 @@ func (p *Pipeline) ingest(ctx context.Context) {
 	if ok || c.LastMonth != "" {
 		c.LastMonth = next
 	}
+	p.infof("Reports scan finished: used %d of %d message slots; %d reports await retry.",
+		p.Cfg.Archive.MaxMessages-budget, p.Cfg.Archive.MaxMessages, len(c.Retry))
 }
 
 func monthOfKey(key string) string {
@@ -169,22 +196,26 @@ func (p *Pipeline) pwHost() string {
 }
 
 func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
+	p.infof("Reading archived report: %s.", msgURL)
 	m, err := p.Reports.FetchMessage(ctx, msgURL)
 	if err != nil {
 		return err
 	}
 	parsed, err := report.Parse(m.Subject, m.Body, m.Links, p.pwHost(), p.Cfg.Mode.TestEmail())
 	if err != nil {
-		p.log().Debug("not a report", "url", msgURL, "reason", err)
+		p.infof("Ignoring archive message %s: not a recognized report: %v", msgURL, err)
 		return errSkip
 	}
 	own := report.IsOwnMessageID(m.MessageID, p.Cfg.Report.MessageIDDomain)
 	if parsed.Test && !own {
+		p.infof("Ignoring test report %s: it was sent by another bot instance.", msgURL)
 		return errSkip
 	}
 	// Pending checks of our own runs are posted directly with a link to
 	// the test branch.
 	if own && parsed.Status == state.ResultPending && p.Cfg.Report.PendingCheck {
+		p.infof("Ignoring our pending report %s: pending checks are posted directly.",
+			msgURL)
 		return errSkip
 	}
 	patchID := parsed.PatchID
@@ -194,8 +225,8 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 			return err
 		}
 		if len(found) == 0 {
-			p.log().Info("report for unknown patch", "url", msgURL,
-				"msgid", parsed.PatchMsgID)
+			p.infof("Ignoring report %s: no Patchwork patch matches Message-ID %s.",
+				msgURL, parsed.PatchMsgID)
 			return errSkip
 		}
 		patchID = found[0].ID
@@ -208,8 +239,8 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 		name = m.Subject
 	}
 	if !ok {
-		p.log().Debug("report for another project", "url", msgURL,
-			"patch", patchID, "name", name)
+		p.infof("Ignoring report %s for patch %d (%s): the patch is not in our project.",
+			msgURL, patchID, name)
 		return errSkip
 	}
 	checks, err := p.PW.GetPatchChecks(ctx, patchID)
@@ -218,8 +249,8 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	for _, ch := range checks {
 		if ch.TargetURL != nil && stripScheme(*ch.TargetURL) == stripScheme(msgURL) {
-			p.log().Debug("check already posted", "url", msgURL,
-				"patch", patchID, "name", name)
+			p.infof("Patch %d (%s): report %s already has a check; not posting twice.",
+				patchID, name, msgURL)
 			return errSkip
 		}
 	}
@@ -231,24 +262,25 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	p.Stats.Ingested++
 	if !p.Cfg.Mode.PostChecks() {
-		p.log().Info("would post check", "patch", patchID, "name", name, "state", chk.State,
-			"context", chk.Context,
-			"target_url", chk.TargetURL, "description", chk.Description)
+		p.infof("Patch %d (%s): would post %s check %s linking to %s (%s); "+
+			"checks mode: %s.",
+			patchID, name, chk.State, chk.Context,
+			chk.TargetURL, chk.Description, p.Cfg.Mode.Checks)
 		return nil
 	}
+	p.infof("Patch %d (%s): posting %s check %s linking to archived report %s.",
+		patchID, name, chk.State, chk.Context, msgURL)
 	if err := p.PW.CreateCheck(ctx, patchID, chk); err != nil {
 		if code := httpx.StatusCode(err); code >= 400 && code < 500 &&
 			code != http.StatusTooManyRequests {
-			p.log().Warn("check rejected", "patch", patchID, "name", name,
-				"context", chk.Context,
-				"err", err)
+			p.warnf("Patch %d (%s): check %s rejected; not retrying this report: %v",
+				patchID, name, chk.Context, err)
 			return errSkip
 		}
 		return err
 	}
 	p.Stats.Checks++
-	p.log().Info("check posted", "patch", patchID, "name", name, "state", chk.State,
-		"context", chk.Context)
+	p.infof("Patch %d (%s): posted %s check %s.", patchID, name, chk.State, chk.Context)
 	return nil
 }
 

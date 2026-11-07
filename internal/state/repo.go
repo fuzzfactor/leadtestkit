@@ -48,6 +48,7 @@ func (r *Repo) Commit(ctx context.Context, msg string) (bool, error) {
 	if _, err := r.Git.Run(ctx, "diff", "--cached", "--quiet"); err == nil {
 		return false, nil
 	}
+	r.log().Info("Committing changed state files.")
 	g := *r.Git
 	g.Env = append(append([]string(nil), g.Env...), r.identity()...)
 	if _, err := g.Run(ctx, "commit", "-q", "--no-verify", "-m", msg); err != nil {
@@ -64,11 +65,14 @@ func (r *Repo) Push(ctx context.Context) (bool, error) {
 	rebased := false
 	ref := "HEAD:refs/heads/" + r.Branch
 	for attempt := 0; attempt < 3; attempt++ {
+		r.log().Info(fmt.Sprintf("Pushing the state branch to %s (attempt %d of 3).",
+			r.Remote, attempt+1))
 		_, err := r.Git.Run(ctx, "push", "-q", r.Remote, ref)
 		if err == nil {
 			return rebased, nil
 		}
-		r.log().Warn("state push failed, rebasing", "err", err)
+		r.log().Warn(fmt.Sprintf("State push failed: %v. Fetching and rebasing.",
+			err))
 		if _, ferr := r.Git.Run(ctx, "fetch", "-q", r.Remote, r.Branch); ferr != nil {
 			return rebased, fmt.Errorf("state push: %v; fetch: %w", err, ferr)
 		}
@@ -83,12 +87,14 @@ func (r *Repo) Push(ctx context.Context) (bool, error) {
 			return rebased, r.resetToRemote(ctx, lerr)
 		}
 		rebased = true
+		r.log().Info("State rebase succeeded; retrying the push.")
 	}
 	return rebased, fmt.Errorf("state push failed after rebases")
 }
 
 func (r *Repo) resetToRemote(ctx context.Context, cause error) error {
-	r.log().Error("state merge failed, resetting to remote", "err", cause)
+	r.log().Error(fmt.Sprintf("State merge failed: %v. Restoring remote state to reconcile.",
+		cause))
 	if _, err := r.Git.Run(ctx, "reset", "-q", "--hard", "FETCH_HEAD"); err != nil {
 		return fmt.Errorf("%w: %v; reset: %v", ErrConflict, cause, err)
 	}

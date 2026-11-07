@@ -28,6 +28,9 @@ func (p *Pipeline) report(ctx context.Context) {
 					return
 				}
 				if !r.Failure.Due(p.now()) {
+					p.infof("%s: delaying %s report until the %s retry at %s.",
+						patchName(pt), p.label(r),
+						r.Failure.Op, r.Failure.Next)
 					continue
 				}
 				p.reportPending(ctx, s, pt, r)
@@ -75,6 +78,8 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 	}
 	if r.Pending.Check == "" {
 		if !p.Cfg.Report.PendingCheck {
+			p.infof("%s: pending checks disabled; not posting one for %s.",
+				patchName(pt), p.label(r))
 			r.Pending.Check = state.StepSkipped
 		} else {
 			chk := pw.NewCheck{
@@ -84,33 +89,41 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 				Description: p.description(r, state.ResultPending),
 			}
 			if !p.Cfg.Mode.PostChecks() {
-				p.log().Info("would post check", "patch", pt.ID,
-					"name", pt.Name, "state", chk.State,
-					"context", chk.Context, "target_url", chk.TargetURL)
+				p.infof("%s: would post pending check %s linking to %s; "+
+					"checks mode: %s.",
+					patchName(pt), chk.Context, chk.TargetURL,
+					p.Cfg.Mode.Checks)
 				r.Pending.Check = state.StepLogged
-			} else if err := p.PW.CreateCheck(ctx, pt.ID, chk); err != nil {
-				p.log().Warn("pending check failed", "patch", pt.ID,
-					"name", pt.Name, "err", err)
-				if p.fail(&r.Failure, "pending check", err) {
-					r.Pending.Check = state.StepFailed
-					r.Failure = nil
-				}
-				return
 			} else {
+				p.infof("%s: posting pending check %s linking to %s.",
+					patchName(pt), chk.Context, chk.TargetURL)
+				if err := p.PW.CreateCheck(ctx, pt.ID, chk); err != nil {
+					p.warnf("%s: pending check %s failed: %v",
+						patchName(pt), chk.Context, err)
+					if p.fail(&r.Failure, "pending check", err) {
+						r.Pending.Check = state.StepFailed
+						r.Failure = nil
+					}
+					return
+				}
 				r.Pending.Check = state.StepPosted
 				p.Stats.Checks++
+				p.infof("%s: pending check %s posted successfully.",
+					patchName(pt), chk.Context)
 			}
 		}
 	}
 	if r.Pending.Email == "" {
 		if !p.Cfg.Report.PendingEmail {
+			p.infof("%s: pending emails disabled; not sending one for %s.",
+				patchName(pt), p.label(r))
 			r.Pending.Email = state.StepSkipped
 			return
 		}
 		id, err := p.sendReport(ctx, s, pt, r, state.ResultPending, "pending", "")
 		if err != nil {
-			p.log().Warn("pending email failed", "patch", pt.ID,
-				"name", pt.Name, "err", err)
+			p.warnf("%s: pending email for %s failed: %v",
+				patchName(pt), p.label(r), err)
 			if p.fail(&r.Failure, "pending email", err) {
 				r.Pending.Email = state.StepFailed
 				r.Failure = nil
@@ -146,17 +159,19 @@ func (p *Pipeline) reportFinal(ctx context.Context, s *state.Series,
 			}
 			if attempts+1 < logFetchAttempts {
 				p.fail(&r.Failure, "logs", err)
-				p.log().Warn("cannot fetch logs, will retry",
-					"run", r.ID, "err", err)
+				p.warnf("%s: cannot fetch logs for run %d; delaying its report: %v",
+					patchName(pt), r.ID, err)
 				return
 			}
 			logs = "Build logs are not available: " + err.Error()
+			p.warnf("%s: sending without build logs after %d failed attempts: %v",
+				patchName(pt), attempts+1, err)
 		}
 		extra = joinNonEmpty(extra, logs)
 	}
 	id, err := p.sendReport(ctx, s, pt, r, r.Result, "final", extra)
 	if err != nil {
-		p.log().Warn("report email failed", "patch", pt.ID, "name", pt.Name, "err", err)
+		p.warnf("%s: final report email for %s failed: %v", patchName(pt), p.label(r), err)
 		if p.fail(&r.Failure, "report email", err) {
 			r.Final.Email = state.StepFailed
 			p.errorf("patch %d: giving up sending report for %s: %v", pt.ID,
@@ -187,9 +202,8 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 	id := report.MessageID(p.Cfg.Report.MessageIDDomain, s.ID, pt.ID, label,
 		fmt.Sprintf("%s.%d", kind, generation), max(r.Attempt, 1))
 	if p.Cfg.Mode.EmailOff() {
-		p.log().Info("email disabled, not sending report", "patch", pt.ID,
-			"name", pt.Name, "label", label,
-			"result", result, "kind", kind)
+		p.infof("%s: not sending the %s email for %s (%s); email mode is off.",
+			patchName(pt), kind, label, result)
 		return id, nil
 	}
 	buildURL := r.URL
@@ -222,13 +236,19 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 	if err != nil {
 		return "", err
 	}
+	p.infof("%s: sending the %s report for %s (%s) to %s; Cc: %s. Email mode: %s.",
+		patchName(pt), kind, label, result, p.Cfg.Report.To,
+		strings.Join(cc, ", "), p.Cfg.Mode.Email)
 	if err := p.Mail.Send(ctx, e); err != nil {
 		return "", err
 	}
 	p.Stats.Emails++
-	p.log().Info("report sent", "patch", pt.ID, "name", pt.Name,
-		"label", label, "result", result,
-		"kind", kind)
+	p.infof("%s: %s report for %s (%s) sent. Message-ID: %s.",
+		patchName(pt), kind, label, result, id)
+	if kind == "final" {
+		p.infof("%s: its final Patchwork check will come from the reports-list archive, "+
+			"not directly from this email send.", patchName(pt))
+	}
 	return id, nil
 }
 
@@ -244,6 +264,7 @@ func (a *mailAddress) String() string {
 var logTimestampRe = regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z `)
 
 func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error) {
+	p.infof("Fetching failed-job details and log excerpts for GitHub run %d.", runID)
 	jobs, err := p.GH.Jobs(ctx, runID)
 	if err != nil {
 		return "", err
@@ -255,6 +276,7 @@ func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error)
 		}
 	}
 	if len(failed) == 0 {
+		p.infof("Run %d has no failed or timed-out jobs to include in its report.", runID)
 		return "", nil
 	}
 	var b strings.Builder
@@ -276,10 +298,13 @@ func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error)
 	maxJobs := p.Cfg.Report.MaxLogJobs
 	for i, j := range failed {
 		if i >= maxJobs {
+			p.infof("Run %d: logs limited to %d failed jobs; omitting %d more.",
+				runID, maxJobs, len(failed)-maxJobs)
 			fmt.Fprintf(&b, "\nLogs of %d more failed jobs are not included.\n",
 				len(failed)-maxJobs)
 			break
 		}
+		p.infof("Fetching log tail for failed job %d (%s) in run %d.", j.ID, j.Name, runID)
 		log, err := p.GH.JobLog(ctx, j.ID)
 		if err != nil {
 			return "", err

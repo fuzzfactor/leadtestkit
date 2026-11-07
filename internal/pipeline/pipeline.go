@@ -163,17 +163,53 @@ func (p *Pipeline) errorf(format string, args ...any) {
 	logx.Annotate("error", "%s", msg)
 }
 
+func (p *Pipeline) infof(format string, args ...any) {
+	p.log().Info(fmt.Sprintf(format, args...))
+}
+
+func (p *Pipeline) warnf(format string, args ...any) {
+	p.log().Warn(fmt.Sprintf(format, args...))
+}
+
+func seriesName(s *state.Series) string {
+	return fmt.Sprintf("Series %d (%s)", s.ID, s.Name)
+}
+
+func patchName(pt *state.Patch) string {
+	return fmt.Sprintf("Patch %d (%s)", pt.ID, pt.Name)
+}
+
+func (p *Pipeline) queueSummary() string {
+	counts := map[string]int{}
+	held := 0
+	for _, s := range p.Store.Queue {
+		counts[s.Status]++
+		if s.Hold {
+			held++
+		}
+	}
+	return fmt.Sprintf("%d new, %d queued, %d waiting, %d testing; %d on hold",
+		counts[state.SeriesNew], counts[state.SeriesQueued], counts[state.SeriesWaiting],
+		counts[state.SeriesTesting], held)
+}
+
 func (p *Pipeline) checkpoint(ctx context.Context, stage string) {
 	if p.Checkpoint == nil {
+		p.infof("Not saving after %s: no state checkpoint is configured.", stage)
 		return
 	}
+	p.infof("Saving state after %s.", stage)
 	if err := p.Checkpoint(ctx, stage); err != nil {
 		p.errorf("checkpoint after %s: %v", stage, err)
+	} else {
+		p.infof("State saved after %s.", stage)
 	}
 }
 
 func (p *Pipeline) Step(ctx context.Context, final bool) {
 	p.steps++
+	started := time.Now()
+	p.infof("Starting polling cycle %d: %s.", p.steps, p.queueSummary())
 	stages := []struct {
 		name string
 		fn   func(context.Context)
@@ -192,14 +228,21 @@ func (p *Pipeline) Step(ctx context.Context, final bool) {
 	}
 	for _, s := range stages {
 		if ctx.Err() != nil {
+			p.warnf("Stopping polling cycle %d before %s: %v.",
+				p.steps, s.name, ctx.Err())
 			return
 		}
 		// Pushing new work late in a run is pointless; the next run
 		// picks it up with fresh data.
 		if final && s.name == "schedule" {
+			p.infof("Not scheduling new tests in the final polling cycle.")
 			continue
 		}
+		p.infof("%s", stageDescription(s.name))
+		stageStart := time.Now()
 		s.fn(ctx)
+		p.infof("Finished stage: %s (%s).",
+			s.name, time.Since(stageStart).Round(time.Millisecond))
 		// Emails cannot be taken back, so their state is saved right
 		// away; everything else is idempotent and saved once per step.
 		if s.name == "report" {
@@ -208,6 +251,38 @@ func (p *Pipeline) Step(ctx context.Context, final bool) {
 	}
 	p.checkpoint(ctx, "step")
 	p.warnTokenExpiry()
+	p.infof("Polling cycle %d finished: %s. Run totals: %s.",
+		p.steps, p.queueSummary(), p.Stats.Summary())
+	p.infof("Polling cycle %d took %s.", p.steps, time.Since(started).Round(time.Millisecond))
+}
+
+func stageDescription(name string) string {
+	switch name {
+	case "manual":
+		return "Checking the state for manual skips and retry requests."
+	case "sync":
+		return "Checking whether the test fork needs an upstream sync."
+	case "discover":
+		return "Looking for new series in Patchwork."
+	case "qualify":
+		return "Checking new series for completeness and eligibility."
+	case "rechecks":
+		return "Looking for recheck requests and restarting eligible workflows."
+	case "monitor":
+		return "Checking GitHub workflow progress for patches being tested."
+	case "schedule":
+		return "Checking CI capacity and choosing the next patches to test."
+	case "report":
+		return "Publishing pending checks and emailing test results."
+	case "ingest":
+		return "Reading archived test reports to update Patchwork checks."
+	case "finish":
+		return "Checking for completed series and moving them into history."
+	case "gc":
+		return "Checking for old test branches and recovery refs to delete."
+	default:
+		return "Starting stage: " + name + "."
+	}
 }
 
 func (p *Pipeline) warnTokenExpiry() {
@@ -224,7 +299,7 @@ func (p *Pipeline) warnTokenExpiry() {
 	}
 	if t.Sub(p.now()) < 14*24*time.Hour {
 		p.expiryWarned = true
-		p.log().Warn("test repository token expires soon", "expires", exp)
+		p.warnf("The test repository token expires soon: %s.", exp)
 		logx.Annotate("warning", "LEADTEST_GITHUB_TOKEN expires on %s", exp)
 	}
 }
@@ -234,20 +309,26 @@ func (p *Pipeline) applyManual(ctx context.Context) {
 	now := p.now()
 	for _, s := range p.Store.Queue {
 		if s.Skip != "" && s.Active() {
-			p.log().Info("series skipped manually", "series", s.ID, "reason", s.Skip)
+			p.infof("%s: skipping at the operator's request: %s.",
+				seriesName(s), s.Skip)
 			s.Finish(state.SeriesSkipped, "manual: "+s.Skip, now)
 		}
 		if s.Retry {
 			s.Retry = false
 			s.Failure = nil
-			p.log().Info("series retry requested", "series", s.ID)
+			p.infof("%s: processing a manual retry request; clearing its retry delay.",
+				seriesName(s))
 			if s.Status == state.SeriesError || s.Status == state.SeriesSkipped ||
 				s.Status == state.SeriesDone {
 				resetSeries(s)
+				p.infof("%s: queued again for a fresh apply attempt.",
+					seriesName(s))
 			}
 		}
 		for _, pt := range s.Patches {
 			if pt.Retry {
+				p.infof("%s: clearing retry delays on manual request.",
+					patchName(pt))
 				pt.Retry = false
 				pt.Failure = nil
 				for _, r := range pt.Runs {
@@ -279,20 +360,33 @@ func resetSeries(s *state.Series) {
 }
 
 func (p *Pipeline) fail(f **state.Failure, op string, err error) bool {
-	return state.RecordFailure(f, op, err, p.now(), p.Cfg.Limits.RetryDeadline.D())
+	done := state.RecordFailure(f, op, err, p.now(), p.Cfg.Limits.RetryDeadline.D())
+	p.logFailure(*f, done)
+	return done
+}
+
+func (p *Pipeline) logFailure(f *state.Failure, done bool) {
+	if done {
+		p.warnf("Giving up on %s after %d attempts; retry deadline passed. Last error: %s",
+			f.Op, f.Attempts, f.LastError)
+	} else {
+		p.warnf("%s failed (attempt %d; first failure %s). Next retry at %s. Error: %s",
+			f.Op, f.Attempts, f.First, f.Next, f.LastError)
+	}
 }
 
 // GitHub refuses a failed-jobs rerun when there is nothing to rerun that
 // way; the whole run is restarted then.
 func (p *Pipeline) rerun(ctx context.Context, runID int64) error {
+	p.infof("Requesting a rerun of GitHub run %d (%s jobs).", runID, p.Cfg.Workflows.RerunJobs)
 	if p.Cfg.Workflows.RerunJobs != "failed" {
 		return p.GH.Rerun(ctx, runID, false)
 	}
 	err := p.GH.Rerun(ctx, runID, true)
 	if code := httpx.StatusCode(err); code == http.StatusForbidden ||
 		code == http.StatusUnprocessableEntity {
-		p.log().Info("failed jobs cannot be rerun, rerunning the whole run",
-			"run", runID, "err", err)
+		p.infof("Run %d: GitHub refused a failed-jobs rerun (%v); retrying the whole run.",
+			runID, err)
 		return p.GH.Rerun(ctx, runID, false)
 	}
 	return err

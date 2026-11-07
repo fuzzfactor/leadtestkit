@@ -54,6 +54,7 @@ type tracked struct {
 
 func (p *Pipeline) rechecks(ctx context.Context) {
 	if !p.Cfg.Rechecks.Enabled {
+		p.infof("Not looking for recheck requests: rechecks are disabled.")
 		return
 	}
 	now := p.now()
@@ -75,9 +76,15 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 	}
 
 	if p.Cfg.UseCommentEvents() {
+		p.infof("Looking for rechecks in Patchwork comment events for %d tracked patches.",
+			len(patches))
 		p.commentsFromEvents(ctx, patches)
 	} else if p.Dev != nil {
+		p.infof("Looking for rechecks through the dev archive (%d tracked patches).",
+			len(patches))
 		p.commentsFromArchive(ctx, patches)
+	} else {
+		p.infof("Cannot find rechecks: comment events are off and no dev archive is set.")
 	}
 
 	ids := make([]int, 0, len(patches))
@@ -94,23 +101,34 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 		if !t.patch.CommentsPending {
 			continue
 		}
+		p.infof("%s: fetching comments after activity was detected.", patchName(t.patch))
 		comments, err := p.PW.GetPatchComments(ctx, id)
 		if err != nil {
-			p.log().Warn("cannot fetch comments", "patch", id, "err", err)
+			p.warnf("%s: cannot fetch comments: %v", patchName(t.patch), err)
 			continue
 		}
 		t.patch.CommentsPending = false
 		for _, c := range comments {
 			if c.ID <= t.patch.CommentsSeen {
+				p.infof("%s: comment %d already processed; skipping it.",
+					patchName(t.patch), c.ID)
 				continue
 			}
 			t.patch.CommentsSeen = c.ID
 			all, names := ParseRecheck(c.Content, labels)
 			checks := p.matchChecks(t.patch, names)
 			if all || len(checks) > 0 {
-				p.log().Info("recheck requested", "patch", id,
-					"name", t.patch.Name, "comment", c.ID,
-					"all", all, "checks", strings.Join(checks, ","))
+				if all {
+					p.infof("%s: comment %d requests a recheck by bot label.",
+						patchName(t.patch), c.ID)
+				} else {
+					p.infof("%s: comment %d requests rechecks of %s.",
+						patchName(t.patch), c.ID,
+						strings.Join(checks, ", "))
+				}
+			} else {
+				p.infof("%s: comment %d does not request our workflows.",
+					patchName(t.patch), c.ID)
 			}
 			t.patch.Recheck = t.patch.Recheck || all
 			for _, c := range checks {
@@ -124,6 +142,10 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 		if t := patches[id]; (t.patch.Recheck || len(t.patch.RecheckChecks) > 0) &&
 			t.patch.Failure.Due(now) {
 			p.doRecheck(ctx, t.series, t.patch)
+		} else if (t.patch.Recheck || len(t.patch.RecheckChecks) > 0) &&
+			t.patch.Failure != nil {
+			p.infof("%s: recheck is waiting until %s after a %s failure.",
+				patchName(t.patch), t.patch.Failure.Next, t.patch.Failure.Op)
 		}
 	}
 }
@@ -134,11 +156,19 @@ func (p *Pipeline) commentsFromEvents(ctx context.Context, patches map[int]track
 		opts.Cutoff = p.now().Add(-24 * time.Hour)
 		opts.MaxPages = 3
 	}
+	p.infof("Reading comment events after saved event %d.", opts.Cursor)
 	cursor, err := p.PW.WalkEvents(ctx, opts, func(ev pw.Event) error {
 		if pl, ok := ev.Payload.(*pw.PatchCommentCreatedPayload); ok {
 			if t, ok := patches[pl.Patch.ID]; ok {
+				p.infof("Comment event %d: marking patch %d for a comment scan.",
+					ev.ID, pl.Patch.ID)
 				t.patch.CommentsPending = true
+			} else {
+				p.infof("Ignoring event %d: patch %d is not tracked for rechecks.",
+					ev.ID, pl.Patch.ID)
 			}
+		} else {
+			p.infof("Ignoring comment event %d: no patch-comment payload.", ev.ID)
 		}
 		return nil
 	})
@@ -146,14 +176,17 @@ func (p *Pipeline) commentsFromEvents(ctx context.Context, patches map[int]track
 		p.Store.Meta.Events[commentEvents] = cursor
 	}
 	if err != nil {
-		p.log().Warn("comment events", "err", err)
+		p.warnf("Could not finish reading comment events: %v", err)
 	}
+	p.infof("Comment-event scan finished; saved cursor: %d.",
+		p.Store.Meta.Events[commentEvents])
 }
 
 // commentsFromArchive matches new dev list subjects against tracked
 // patches, for Patchwork instances without comment events.
 func (p *Pipeline) commentsFromArchive(ctx context.Context, patches map[int]tracked) {
 	if p.devScanned {
+		p.infof("Not rescanning the dev archive: it was already read in this invocation.")
 		return
 	}
 	c := p.Store.Cursor(devCursor)
@@ -170,6 +203,7 @@ func (p *Pipeline) commentsFromArchive(ctx context.Context, patches map[int]trac
 		c.LastMonth = next
 	}
 	if len(msgs) == 0 {
+		p.infof("No new dev-list messages to match against tracked patch subjects.")
 		return
 	}
 	names := map[int]string{}
@@ -177,6 +211,7 @@ func (p *Pipeline) commentsFromArchive(ctx context.Context, patches map[int]trac
 		names[id] = t.patch.Name
 	}
 	for _, id := range archive.MatchPatchSubjects(msgs, names) {
+		p.infof("Dev-list activity matches patch %d; checking comments for rechecks.", id)
 		patches[id].patch.CommentsPending = true
 	}
 }
@@ -221,10 +256,14 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 	explicit := map[*state.Run]bool{}
 	for _, r := range pt.Runs {
 		if !rerunnable(r) || r.Status != "completed" {
+			p.infof("%s: not rerunning %s; it is not a completed push or dispatch run.",
+				patchName(pt), p.label(r))
 			continue
 		}
 		explicit[r] = containsFold(pt.RecheckChecks, report.Context(p.label(r)))
 		if !explicit[r] && (!pt.Recheck || failedOnly && r.Result == state.ResultSuccess) {
+			p.infof("%s: not rerunning %s; not selected by request or rerun policy.",
+				patchName(pt), p.label(r))
 			continue
 		}
 		switch {
@@ -236,13 +275,14 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 		}
 	}
 	if len(rerun)+len(redispatch) == 0 {
-		p.log().Info("nothing to recheck", "patch", pt.ID)
+		p.infof("%s: no workflows qualify for this recheck; clearing the request.",
+			patchName(pt))
 		done()
 		return
 	}
 	if !p.Cfg.Mode.PushLive() {
-		p.log().Info("would rerun workflows", "patch", pt.ID,
-			"runs", len(rerun)+len(redispatch))
+		p.infof("%s: would restart %d workflows, but push mode is %s; clearing request.",
+			patchName(pt), len(rerun)+len(redispatch), p.Cfg.Mode.Push)
 		done()
 		return
 	}
@@ -255,6 +295,8 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 		r.Updated = state.FormatTime(now)
 	}
 	for _, r := range rerun {
+		p.infof("%s: restarting workflow %s, GitHub run %d.",
+			patchName(pt), p.label(r), r.ID)
 		var err error
 		if explicit[r] && r.Result == state.ResultSuccess {
 			err = p.GH.Rerun(ctx, r.ID, false)
@@ -267,12 +309,17 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 				pt.Failure = nil
 				p.errorf("patch %d: giving up rerunning workflows: %v", pt.ID, err)
 			}
+			p.warnf("%s: could not restart %s: %v", patchName(pt), p.label(r), err)
 			return
 		}
 		r.MinAttempt = r.Attempt
 		reset(r)
+		p.infof("%s: rerun accepted for %s; waiting for a newer attempt.",
+			patchName(pt), p.label(r))
 	}
 	for _, r := range redispatch {
+		p.infof("%s: %s has no run ID; requesting a new dispatch.",
+			patchName(pt), p.label(r))
 		r.CorrelationID = nextCorrelationID(r.CorrelationID)
 		reset(r)
 		r.Status = "dispatching"
@@ -290,6 +337,7 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 	pt.Pushed = state.FormatTime(now)
 	if !s.Active() || s.Status != state.SeriesTesting {
 		if p.Store.Find(s.ID) == nil {
+			p.infof("%s: reopening from history for the recheck.", seriesName(s))
 			if err := p.Store.Reopen(s); err != nil {
 				p.errorf("series %d: reopen: %v", s.ID, err)
 			}
@@ -300,9 +348,8 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 	}
 	p.sendDispatches(ctx, s, pt)
 	p.Stats.Rechecks++
-	p.log().Info("workflows rerun", "series", s.ID, "patch", pt.ID,
-		"name", pt.Name, "runs", len(rerun),
-		"dispatched", len(redispatch))
+	p.infof("%s: recheck started; %d reruns accepted and %d workflows queued for redispatch.",
+		patchName(pt), len(rerun), len(redispatch))
 }
 
 // nextCorrelationID bumps the attempt suffix, so that a new dispatch

@@ -108,23 +108,25 @@ func cmdRenderPages(args []string) error {
 	logx.Setup(false)
 	cfg, err := loadConfig(*stateDir)
 	if errors.Is(err, config.ErrNotConfigured) {
-		slog.Info("no pages", "reason", err)
+		slog.Info(fmt.Sprintf("Not generating Pages: %v", err))
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	if !cfg.Pages.Enabled {
-		slog.Info("pages disabled")
+		slog.Info("Not generating Pages: disabled in config.yaml.")
 		return nil
 	}
 	st, err := state.Load(*stateDir)
 	if err != nil {
 		return err
 	}
+	slog.Info(fmt.Sprintf("Generating Pages for %s in %s.", cfg.Name, *out))
 	if err := pages.Render(st, cfg, *out, time.Now(), runURL()); err != nil {
 		return err
 	}
+	slog.Info("Pages generated successfully.")
 	return githubOutput("pages", "true")
 }
 
@@ -166,9 +168,14 @@ func (r *runner) checkpoint(ctx context.Context, stage string) error {
 	}
 	msg := fmt.Sprintf("leadtest: %s\n\n%s", r.p.Stats.Summary(), stage)
 	committed, err := r.repo.Commit(ctx, msg)
-	if err != nil || !committed {
+	if err != nil {
 		return err
 	}
+	if !committed {
+		r.log.Info("State is unchanged; no commit or push is needed.")
+		return nil
+	}
+	r.log.Info(fmt.Sprintf("Committed state after %s; publishing the state branch.", stage))
 	rebased, err := r.repo.Push(ctx)
 	if rebased || errors.Is(err, state.ErrConflict) {
 		st, lerr := state.Load(r.stateDir)
@@ -176,7 +183,10 @@ func (r *runner) checkpoint(ctx context.Context, stage string) error {
 			return fmt.Errorf("reload state: %w", lerr)
 		}
 		r.p.Store = st
-		r.log.Warn("state reloaded after a concurrent change")
+		r.log.Warn("Remote state changed concurrently; reloaded the merged state.")
+	}
+	if err == nil {
+		r.log.Info("State branch published successfully.")
 	}
 	return err
 }
@@ -195,27 +205,31 @@ func cmdRun(args []string) error {
 
 	cfg, err := loadConfig(*stateDir)
 	if errors.Is(err, config.ErrNotConfigured) {
-		log.Info("nothing to do", "reason", err)
+		log.Info(fmt.Sprintf("Nothing to do: %v", err))
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	if !cfg.Enabled {
-		log.Info("disabled in config.yaml, nothing to do")
+		log.Info("Nothing to do: the bot is disabled in config.yaml.")
 		return nil
 	}
 	cfg.LoadSecrets(os.Getenv)
 	if *dryRun {
+		log.Info("Dry run: pushes and email disabled; Patchwork checks only logged.")
 		cfg.Mode.Push, cfg.Mode.Checks, cfg.Mode.Email = "off", "log", "off"
 	}
 	if err := cfg.CheckSecrets(); err != nil {
 		return err
 	}
-	log.Info("starting", "version", version, "project", cfg.Patchwork.Project,
-		"test_repo", cfg.TestRepo.Repo, "push", cfg.Mode.Push, "checks", cfg.Mode.Checks,
-		"email", cfg.Mode.Email)
+	log.Info(fmt.Sprintf("Starting LeadTestKit %s for %s (Patchwork project %s).",
+		version, cfg.Name, cfg.Patchwork.Project))
+	log.Info(fmt.Sprintf("Test repository: %s/%s. Push mode: %s. Checks: %s. Email: %s.",
+		cfg.TestRepo.GitHost, cfg.TestRepo.Repo,
+		cfg.Mode.Push, cfg.Mode.Checks, cfg.Mode.Email))
 
+	log.Info(fmt.Sprintf("Loading configuration and saved state from %s.", *stateDir))
 	st, err := state.Load(*stateDir)
 	if err != nil {
 		return err
@@ -223,6 +237,8 @@ func cmdRun(args []string) error {
 	if err := st.CheckInstance(instance(cfg)); err != nil {
 		return err
 	}
+	log.Info(fmt.Sprintf("Loaded %d series from the queue. Saved discovery start: %s.",
+		len(st.Queue), st.Meta.DiscoveryStart))
 	p, err := buildPipeline(cfg, st, *workDir, log)
 	if err != nil {
 		return err
@@ -242,6 +258,7 @@ func cmdRun(args []string) error {
 	}
 	p.Checkpoint = r.checkpoint
 	if *noCommit {
+		log.Info("--no-commit: saving state locally without committing or pushing.")
 		p.Checkpoint = func(context.Context, string) error { return p.Store.Save() }
 	}
 
@@ -253,12 +270,24 @@ func cmdRun(args []string) error {
 	defer cancel()
 
 	deadline := time.Now().Add(duration)
+	log.Info(fmt.Sprintf("Polling every %s for up to %s; hard stop after %s.",
+		interval, duration, cfg.Runner.HardStop.D()))
+	if *once {
+		log.Info("Single-cycle mode: a final cycle, without scheduling new patches.")
+	}
 	for {
 		final := *once || time.Until(deadline) < interval
 		p.Step(ctx, final)
 		if final || ctx.Err() != nil {
+			if ctx.Err() != nil {
+				log.Warn(fmt.Sprintf("Stopping the polling loop: %v", ctx.Err()))
+			} else {
+				log.Info("Final cycle complete; stopping the polling loop.")
+			}
 			break
 		}
+		log.Info(fmt.Sprintf("Waiting %s before the next polling cycle (around %s).",
+			interval, time.Now().Add(interval).UTC().Format(time.RFC3339)))
 		t := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
@@ -268,11 +297,12 @@ func cmdRun(args []string) error {
 	}
 
 	// Always try to save, even after cancellation.
+	log.Info("Saving final state before exiting.")
 	saveCtx, saveCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer saveCancel()
 	cpErr := p.Checkpoint(saveCtx, "run finished")
 	writeSummary(cfg, p)
-	log.Info("finished", "summary", p.Stats.Summary())
+	log.Info(fmt.Sprintf("LeadTestKit finished: %s.", p.Stats.Summary()))
 	if cpErr != nil {
 		return fmt.Errorf("saving state: %w", cpErr)
 	}

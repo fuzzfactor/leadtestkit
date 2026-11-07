@@ -19,12 +19,14 @@ import (
 
 func (p *Pipeline) schedule(ctx context.Context) {
 	if !p.Cfg.Mode.PushLive() {
+		p.infof("Not scheduling patches: push mode is %q; live pushes are required.",
+			p.Cfg.Mode.Push)
 		return
 	}
 	now := p.now()
 	queued, err := p.queuedJobs(ctx)
 	if err != nil {
-		p.log().Warn("cannot count queued jobs, not pushing", "err", err)
+		p.warnf("Not scheduling: GitHub's queued jobs could not be counted: %v", err)
 		return
 	}
 
@@ -38,7 +40,13 @@ func (p *Pipeline) schedule(ctx context.Context) {
 				inflight[authorKey(s)]++
 			}
 		}
-		if s.Hold || !s.Failure.Due(now) {
+		if s.Hold {
+			p.infof("%s: not scheduling because it is on manual hold.", seriesName(s))
+			continue
+		}
+		if !s.Failure.Due(now) {
+			p.infof("%s: not scheduling until the %s retry at %s.",
+				seriesName(s), s.Failure.Op, s.Failure.Next)
 			continue
 		}
 		ready := 0
@@ -49,15 +57,33 @@ func (p *Pipeline) schedule(ctx context.Context) {
 			ready = len(p.pushable(s))
 		}
 		if ready > 0 {
+			p.infof("%s: %d patches are scheduling candidates for %s.",
+				seriesName(s), ready, authorKey(s))
 			since := state.ParseTime(s.Discovered)
 			cands = append(cands, sched.Candidate{SeriesID: s.ID, Author: authorKey(s),
 				Since: since, Ready: ready})
+		} else if s.Active() {
+			p.infof("%s: no patches are ready to push (series status: %s).",
+				seriesName(s), s.Status)
+			for _, pt := range s.Patches {
+				if !pt.Failure.Due(now) {
+					p.infof("%s: waiting until %s to retry %s.",
+						patchName(pt), pt.Failure.Next, pt.Failure.Op)
+				}
+			}
 		}
 	}
 	jobs := p.Cfg.Limits.JobsPerPatch
 	if avg := int(p.Store.Meta.Stats.JobsPerPatch + 0.5); avg > 0 {
 		jobs = avg
 	}
+	total := 0
+	for _, n := range inflight {
+		total += n
+	}
+	p.infof("CI capacity: %d queued jobs (limit %d), %d patches in flight (limit %d); "+
+		"estimating %d jobs per additional patch.", queued, p.Cfg.Limits.MaxQueuedJobs,
+		total, p.Cfg.Limits.MaxInflightPatches, jobs)
 	picks := sched.Pick(sched.Input{
 		Limits: sched.Limits{
 			MaxQueuedJobs:      p.Cfg.Limits.MaxQueuedJobs,
@@ -69,10 +95,10 @@ func (p *Pipeline) schedule(ctx context.Context) {
 		QueuedJobs: queued,
 		Inflight:   inflight,
 		Candidates: cands,
+		Explain:    p.infof,
 	})
-	if len(picks) > 0 {
-		p.log().Info("scheduling", "queued_jobs", queued, "picks", len(picks))
-	}
+	p.infof("Scheduling decision: selected %d patch slots from %d candidate series.",
+		len(picks), len(cands))
 	for _, id := range picks {
 		if ctx.Err() != nil {
 			return
@@ -82,10 +108,13 @@ func (p *Pipeline) schedule(ctx context.Context) {
 			p.prepare(ctx, s)
 		}
 		if s.Status != state.SeriesTesting {
+			p.infof("%s: not pushing after preparation; its status is %s (%s).",
+				seriesName(s), s.Status, s.Reason)
 			continue
 		}
 		next := p.pushable(s)
 		if len(next) == 0 {
+			p.infof("%s: no pushable patches remain in this cycle.", seriesName(s))
 			continue
 		}
 		p.push(ctx, s, next[0])
@@ -97,10 +126,13 @@ func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	p.infof("GitHub returned %d active workflow runs; counting jobs waiting for a runner.",
+		len(runs))
 	total := 0
 	seen := map[int64]bool{}
 	for _, r := range runs {
 		if seen[r.ID] {
+			p.infof("Run %d was already counted; ignoring its duplicate listing.", r.ID)
 			continue
 		}
 		seen[r.ID] = true
@@ -109,14 +141,20 @@ func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 			return 0, err
 		}
 		if len(jobs) == 0 && r.Status != "in_progress" {
+			p.infof("Run %d (%s) has no jobs yet; reserving one queued-job slot.",
+				r.ID, r.Name)
 			total++
 			continue
 		}
+		waiting := 0
 		for _, j := range jobs {
 			if j.Status == "queued" || j.Status == "waiting" || j.Status == "pending" {
 				total++
+				waiting++
 			}
 		}
+		p.infof("Run %d (%s): %d of %d jobs are waiting for a runner.",
+			r.ID, r.Name, waiting, len(jobs))
 	}
 	return total, nil
 }
@@ -145,12 +183,13 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 			s.Finish(state.SeriesError, "push: "+pt.Failure.LastError, now)
 			p.errorf("series %d: giving up pushing patch %d: %v", s.ID, pt.ID, err)
 		} else {
-			p.log().Warn("push failed", "series", s.ID, "patch", pt.ID,
-				"name", pt.Name, "err", err)
+			p.warnf("%s: could not push for series %d: %v", patchName(pt), s.ID, err)
 		}
 	}
 	// After a lost state the branch may already be at this or a later
 	// patch; moving it would start the workflows again.
+	p.infof("%s: checking branch %s before pushing commit %s.",
+		patchName(pt), s.Branch, short(pt.SHA))
 	cur, err := p.GH.RefSHA(ctx, "heads/"+s.Branch)
 	if err != nil {
 		pushFailed(err)
@@ -168,21 +207,22 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 			for _, x := range ordered[:head+1] {
 				if x.Status == state.PatchApplied {
 					p.markPushed(ctx, s, x, now)
-					p.log().Info("patch already pushed", "series", s.ID,
-						"patch", x.ID, "name", x.Name)
+					p.infof("%s: already on %s; not triggering CI again.",
+						patchName(x), s.Branch)
 				}
 			}
 			return
 		}
 	}
+	p.infof("%s: updating branch %s to %s to trigger push workflows.",
+		patchName(pt), s.Branch, short(pt.SHA))
 	if err := p.GH.SetBranch(ctx, s.Branch, pt.SHA); err != nil {
 		pushFailed(err)
 		return
 	}
 	p.Stats.Pushed++
-	p.log().Info("patch pushed", "series", s.ID, "patch", pt.ID,
-		"name", pt.Name, "branch", s.Branch,
-		"sha", pt.SHA)
+	p.infof("%s: pushed to %s at %s; waiting for GitHub workflows.",
+		patchName(pt), s.Branch, short(pt.SHA))
 	p.markPushed(ctx, s, pt, now)
 }
 
@@ -203,40 +243,50 @@ type patchData struct {
 
 func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	now := p.now()
+	p.infof("%s: preparing %d patches for testing.", seriesName(s), len(s.Patches))
 	retry := func(op string, err error) {
 		if p.fail(&s.Failure, op, err) {
 			s.Finish(state.SeriesError, op+": "+s.Failure.LastError, now)
 			p.errorf("series %d: giving up (%s): %v", s.ID, op, err)
 			return
 		}
-		p.log().Warn("series preparation failed", "series", s.ID, "name", s.Name,
-			"op", op, "err", err)
+		p.warnf("%s: preparation failed while trying to %s: %v", seriesName(s), op, err)
 	}
 
 	patches := sortedPatches(s)
 	data := make([]patchData, len(patches))
 	terminal := 0
 	for i, pt := range patches {
+		p.infof("%s: fetching patch %d of %d and building its email for git am.",
+			patchName(pt), i+1, len(patches))
 		d, err := p.PW.GetPatch(ctx, pt.ID)
 		if err != nil {
 			retry("fetch patch", err)
 			return
 		}
 		if d.PullURL != nil && *d.PullURL != "" {
+			p.infof("%s: skipping because patch %d is a pull request.",
+				seriesName(s), pt.ID)
 			s.Finish(state.SeriesSkipped, "pull request", now)
 			return
 		}
 		if terminalPatchStates[d.State] {
+			p.infof("%s: Patchwork state is %s; counting it as no longer active.",
+				patchName(pt), d.State)
 			terminal++
 		}
 		mbox, err := pw.BuildMbox(d)
 		if err != nil {
+			p.infof("%s: skipping because patch %d cannot be made into an email: %v",
+				seriesName(s), pt.ID, err)
 			s.Finish(state.SeriesSkipped, err.Error(), now)
 			return
 		}
 		data[i] = patchData{detail: d, mbox: mbox}
 	}
 	if terminal == len(patches) {
+		p.infof("%s: skipping because all patches are in terminal Patchwork states.",
+			seriesName(s))
 		s.Finish(state.SeriesSkipped, "patches are no longer active", now)
 		return
 	}
@@ -245,11 +295,16 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	var base *state.Base
 	var err error
 	if !s.Reapply {
+		p.infof("%s: checking recovery refs for commits applied by an earlier run.",
+			seriesName(s))
 		base, reused, err = p.reuseApplied(ctx, s, patches)
 		if err != nil {
 			retry("check applied patches", err)
 			return
 		}
+	} else {
+		p.infof("%s: a fresh application was requested; not reusing recovery refs.",
+			seriesName(s))
 	}
 	if base == nil {
 		var ok bool
@@ -270,6 +325,8 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		}
 	}
 	if base.SHA == "" {
+		p.infof("%s: resolving base branch %s from %s (%s).",
+			seriesName(s), base.Branch, base.GitURL, base.Why)
 		sha, err := p.Repo.Resolve(ctx, base.GitURL, base.Branch)
 		if err != nil {
 			retry("fetch base", err)
@@ -277,6 +334,8 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		}
 		base.SHA = sha
 	}
+	p.infof("%s: selected base %s at %s: %s.",
+		seriesName(s), base.Branch, short(base.SHA), base.Why)
 
 	shas, failed, output := reused, -1, ""
 	if len(reused) < len(data) {
@@ -288,6 +347,8 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		for _, d := range data[len(reused):] {
 			mboxes = append(mboxes, d.mbox)
 		}
+		p.infof("%s: applying %d patches on top of %s.",
+			seriesName(s), len(mboxes), short(top))
 		applied, f, out, err := p.Repo.Apply(ctx, top, mboxes)
 		if err != nil {
 			retry("apply", err)
@@ -303,10 +364,14 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		for i, sha := range shas {
 			refs[p.patchRef(patches[i])] = sha
 		}
+		p.infof("%s: publishing %d recovery refs before updating the test branch.",
+			seriesName(s), len(refs))
 		if err := p.Repo.PushRefs(ctx, refs); err != nil {
 			retry("push staging refs", err)
 			return
 		}
+		p.infof("%s: saved %d recovery refs; these refs do not trigger push workflows.",
+			seriesName(s), len(refs))
 	}
 
 	s.Failure = nil
@@ -322,22 +387,25 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 		case failed < 0 || i < failed:
 			pt.SHA = shas[i]
 			pt.Status = state.PatchApplied
+			p.infof("%s: applied as commit %s.", patchName(pt), short(pt.SHA))
 			if p.Cfg.Report.ApplySuccess {
 				pt.Runs = append(pt.Runs, p.applyRun(state.ResultSuccess,
 					fmt.Sprintf("Applied on top of %s (%s).",
 						base.Branch, short(base.SHA))))
 			}
 		case i == failed:
+			p.warnf("%s: failed to apply on %s at %s:\n%s",
+				patchName(pt), base.Branch, short(base.SHA), output)
 			pt.Status = state.PatchApplyFailed
 			pt.Runs = append(pt.Runs,
 				p.applyRun(state.ResultFail, applyFailure(base, output)))
 		default:
+			p.infof("%s: not applied because an earlier patch failed.", patchName(pt))
 			pt.Status = state.PatchNotApplied
 		}
 	}
-	p.log().Info("series applied", "series", s.ID, "name", s.Name,
-		"base", base.Branch, "sha", base.SHA,
-		"applied", len(shas), "reused", len(reused), "failed_index", failed)
+	p.infof("%s: preparation finished; %d of %d patches applied (%d reused).",
+		seriesName(s), len(shas), len(patches), len(reused))
 }
 
 // reuseApplied finds patches applied by an earlier attempt whose
@@ -351,6 +419,10 @@ func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series,
 	}
 	found, err := p.Repo.TestRefs(ctx, names)
 	if err != nil || len(found) == 0 {
+		if err == nil {
+			p.infof("%s: no saved patch commits found; a fresh apply is needed.",
+				seriesName(s))
+		}
 		return nil, nil, err
 	}
 	var shas []string
@@ -358,6 +430,8 @@ func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series,
 	for i, name := range names {
 		sha, ok := found[name]
 		if !ok {
+			p.infof("%s: recovery ref %s is missing; ending commit reuse here.",
+				seriesName(s), name)
 			break
 		}
 		parent, err := p.Repo.Parent(ctx, sha)
@@ -367,6 +441,8 @@ func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series,
 		if i == 0 {
 			base = parent
 		} else if parent != shas[i-1] {
+			p.infof("%s: saved patch chain is broken; ending reuse before patch %d.",
+				seriesName(s), patches[i].ID)
 			break
 		}
 		shas = append(shas, sha)
@@ -374,7 +450,8 @@ func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series,
 	if len(shas) == 0 {
 		return nil, nil, nil
 	}
-	p.log().Info("reusing patches applied earlier", "series", s.ID, "patches", len(shas))
+	p.infof("%s: reusing %d previously applied patches to avoid duplicate CI runs.",
+		seriesName(s), len(shas))
 	return &state.Base{GitURL: p.Cfg.Upstream.GitURL, SHA: base,
 		Why: "applied by an earlier attempt"}, shas, nil
 }
@@ -441,9 +518,12 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 		}
 	}
 	if depID == 0 || depID == s.ID {
+		p.infof("%s: no external series dependency was found.", seriesName(s))
 		return nil, true, nil
 	}
 	s.DependsOn = depID
+	p.infof("%s: requires dependency series %d; looking for its applied commits.",
+		seriesName(s), depID)
 	now := p.now()
 	recent, err := p.Store.Recent(now, p.Cfg.Limits.HistoryWindow.D())
 	if err != nil {
@@ -464,6 +544,7 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 		}
 	}
 	if last != nil {
+		p.infof("%s: using dependency series %d as the base.", seriesName(s), depID)
 		sha, err := p.Repo.ResolveTestRef(ctx, p.stagingRef(dep))
 		if err != nil {
 			return nil, false, err
@@ -473,15 +554,14 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 	}
 	if dep != nil && dep.Active() &&
 		now.Sub(state.ParseTime(s.Discovered)) < p.Cfg.Limits.CompleteTimeout.D() {
-		if s.Status != state.SeriesWaiting {
-			p.log().Info("series waits for dependency", "series", s.ID,
-				"depends_on", depID)
-		}
+		p.infof("%s: waiting for dependency series %d to be applied.", seriesName(s), depID)
 		s.Status = state.SeriesWaiting
 		s.Reason = fmt.Sprintf("waiting for series %d", depID)
 		return nil, false, nil
 	}
 	s.Reason = fmt.Sprintf("dependency series %d is not available", depID)
+	p.warnf("%s: dependency series %d is unavailable; falling back to base-selection rules.",
+		seriesName(s), depID)
 	return nil, true, nil
 }
 
@@ -501,6 +581,7 @@ func (p *Pipeline) selectBase(ctx context.Context, s *state.Series,
 	}
 	for i := range p.Cfg.Rules.Base {
 		r := &p.Cfg.Rules.Base[i]
+		p.infof("%s: checking base-selection rule %d (%s).", seriesName(s), i+1, r.Type)
 		gitURL := r.GitURL
 		if gitURL == "" {
 			gitURL = p.Cfg.Upstream.GitURL
@@ -528,23 +609,31 @@ func (p *Pipeline) selectBase(ctx context.Context, s *state.Series,
 			}
 			content, err := p.Repo.ReadFile(ctx, sha, r.File)
 			if err != nil {
-				p.log().Warn("cannot read maintainers file",
-					"file", r.File, "err", err)
+				p.warnf("%s: cannot read %s; trying other base rules: %v",
+					seriesName(s), r.File, err)
 				continue
 			}
 			tree := maint.Parse(string(content)).Select(maint.DiffFiles(diffs...))
 			if tree == "" {
+				p.infof("%s: no unique maintainer tree matches changed files.",
+					seriesName(s))
 				continue
 			}
 			t, ok := r.Trees[tree]
 			if !ok {
+				p.infof("%s: maintainer tree %s has no base; keeping the default.",
+					seriesName(s), tree)
 				def.Why = "default (tree " + tree + " is not configured)"
 				continue
 			}
 			return &state.Base{GitURL: t.GitURL, Branch: t.Branch,
 				Why: "maintainers: " + tree}, nil
 		}
+		p.infof("%s: base-selection rule %d did not select a base; trying the next rule.",
+			seriesName(s), i+1)
 	}
+	p.infof("%s: no base rule selected a branch; using default branch %s.",
+		seriesName(s), def.Branch)
 	return def, nil
 }
 
@@ -552,20 +641,25 @@ const dispatchTitlePrefix = "leadtest "
 
 func (p *Pipeline) dispatch(ctx context.Context, s *state.Series, pt *state.Patch) {
 	if !p.Cfg.Workflows.Custom {
+		p.infof("%s: custom workflow dispatch is disabled.", patchName(pt))
 		return
 	}
 	files, err := p.customWorkflows(ctx)
 	if err != nil {
-		p.log().Warn("cannot list custom workflows", "err", err)
+		p.warnf("%s: cannot list custom workflows: %v", patchName(pt), err)
 		return
 	}
 	last := pt.Number == len(s.Patches)
 	for _, f := range files {
 		perSeries := contains(p.Cfg.Workflows.CustomPerSeries, f)
 		if perSeries && !last {
+			p.infof("%s: not dispatching %s; it runs only on a series' last patch.",
+				patchName(pt), f)
 			continue
 		}
 		if runByFile(pt, f) != nil {
+			p.infof("%s: %s already has a tracked dispatch; not creating another.",
+				patchName(pt), f)
 			continue
 		}
 		pt.Runs = append(pt.Runs, &state.Run{
@@ -592,8 +686,12 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 	}
 	var existing map[string]bool
 	for _, r := range pt.Runs {
-		if r.Kind != state.RunDispatch || r.Status != "dispatching" ||
-			!r.Failure.Due(p.now()) {
+		if r.Kind != state.RunDispatch || r.Status != "dispatching" {
+			continue
+		}
+		if !r.Failure.Due(p.now()) {
+			p.infof("%s: dispatch of %s is waiting until %s to retry.",
+				patchName(pt), r.File, r.Failure.Next)
 			continue
 		}
 		// A run that was dispatched before the state was lost, or whose
@@ -602,12 +700,14 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 			var err error
 			existing, err = p.dispatchedTitles(ctx, s)
 			if err != nil {
-				p.log().Warn("cannot list dispatched runs",
-					"series", s.ID, "err", err)
+				p.warnf("%s: cannot check dispatches; not risking duplicates: %v",
+					seriesName(s), err)
 				return
 			}
 		}
 		if existing[r.CorrelationID] {
+			p.infof("%s: found an existing dispatch for %s (%s); not sending it again.",
+				patchName(pt), r.File, r.CorrelationID)
 			r.Status = "requested"
 			r.Updated = state.FormatTime(p.now())
 			continue
@@ -621,6 +721,9 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 			"patch_index":    strconv.Itoa(pt.Number),
 			"correlation_id": r.CorrelationID,
 		}
+		p.infof("%s: dispatching %s from %s for commit %s (request %s).",
+			patchName(pt), r.File, p.Cfg.TestRepo.ToolsBranch,
+			short(pt.SHA), r.CorrelationID)
 		if err := p.GH.Dispatch(ctx, r.File, p.Cfg.TestRepo.ToolsBranch,
 			inputs); err != nil {
 			if p.fail(&r.Failure, "dispatch", err) {
@@ -629,14 +732,15 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 				r.Details = "Failed to start the workflow: " + r.Failure.LastError
 				r.Completed = state.FormatTime(p.now())
 			}
-			p.log().Warn("dispatch failed", "series", s.ID, "patch", pt.ID,
-				"file", r.File, "err", err)
+			p.warnf("%s: could not dispatch %s: %v", patchName(pt), r.File, err)
 			continue
 		}
 		r.Failure = nil
 		r.Status = "requested"
 		r.Updated = state.FormatTime(p.now())
 		p.Stats.Dispatched++
+		p.infof("%s: GitHub accepted the %s dispatch; waiting for the run to appear.",
+			patchName(pt), r.File)
 	}
 }
 
@@ -668,6 +772,12 @@ func (p *Pipeline) customWorkflows(ctx context.Context) ([]string, error) {
 		// The tools branch also has the project's own workflows.
 		if !strings.HasPrefix(f, p.Cfg.Workflows.CustomPrefix) ||
 			contains(p.Cfg.Workflows.CustomExclude, f) {
+			if contains(p.Cfg.Workflows.CustomExclude, f) {
+				p.infof("Not using workflow %s: excluded in config.yaml.", f)
+			} else {
+				p.infof("Not using workflow %s: name does not start with %s.",
+					f, p.Cfg.Workflows.CustomPrefix)
+			}
 			continue
 		}
 		data, err := p.GH.File(ctx, ".github/workflows/"+f, p.Cfg.TestRepo.ToolsBranch)
@@ -676,10 +786,13 @@ func (p *Pipeline) customWorkflows(ctx context.Context) ([]string, error) {
 		}
 		if hasDispatchTrigger(data) {
 			out = append(out, f)
+		} else {
+			p.infof("Not using custom workflow %s: no workflow_dispatch trigger.", f)
 		}
 	}
 	p.customFiles, p.customLoaded = out, true
-	p.log().Info("custom workflows", "files", strings.Join(out, ","))
+	p.infof("Found %d dispatchable custom workflows on %s: %s.",
+		len(out), p.Cfg.TestRepo.ToolsBranch, strings.Join(out, ", "))
 	return out, nil
 }
 

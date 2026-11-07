@@ -80,6 +80,9 @@ func (r redactHandler) WithGroup(name string) slog.Handler {
 }
 
 func redactAttr(a slog.Attr) slog.Attr {
+	if a.Equal(slog.Attr{}) {
+		return a
+	}
 	v := a.Value.Resolve()
 	switch v.Kind() {
 	case slog.KindString:
@@ -105,7 +108,7 @@ func New(w io.Writer, debug bool) *slog.Logger {
 	if debug {
 		level = slog.LevelDebug
 	}
-	h := slog.NewTextHandler(w, &slog.HandlerOptions{Level: level})
+	h := &humanHandler{output: &logOutput{w: w}, level: level}
 	return slog.New(redactHandler{h})
 }
 

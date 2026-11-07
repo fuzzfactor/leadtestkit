@@ -98,9 +98,10 @@ func (g *Git) RunInput(ctx context.Context, stdin []byte, args ...string) (strin
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	start := time.Now()
+	g.log().Debug(fmt.Sprintf("Running git %s in %s.", strings.Join(args, " "), g.Dir))
 	err := cmd.Run()
-	g.log().Debug("git", "args", strings.Join(args, " "),
-		"dur", time.Since(start).Round(time.Millisecond))
+	g.log().Debug(fmt.Sprintf("Git %s finished in %s (error: %v).", strings.Join(args, " "),
+		time.Since(start).Round(time.Millisecond), err))
 	if err != nil {
 		code := -1
 		if ee, ok := err.(*exec.ExitError); ok {

@@ -22,6 +22,8 @@ const (
 
 func (p *Pipeline) track(id int, known map[int]bool) {
 	if id <= 0 || known[id] {
+		p.infof("Not adding series %d: invalid or already tracked in the queue or history.",
+			id)
 		return
 	}
 	known[id] = true
@@ -32,7 +34,7 @@ func (p *Pipeline) track(id int, known map[int]bool) {
 		Patches:    []*state.Patch{},
 	})
 	p.Stats.Discovered++
-	p.log().Info("new series", "series", id)
+	p.infof("Found series %d; fetching its details during eligibility checks.", id)
 }
 
 // discover finds completed series through events, and once per run
@@ -47,23 +49,48 @@ func (p *Pipeline) discover(ctx context.Context) {
 	meta := p.Store.Meta
 	if meta.DiscoveryStart == "" {
 		meta.DiscoveryStart = state.FormatTime(now)
-		p.log().Info("first discovery, older series are not tested",
-			"initial_backfill", p.Cfg.Limits.InitialBackfill.D())
+		p.infof("First discovery: recording %s as the discovery start time.",
+			meta.DiscoveryStart)
 	}
 	cutoff := now.Add(-p.Cfg.Limits.SeriesMaxAge.D())
 	start := state.ParseTime(meta.DiscoveryStart)
 	if c := start.Add(-p.Cfg.Limits.InitialBackfill.D()); c.After(cutoff) {
 		cutoff = c
 	}
+	p.infof("Discovery start: %s. Initial backfill: %s. Maximum series age: %s.",
+		meta.DiscoveryStart, p.Cfg.Limits.InitialBackfill.D(),
+		p.Cfg.Limits.SeriesMaxAge.D())
+	p.infof("The series-list cutoff is %s; older series will not be added from that list.",
+		state.FormatTime(cutoff))
 
 	opts := pw.WalkOptions{Category: seriesEvents, Cursor: meta.Events[seriesEvents]}
 	if opts.Cursor == 0 {
 		opts.Cutoff = cutoff
 		opts.MaxPages = 3
+		p.infof("No saved event cursor: scanning from %s, limited to %d event pages.",
+			state.FormatTime(cutoff), opts.MaxPages)
+		if p.Cfg.Limits.InitialBackfill.D() == 0 {
+			p.infof("Initial backfill is zero: older series are not requested.")
+		} else {
+			p.infof("Backfill is bounded by the event-page limit and maximum age; " +
+				"this is not an exhaustive historical scan.")
+		}
+	} else {
+		p.infof("Resuming after series event %d. "+
+			"Changing initial_backfill does not rewind this cursor; "+
+			"only the newest-series safety scan uses the cutoff.",
+			opts.Cursor)
 	}
+	before := p.Stats.Discovered
+	events := 0
 	cursor, err := p.PW.WalkEvents(ctx, opts, func(ev pw.Event) error {
+		events++
 		if pl, ok := ev.Payload.(*pw.SeriesCompletedPayload); ok {
+			p.infof("Series-completed event %d: series %d (%s).",
+				ev.ID, pl.Series.ID, ev.Date)
 			p.track(pl.Series.ID, known)
+		} else {
+			p.infof("Ignoring series event %d: no series-completed payload.", ev.ID)
 		}
 		return nil
 	})
@@ -71,26 +98,38 @@ func (p *Pipeline) discover(ctx context.Context) {
 		meta.Events[seriesEvents] = cursor
 	}
 	if err != nil {
-		p.log().Warn("series events", "err", err)
+		p.warnf("Series-event scan failed: %v. Keeping progress through event %d.",
+			err, meta.Events[seriesEvents])
 	}
+	p.infof("Read %d series events; added %d series. Saved event cursor: %d.",
+		events, p.Stats.Discovered-before, meta.Events[seriesEvents])
 
 	if p.safetyNetDone {
+		p.infof("Not repeating the safety scan: already ran in this invocation.")
 		return
 	}
+	p.infof("Safety scan: checking only the newest %d series for missing events.",
+		safetyNetPageSize)
 	page, err := p.PW.GetSeriesPage(ctx, p.PW.BuildSeriesURL(pw.SeriesListParams{
 		Project: p.Cfg.Patchwork.Project, Order: "-id", PerPage: safetyNetPageSize,
 	}))
 	if err != nil {
-		p.log().Warn("series list", "err", err)
+		p.warnf("Cannot read the newest-series list; will retry in a later cycle: %v", err)
 		return
 	}
 	p.safetyNetDone = true
+	before = p.Stats.Discovered
 	for _, s := range page.Items {
 		if d := pw.ParseDate(s.Date); d.IsZero() || d.Before(cutoff) {
+			p.infof("Series %d (%s): not adding from the safety scan; "+
+				"date %q is missing "+
+				"or before %s.", s.ID, s.Name, s.Date, state.FormatTime(cutoff))
 			continue
 		}
 		p.track(s.ID, known)
 	}
+	p.infof("Safety scan finished: examined %d series and added %d.",
+		len(page.Items), p.Stats.Discovered-before)
 }
 
 var terminalPatchStates = map[string]bool{
@@ -104,12 +143,24 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if s.Status != state.SeriesNew || s.Hold || !s.Failure.Due(now) {
+		if s.Status != state.SeriesNew {
+			continue
+		}
+		if s.Hold {
+			p.infof("%s: eligibility checks paused by a manual hold.", seriesName(s))
+			continue
+		}
+		if !s.Failure.Due(now) {
+			p.infof("%s: waiting until %s to retry %s.",
+				seriesName(s), s.Failure.Next, s.Failure.Op)
 			continue
 		}
 		if c := state.ParseTime(s.Checked); !c.IsZero() && now.Sub(c) < incompleteRecheck {
+			p.infof("%s: waiting for missing patches; next completeness check at %s.",
+				seriesName(s), state.FormatTime(c.Add(incompleteRecheck)))
 			continue
 		}
+		p.infof("Series %d: fetching details to check eligibility.", s.ID)
 		ps, err := p.PW.GetSeries(ctx, s.ID)
 		if err != nil {
 			if p.fail(&s.Failure, "fetch series", err) {
@@ -122,19 +173,20 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		s.Failure = nil
 		p.fill(s, ps)
 		if reason := p.skipReason(s, ps, now); reason != "" {
-			p.log().Info("series skipped", "series", s.ID,
-				"name", s.Name, "reason", reason)
+			p.infof("%s: skipping: %s.", seriesName(s), reason)
 			s.Finish(state.SeriesSkipped, reason, now)
 			continue
 		}
 		if !ps.ReceivedAll {
+			p.infof("%s: received %d of %d patches; waiting for the rest.",
+				seriesName(s), len(ps.Patches), ps.Total)
 			s.Checked = state.FormatTime(now)
 			continue
 		}
 		s.Checked = ""
 		s.Status = state.SeriesQueued
-		p.log().Info("series queued", "series", s.ID, "name", s.Name,
-			"patches", len(s.Patches))
+		p.infof("%s: eligible; queued %d patches for testing.",
+			seriesName(s), len(s.Patches))
 		p.supersede(s, now)
 	}
 }
@@ -229,7 +281,7 @@ func (p *Pipeline) supersede(s *state.Series, now time.Time) {
 			baseName(o.Name) != name {
 			continue
 		}
-		p.log().Info("series superseded", "series", o.ID, "name", o.Name, "by", s.ID)
+		p.infof("%s: skipping because series %d is a newer version.", seriesName(o), s.ID)
 		o.Finish(state.SeriesSkipped, "superseded by a newer version", now)
 	}
 }

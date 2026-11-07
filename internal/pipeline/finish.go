@@ -22,20 +22,32 @@ const maxRefDeletes = 50
 // only see caches of their own and of the default branch.
 func (p *Pipeline) syncTools(ctx context.Context) {
 	interval := p.Cfg.TestRepo.SyncInterval.D()
-	if p.syncDone || !p.Cfg.Mode.PushLive() || interval <= 0 {
+	if p.syncDone {
+		p.infof("Not syncing the tools branch: already checked in this invocation.")
+		return
+	}
+	if !p.Cfg.Mode.PushLive() {
+		p.infof("Not syncing the tools branch: push mode is %s.", p.Cfg.Mode.Push)
+		return
+	}
+	if interval <= 0 {
+		p.infof("Not syncing the tools branch: the sync interval is disabled.")
 		return
 	}
 	p.syncDone = true
 	now := p.now()
 	if last := state.ParseTime(p.Store.Meta.ToolsSynced); !last.IsZero() &&
 		now.Sub(last) < interval {
+		p.infof("The tools branch was synced at %s; the next sync is due at %s.",
+			state.FormatTime(last), state.FormatTime(last.Add(interval)))
 		return
 	}
 	branch := p.Cfg.TestRepo.ToolsBranch
+	p.infof("Syncing test-fork branch %s with upstream to refresh shared CI caches.", branch)
 	kind, err := p.GH.MergeUpstream(ctx, branch)
 	switch code := httpx.StatusCode(err); {
 	case err == nil:
-		p.log().Info("tools branch synced with upstream", "branch", branch, "merge", kind)
+		p.infof("Test-fork branch %s synced with upstream (%s).", branch, kind)
 		p.customLoaded = false
 	case code == http.StatusConflict || code == http.StatusUnprocessableEntity ||
 		code == http.StatusNotFound:
@@ -43,8 +55,8 @@ func (p *Pipeline) syncTools(ctx context.Context) {
 		p.errorf("cannot sync %s of the test fork with upstream (merge it manually): %v",
 			branch, err)
 	default:
-		p.log().Warn("syncing the tools branch failed, will retry",
-			"branch", branch, "err", err)
+		p.warnf("Cannot sync test-fork branch %s; will retry in a later run: %v",
+			branch, err)
 		return
 	}
 	p.Store.Meta.ToolsSynced = state.FormatTime(now)
@@ -78,7 +90,10 @@ func (p *Pipeline) finish(ctx context.Context) {
 			}
 			if done {
 				s.Finish(state.SeriesDone, "", now)
-				p.log().Info("series done", "series", s.ID, "name", s.Name)
+				p.infof("%s: all patches and reports are complete.", seriesName(s))
+			} else {
+				p.infof("%s: keeping queued; patches or reports are unfinished.",
+					seriesName(s))
 			}
 		}
 		if s.Active() {
@@ -87,6 +102,8 @@ func (p *Pipeline) finish(ctx context.Context) {
 		if s.Finished == "" {
 			s.Finished = state.FormatTime(now)
 		}
+		p.infof("%s: moving to history with status %s (%s).",
+			seriesName(s), s.Status, s.Reason)
 		if err := p.Store.Archive(s); err != nil {
 			p.errorf("series %d: archive: %v", s.ID, err)
 			continue
@@ -98,14 +115,25 @@ func (p *Pipeline) finish(ctx context.Context) {
 // gc only deletes refs of series known to have finished long ago; the
 // fork may be shared with other tools.
 func (p *Pipeline) gc(ctx context.Context) {
-	if p.gcDone || !p.Cfg.Mode.PushLive() || p.Cfg.Limits.BranchRetention <= 0 {
+	if p.gcDone {
+		p.infof("Not cleaning old refs: already checked in this invocation.")
+		return
+	}
+	if !p.Cfg.Mode.PushLive() {
+		p.infof("Not cleaning old refs: push mode is %s.", p.Cfg.Mode.Push)
+		return
+	}
+	if p.Cfg.Limits.BranchRetention <= 0 {
+		p.infof("Not cleaning old refs: branch retention is disabled.")
 		return
 	}
 	p.gcDone = true
 	cutoff := p.now().Add(-p.Cfg.Limits.BranchRetention.D())
+	p.infof("Looking for refs belonging to series that finished before %s.",
+		state.FormatTime(cutoff))
 	months, err := p.Store.HistoryMonths()
 	if err != nil {
-		p.log().Warn("gc", "err", err)
+		p.warnf("Cannot list history months for ref cleanup: %v", err)
 		return
 	}
 	expired := map[int]bool{}
@@ -117,7 +145,7 @@ func (p *Pipeline) gc(ctx context.Context) {
 		}
 		list, err := p.Store.History(m)
 		if err != nil {
-			p.log().Warn("gc", "err", err)
+			p.warnf("Cannot read history month %s for ref cleanup: %v", m, err)
 			return
 		}
 		for _, s := range list {
@@ -136,6 +164,7 @@ func (p *Pipeline) gc(ctx context.Context) {
 		}
 	}
 	if len(expired) == 0 {
+		p.infof("No series are old enough for ref cleanup in the inspected history window.")
 		return
 	}
 	deleted := 0
@@ -152,7 +181,7 @@ func (p *Pipeline) gc(ctx context.Context) {
 		prefix := pr.prefix
 		refs, err := p.GH.MatchingRefs(ctx, prefix)
 		if err != nil {
-			p.log().Warn("gc: cannot list refs", "err", err)
+			p.warnf("Cannot list refs under %s for cleanup: %v", prefix, err)
 			return
 		}
 		for ref := range refs {
@@ -162,14 +191,18 @@ func (p *Pipeline) gc(ctx context.Context) {
 				continue
 			}
 			if deleted >= maxRefDeletes || ctx.Err() != nil {
+				p.infof("Stopping cleanup: %d deletions; budget or cancellation.",
+					deleted)
 				return
 			}
+			p.infof("Deleting old ref %s.", name)
 			if err := p.GH.DeleteRef(ctx, name); err != nil {
-				p.log().Warn("gc: cannot delete ref", "ref", name, "err", err)
+				p.warnf("Could not delete old ref %s: %v", name, err)
 				continue
 			}
 			deleted++
-			p.log().Info("deleted old ref", "ref", name)
+			p.infof("Deleted old ref %s.", name)
 		}
 	}
+	p.infof("Ref cleanup finished: deleted %d refs.", deleted)
 }

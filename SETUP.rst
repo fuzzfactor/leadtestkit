@@ -122,7 +122,18 @@ configuration says.
 On its first run the bot only records where Patchwork and the archives
 are; series and reports from before that are not processed.  To get
 something to test right away, set ``limits.initial_backfill``, for
-example to ``1d``.
+example to ``1d``, before the first discovery.  The cutoff is the later
+of the saved discovery start minus this backfill and the current time
+minus ``limits.series_max_age``.
+
+Backfill is currently bounded: the initial event scan reads at most
+three pages, and a safety scan checks only the newest 50 series once
+per invocation.  It is not an exhaustive historical search.  Once
+``meta.json`` has a ``series-completed`` event cursor, event discovery
+continues after it; increasing ``initial_backfill`` does not rewind
+that cursor.  Only the newest-series safety scan uses the revised
+cutoff.  Archive initialization is separate and never backfills old
+reports based on this setting.
 
 To go live, set ``checks: post`` and ``email: live``.  Setting
 ``enabled: false`` pauses the bot.
@@ -164,6 +175,27 @@ fewer than ``max_queued_jobs`` jobs wait for a runner and fewer than
 never gets more than ``per_author_max_share`` of the in-flight patches
 while others are waiting.  The pages and the job summary show the
 queue, so the limits can be tuned from real data.
+
+Reading the logs
+~~~~~~~~~~~~~~~~
+
+Open the workflow run in GitHub Actions and expand the step running
+``leadtest``.  Each polling cycle ends with a queue summary and totals
+for the run.  Failed operations include their next retry time.
+
+If no tests start, check the logs for:
+
+- the discovery cutoff and saved event cursor, especially when using
+  ``limits.initial_backfill``;
+- series skipped by eligibility checks or paused by a manual hold;
+- push mode, which must be ``live`` to schedule tests;
+- retry delays, missing dependencies, or CI capacity limits.
+
+Single-step runs do not schedule new patches.  Use a normal run to
+start tests from the queue.
+
+For git command details and timings, pass ``--debug`` to
+``leadtest run``.
 
 
 6. Upgrading

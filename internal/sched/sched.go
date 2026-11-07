@@ -33,6 +33,7 @@ type Input struct {
 	// author.
 	Inflight   map[string]int
 	Candidates []Candidate
+	Explain    func(format string, args ...any)
 }
 
 // Pick returns series IDs in push order; a series appears once per
@@ -41,6 +42,11 @@ type Input struct {
 // next free slot.  The author with the fewest patches in flight goes
 // first, and nobody may exceed a fair share of the in-flight limit.
 func Pick(in Input) []int {
+	explain := func(format string, args ...any) {
+		if in.Explain != nil {
+			in.Explain(format, args...)
+		}
+	}
 	l := in.Limits
 	inflight := map[string]int{}
 	total := 0
@@ -69,6 +75,7 @@ func Pick(in Input) []int {
 			}
 		}
 		if len(waiting) == 0 {
+			explain("No more ready patches are available in this scheduling cycle.")
 			break
 		}
 		fair := int(math.Ceil(float64(l.MaxInflightPatches) / float64(len(waiting))))
@@ -76,7 +83,14 @@ func Pick(in Input) []int {
 
 		best := -1
 		for i, c := range cands {
-			if c.Ready == 0 || inflight[c.Author] >= limit {
+			if c.Ready == 0 {
+				continue
+			}
+			if inflight[c.Author] >= limit {
+				explain("Series %d: waiting for %s to drop below %d "+
+					"in-flight patches (currently %d, "+
+					"including this cycle's selections).",
+					c.SeriesID, c.Author, limit, inflight[c.Author])
 				continue
 			}
 			if best < 0 || inflight[c.Author] < inflight[cands[best].Author] {
@@ -84,14 +98,29 @@ func Pick(in Input) []int {
 			}
 		}
 		if best < 0 {
+			explain("No author has a free slot under fairness limits; " +
+				"not selecting more patches.")
 			break
 		}
 		c := &cands[best]
+		explain("Selected one patch from series %d for %s: %d patches in flight, "+
+			"below the author's current limit of %d; older series win ties.",
+			c.SeriesID, c.Author, inflight[c.Author], limit)
 		c.Ready--
 		inflight[c.Author]++
 		total++
 		queued += l.JobsPerPatch
 		out = append(out, c.SeriesID)
+	}
+	if queued >= l.MaxQueuedJobs {
+		explain("Stopped selecting patches: "+
+			"%d queued or estimated jobs meet the limit of %d.",
+			queued, l.MaxQueuedJobs)
+	}
+	if total >= l.MaxInflightPatches {
+		explain("Stopped selecting patches: "+
+			"%d in-flight or selected patches meet limit %d.",
+			total, l.MaxInflightPatches)
 	}
 	return out
 }

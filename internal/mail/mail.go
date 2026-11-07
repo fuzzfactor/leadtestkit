@@ -154,7 +154,7 @@ func (l *Log) Send(ctx context.Context, e *report.Email) error {
 			break
 		}
 	}
-	l.Log.Info("email disabled, not sending", "to", strings.Join(e.Recipients, ","),
-		"subject", subject)
+	l.Log.Info(fmt.Sprintf("Email disabled: not sending %q to %s.",
+		subject, strings.Join(e.Recipients, ", ")))
 	return nil
 }

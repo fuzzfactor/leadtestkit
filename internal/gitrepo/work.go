@@ -49,6 +49,8 @@ func (w *WorkRepo) ensure(ctx context.Context) error {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(w.Git.Dir, ".git")); errors.Is(err, os.ErrNotExist) {
+		w.Git.log().Info(fmt.Sprintf("Initializing the patch application repository in %s.",
+			w.Git.Dir))
 		if _, err := w.Git.Run(ctx, "init", "-q"); err != nil {
 			return err
 		}
@@ -65,6 +67,7 @@ func (w *WorkRepo) abortAm(ctx context.Context) {
 	}
 	g := *w.Git
 	g.Env = append(append([]string(nil), g.Env...), w.env()...)
+	w.Git.log().Info("Aborting an unfinished git am from an earlier apply attempt.")
 	if _, err := g.Run(ctx, "am", "--abort"); err != nil {
 		os.RemoveAll(dir)
 	}
@@ -106,6 +109,7 @@ func (w *WorkRepo) fetch(ctx context.Context, url, src, dst string) (string, err
 		g.Env = append(append([]string(nil), g.Env...), w.TestEnv...)
 	}
 	dst = "refs/leadtest-cache/" + name + "/" + dst
+	w.Git.log().Info(fmt.Sprintf("Fetching %s from %s into the work repository.", src, url))
 	if _, err := g.Run(ctx, "fetch", "-q", "--no-tags", "--filter=blob:none", name,
 		"+"+src+":"+dst); err != nil {
 		return "", err
@@ -151,6 +155,8 @@ func (w *WorkRepo) Apply(
 	g.Env = append(append([]string(nil), g.Env...), w.env()...)
 	var shas []string
 	for i, m := range mboxes {
+		w.Git.log().Info(fmt.Sprintf("Applying email %d of %d with git am.",
+			i+1, len(mboxes)))
 		file := filepath.Join(dir, fmt.Sprintf("%04d.patch", i+1))
 		if err := os.WriteFile(file, m, 0o644); err != nil {
 			return shas, -1, "", err
@@ -185,6 +191,7 @@ func (w *WorkRepo) PushRefs(ctx context.Context, refs map[string]string) error {
 	}
 	sort.Strings(keys)
 	for _, ref := range keys {
+		w.Git.log().Info(fmt.Sprintf("Publishing recovery ref %s at %s.", ref, refs[ref]))
 		args = append(args, refs[ref]+":"+ref)
 	}
 	g := *w.Git
@@ -202,6 +209,7 @@ func (w *WorkRepo) TestRefs(ctx context.Context, refs []string) (map[string]stri
 	}
 	g := *w.Git
 	g.Env = append(append([]string(nil), g.Env...), w.TestEnv...)
+	w.Git.log().Info(fmt.Sprintf("Looking up %d recovery refs in the test fork.", len(refs)))
 	out, err := g.Run(ctx, append([]string{"ls-remote", name}, refs...)...)
 	if err != nil {
 		return nil, err
@@ -224,6 +232,8 @@ func (w *WorkRepo) TestRefs(ctx context.Context, refs []string) (map[string]stri
 	if len(found) == 0 {
 		return found, nil
 	}
+	w.Git.log().Info(fmt.Sprintf("Fetching %d recovery commits from the test fork.",
+		len(found)))
 	if _, err := g.Run(ctx, fetch...); err != nil {
 		return nil, err
 	}
