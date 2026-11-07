@@ -501,6 +501,18 @@ func (f *fakeRepo) Parent(ctx context.Context, sha string) (string, error) {
 	return p, nil
 }
 
+// SameChange matches commits made by Apply to the emails they came from.
+func (f *fakeRepo) SameChange(ctx context.Context, sha string, mbox []byte) (bool, error) {
+	id := ""
+	for _, l := range strings.Split(string(mbox), "\n") {
+		if strings.HasPrefix(l, "Message-Id: <") {
+			id = strings.TrimPrefix(l, "Message-Id: <")
+			id = strings.TrimSuffix(id, "@example.org>")
+		}
+	}
+	return sha == "sha-"+id || strings.HasPrefix(sha, "sha-"+id+"."), nil
+}
+
 func (f *fakeRepo) ChangedFiles(ctx context.Context, from, to string) ([]string, error) {
 	return nil, nil
 }

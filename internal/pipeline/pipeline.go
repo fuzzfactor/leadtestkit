@@ -71,6 +71,7 @@ type WorkRepo interface {
 	PushRefs(ctx context.Context, refs map[string]string) error
 	TestRefs(ctx context.Context, refs []string) (map[string]string, error)
 	Parent(ctx context.Context, sha string) (string, error)
+	SameChange(ctx context.Context, sha string, mbox []byte) (bool, error)
 	ChangedFiles(ctx context.Context, from, to string) ([]string, error)
 }
 

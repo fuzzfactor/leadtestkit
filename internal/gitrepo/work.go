@@ -182,6 +182,33 @@ func (w *WorkRepo) Apply(
 	return shas, -1, "", nil
 }
 
+// SameChange reports whether a commit makes the change of an email,
+// comparing stable patch IDs, which ignore whitespace and line numbers.
+func (w *WorkRepo) SameChange(ctx context.Context, sha string, mbox []byte) (bool, error) {
+	diff, err := w.Git.Run(ctx, "diff-tree", "-p", sha)
+	if err != nil {
+		return false, err
+	}
+	commit, err := w.patchID(ctx, []byte(diff))
+	if err != nil {
+		return false, err
+	}
+	email, err := w.patchID(ctx, mbox)
+	if err != nil {
+		return false, err
+	}
+	return commit == email, nil
+}
+
+func (w *WorkRepo) patchID(ctx context.Context, diff []byte) (string, error) {
+	out, err := w.Git.RunInput(ctx, diff, "patch-id", "--stable")
+	if err != nil {
+		return "", err
+	}
+	id, _, _ := strings.Cut(strings.TrimSpace(out), " ")
+	return id, nil
+}
+
 // PushRefs force-pushes commits to refs of the test fork in one push.
 func (w *WorkRepo) PushRefs(ctx context.Context, refs map[string]string) error {
 	name, err := w.remote(ctx, w.TestRemote)

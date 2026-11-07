@@ -187,6 +187,23 @@ func TestTestAuthAskedForEveryRequest(t *testing.T) {
 	}
 }
 
+func TestSameChange(t *testing.T) {
+	upstream, test, patches := setup(t)
+	ctx := context.Background()
+	w := newWork(t, test)
+	base, _ := w.Resolve(ctx, upstream, "main")
+	shas, _, _, err := w.Apply(ctx, base, patches[:2])
+	if err != nil || len(shas) != 2 {
+		t.Fatalf("shas=%v err=%v", shas, err)
+	}
+	for i, want := range []bool{true, false} {
+		same, err := w.SameChange(ctx, shas[0], patches[i])
+		if err != nil || same != want {
+			t.Errorf("patch %d: same=%t err=%v", i, same, err)
+		}
+	}
+}
+
 func TestAuthEnv(t *testing.T) {
 	env := AuthEnv("github.com", "lorem-token")
 	if len(env) != 3 || !strings.HasPrefix(env[2],

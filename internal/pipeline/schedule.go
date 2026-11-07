@@ -305,7 +305,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	if !s.Reapply {
 		p.infof("%s: checking recovery refs for commits applied by an earlier run.",
 			seriesName(s))
-		base, reused, err = p.reuseApplied(ctx, s, patches)
+		base, reused, err = p.reuseApplied(ctx, s, patches, data)
 		if err != nil {
 			retry("check applied patches", err)
 			return
@@ -429,8 +429,10 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 // reuseApplied finds patches applied by an earlier attempt whose
 // results were lost, e.g. when a run was killed.  Reusing the same
 // commits keeps branch updates from starting the workflows again.
+// Workflows of tested patches can write to the test fork, so a commit
+// is only reused if it makes the change of its patch.
 func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series,
-	patches []*state.Patch) (*state.Base, []string, error) {
+	patches []*state.Patch, data []patchData) (*state.Base, []string, error) {
 	names := make([]string, len(patches))
 	for i, pt := range patches {
 		names[i] = p.patchRef(pt)
@@ -461,6 +463,18 @@ func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series,
 		} else if parent != shas[i-1] {
 			p.infof("%s: saved patch chain is broken; ending reuse before patch %d.",
 				seriesName(s), patches[i].ID)
+			break
+		}
+		same, err := p.Repo.SameChange(ctx, sha, data[i].mbox)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !same {
+			p.warnf("%s: recovery ref %s at %s does not contain patch %d; "+
+				"ending commit reuse here.", seriesName(s), name, short(sha),
+				patches[i].ID)
+			p.notePatch(patches[i], "recovery-rejected",
+				"%s at %s does not contain this patch.", name, sha)
 			break
 		}
 		shas = append(shas, sha)

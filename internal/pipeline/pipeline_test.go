@@ -860,6 +860,28 @@ func TestLostStateReusesAppliedPrefix(t *testing.T) {
 	}
 }
 
+func TestLostStateRejectsForgedRecoveryRef(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(230, 2, "lorem", e.now)
+	e.repo.failAt[230] = 0
+	e.step()
+
+	// A workflow of some patch replaced the saved commit of patch 23001.
+	e.repo.pushed["refs/leadtest/patch_23001"] = "sha-forged"
+	e.repo.parents["sha-forged"] = "base-main"
+	e.loseState()
+	delete(e.repo.failAt, 230)
+	e.step()
+	pt := e.series(230).Patches[0]
+	if pt.SHA == "sha-forged" || e.repo.applied != 2 {
+		t.Fatalf("forged commit reused: %+v, applied=%d", pt, e.repo.applied)
+	}
+	decision(t, pt.Decisions, "recovery-rejected", "")
+	if e.gh.branches["series_230"] == "sha-forged" {
+		t.Error("the forged commit was pushed")
+	}
+}
+
 func TestBranchAheadOfState(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Limits.MaxInflightPatches = 2
