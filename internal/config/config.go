@@ -227,6 +227,9 @@ type Workflows struct {
 	RerunCancelled  bool     `yaml:"rerun_cancelled"`
 	// RerunJobs is "failed" (GitHub's "Re-run failed jobs") or "all".
 	RerunJobs string `yaml:"rerun_jobs"`
+	// WarningAnnotation is the title of the warning annotations that
+	// make a successful run a warning.  Empty disables the check.
+	WarningAnnotation string `yaml:"warning_annotation"`
 }
 
 type Rechecks struct {
@@ -310,7 +313,7 @@ func defaults() Config {
 			HistoryWindow:      0,
 		},
 		Workflows: Workflows{RerunCancelled: true, RerunJobs: "failed",
-			CustomPrefix: "leadtest-"},
+			CustomPrefix: "leadtest-", WarningAnnotation: "leadtest"},
 		Rechecks: Rechecks{Enabled: true, Window: Duration(30 * 24 * time.Hour)},
 		Runner: Runner{
 			LoopDuration: Duration(13 * time.Minute),

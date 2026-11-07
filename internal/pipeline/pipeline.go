@@ -47,6 +47,8 @@ type GitHub interface {
 	ActiveRuns(ctx context.Context) ([]gh.WorkflowRun, error)
 	Jobs(ctx context.Context, runID int64) ([]gh.Job, error)
 	JobLog(ctx context.Context, jobID int64) (string, error)
+	CheckRuns(ctx context.Context, suiteID int64) ([]gh.CheckRun, error)
+	Annotations(ctx context.Context, checkRunID int64) ([]gh.Annotation, error)
 	Rerun(ctx context.Context, runID int64, failedOnly bool) error
 	Dispatch(ctx context.Context, file, ref string, inputs map[string]string) error
 	WorkflowFiles(ctx context.Context, ref string) ([]string, error)

@@ -204,7 +204,14 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 		p.warnf("%s: could not restart cancelled run %d: %v", patchName(pt), wr.ID, err)
 		p.notePatch(pt, "rerun-failed", "Cancelled %s run %d: %v", r.Workflow, wr.ID, err)
 	}
-	r.Result = conclusionResult(wr.Conclusion)
+	result := conclusionResult(wr.Conclusion)
+	if result == state.ResultSuccess {
+		var ok bool
+		if result, ok = p.successResult(ctx, pt, r, wr); !ok {
+			return
+		}
+	}
+	r.Result = result
 	r.Completed = now
 	if r.Pending.Check == "" {
 		r.Pending.Check = state.StepSkipped

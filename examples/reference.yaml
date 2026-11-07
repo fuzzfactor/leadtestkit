@@ -335,6 +335,15 @@ workflows:
   # "all":    rerun every job of every completed run.
   rerun_jobs: failed
 
+  # A successful run is reported as a warning if a job has warning
+  # annotations with this title, e.g. from
+  #   echo "::warning title=leadtest::2 lines are too long"
+  # Their messages are included in the report.  This lets a workflow
+  # pass with warnings, like checkpatch in fork-workflows/.  Reading the
+  # annotations needs the Checks permission of the GitHub App (see
+  # SETUP.rst).  Empty disables it.
+  warning_annotation: leadtest
+
 rechecks:
   # Rerun workflows on "Recheck-request:" lines in replies to a patch.
   # A label (see below) reruns all failed runs of the patch (see

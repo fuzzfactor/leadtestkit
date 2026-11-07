@@ -90,6 +90,8 @@ Fill in the form:
 - **Repository permissions**:
 
   - Actions: read and write (reading runs, reruns, dispatching);
+  - Checks: read-only (warning annotations, see
+    ``workflows.warning_annotation`` in ``examples/reference.yaml``);
   - Contents: read and write (pushing test branches);
   - Workflows: read and write (patches may change workflow files);
   - Metadata: read-only (selected automatically).

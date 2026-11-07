@@ -59,5 +59,23 @@ jobs:
             cp upstream/utilities/checkpatch.py checkpatch.py
           fi
 
+      # Errors fail the job.  With only warnings the job passes with a
+      # warning annotation titled like workflows.warning_annotation, and
+      # LeadTestKit reports a warning with its text.
       - name: Run checkpatch
-        run: python3 checkpatch.py patch.mbox
+        run: |
+          status=0
+          python3 checkpatch.py patch.mbox > checkpatch.log 2>&1 || status=$?
+          cat checkpatch.log
+          if [ "$status" -ne 0 ] && ! grep -q '^ERROR' checkpatch.log &&
+             grep -q '^WARNING' checkpatch.log; then
+            python3 - checkpatch.log <<'EOF'
+          import sys
+          text = open(sys.argv[1]).read().strip()
+          for c, e in (("%", "%25"), ("\r", "%0D"), ("\n", "%0A")):
+              text = text.replace(c, e)
+          print("::warning title=leadtest::" + text)
+          EOF
+            exit 0
+          fi
+          exit "$status"

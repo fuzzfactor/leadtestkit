@@ -205,6 +205,9 @@ type fakeGH struct {
 	dispatched       []gh.WorkflowRun
 	jobs             map[int64][]gh.Job
 	logs             map[int64]string
+	annotations      map[int64][]gh.Annotation
+	annotationCalls  int
+	annotationErr    error
 	active           []gh.WorkflowRun
 	reruns           []int64
 	failedOnly       []bool
@@ -221,7 +224,8 @@ type fakeGH struct {
 
 func newFakeGH() *fakeGH {
 	return &fakeGH{branches: map[string]string{}, runs: map[string][]gh.WorkflowRun{},
-		jobs: map[int64][]gh.Job{}, logs: map[int64]string{}, refs: map[string]string{},
+		jobs: map[int64][]gh.Job{}, logs: map[int64]string{},
+		annotations: map[int64][]gh.Annotation{}, refs: map[string]string{},
 		files: map[string]string{}, fail: map[string]int{}, nextRun: 1000}
 }
 
@@ -289,6 +293,31 @@ func (f *fakeGH) Jobs(ctx context.Context, id int64) ([]gh.Job, error) {
 
 func (f *fakeGH) JobLog(ctx context.Context, id int64) (string, error) { return f.logs[id], nil }
 
+// Check suites have the ID of their run, check runs the ID of the job.
+func (f *fakeGH) CheckRuns(ctx context.Context, suiteID int64) ([]gh.CheckRun, error) {
+	if err := f.maybeFail("check-runs"); err != nil {
+		return nil, err
+	}
+	var out []gh.CheckRun
+	for _, j := range f.jobs[suiteID] {
+		cr := gh.CheckRun{ID: j.ID, Name: j.Name}
+		cr.Output.AnnotationsCount = len(f.annotations[j.ID])
+		out = append(out, cr)
+	}
+	return out, nil
+}
+
+func (f *fakeGH) Annotations(ctx context.Context, id int64) ([]gh.Annotation, error) {
+	if err := f.maybeFail("annotations"); err != nil {
+		return nil, err
+	}
+	f.annotationCalls++
+	if f.annotationErr != nil {
+		return nil, f.annotationErr
+	}
+	return f.annotations[id], nil
+}
+
 func (f *fakeGH) Rerun(ctx context.Context, id int64, failedOnly bool) error {
 	if err := f.maybeFail("rerun"); err != nil {
 		return err
@@ -343,6 +372,7 @@ func (f *fakeGH) startRuns(branch, sha string, names ...string) []int64 {
 		f.runs[sha] = append(f.runs[sha], gh.WorkflowRun{
 			ID: f.nextRun, Name: n, Event: "push", HeadBranch: branch, HeadSHA: sha,
 			Status: "in_progress", RunAttempt: 1, HTMLURL: url,
+			CheckSuiteID: f.nextRun,
 		})
 		ids = append(ids, f.nextRun)
 	}

@@ -165,7 +165,8 @@ func TestJWT(t *testing.T) {
 func TestToken(t *testing.T) {
 	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	s := &server{t: t, installation: 77,
-		permissions: `{"actions":"write","contents":"write","metadata":"read",` +
+		permissions: `{"actions":"write","checks":"read","contents":"write",` +
+			`"metadata":"read",` +
 			`"workflows":"write"}`}
 	var log bytes.Buffer
 	a := newApp(t, s, &now, &log)
@@ -210,7 +211,8 @@ func TestTokenErrors(t *testing.T) {
 	if _, err := a.Token(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(log.String(), "actions: write, contents: write, workflows: write") {
+	want := "actions: write, checks: read, contents: write, workflows: write"
+	if !strings.Contains(log.String(), want) {
 		t.Errorf("missing permissions not reported:\n%s", log.String())
 	}
 

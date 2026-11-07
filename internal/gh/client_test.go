@@ -57,6 +57,42 @@ func TestRefSHA(t *testing.T) {
 	}
 }
 
+func TestCheckRunsAndAnnotations(t *testing.T) {
+	var srv *httptest.Server
+	c, srv := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/ipsum/lorem/check-suites/7/check-runs":
+			if r.URL.Query().Get("filter") != "latest" {
+				t.Error("only the latest check runs must be listed")
+			}
+			w.Write([]byte(`{"total_count":2,"check_runs":[` +
+				`{"id":11,"name":"checkpatch","output":{"annotations_count":2}},` +
+				`{"id":12,"name":"lint","output":{"annotations_count":0}}]}`))
+		case r.URL.Path == "/repos/ipsum/lorem/check-runs/11/annotations" &&
+			r.URL.Query().Get("page") == "":
+			next := srv.URL + "/repos/ipsum/lorem/check-runs/11/annotations?page=2"
+			w.Header().Set("Link", fmt.Sprintf(`<%s>; rel="next"`, next))
+			w.Write([]byte(`[{"annotation_level":"warning","title":"leadtest",` +
+				`"message":"WARNING: Line is 80 characters long"}]`))
+		case r.URL.Path == "/repos/ipsum/lorem/check-runs/11/annotations":
+			w.Write([]byte(`[{"annotation_level":"failure","title":"",` +
+				`"message":"Process completed with exit code 1."}]`))
+		default:
+			w.WriteHeader(404)
+		}
+	})
+	runs, err := c.CheckRuns(context.Background(), 7)
+	if err != nil || len(runs) != 2 || runs[0].ID != 11 ||
+		runs[0].Output.AnnotationsCount != 2 {
+		t.Fatalf("check runs = %+v, %v", runs, err)
+	}
+	notes, err := c.Annotations(context.Background(), 11)
+	if err != nil || len(notes) != 2 || notes[0].Level != "warning" ||
+		notes[0].Title != "leadtest" || notes[1].Level != "failure" {
+		t.Fatalf("annotations = %+v, %v", notes, err)
+	}
+}
+
 func TestSetBranch(t *testing.T) {
 	refs := map[string]string{"refs/heads/series_2": "old"}
 	var calls []string

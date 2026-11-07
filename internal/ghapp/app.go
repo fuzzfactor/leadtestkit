@@ -244,6 +244,7 @@ func (a *App) newToken(ctx context.Context, jwt string) (string, error) {
 // Required lists the repository permissions LeadTestKit uses.
 var Required = map[string]string{
 	"actions":   "write",
+	"checks":    "read",
 	"contents":  "write",
 	"workflows": "write",
 }

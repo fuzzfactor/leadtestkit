@@ -178,6 +178,7 @@ type WorkflowRun struct {
 	HTMLURL      string    `json:"html_url"`
 	RunAttempt   int       `json:"run_attempt"`
 	RunNumber    int       `json:"run_number"`
+	CheckSuiteID int64     `json:"check_suite_id"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -256,6 +257,56 @@ func (c *Client) Jobs(ctx context.Context, runID int64) ([]Job, error) {
 			return nil, err
 		}
 		all = append(all, res.Jobs...)
+		u = nextLink(resp.Header.Get("Link"))
+	}
+	return all, nil
+}
+
+// CheckRun is the check of a job; it has the same ID as the job.
+type CheckRun struct {
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Output struct {
+		AnnotationsCount int `json:"annotations_count"`
+	} `json:"output"`
+}
+
+type Annotation struct {
+	Level   string `json:"annotation_level"`
+	Title   string `json:"title"`
+	Message string `json:"message"`
+}
+
+// CheckRuns lists the latest check runs of a check suite, i.e. the jobs
+// of a workflow run.
+func (c *Client) CheckRuns(ctx context.Context, suiteID int64) ([]CheckRun, error) {
+	u := c.repoURL(fmt.Sprintf("/check-suites/%d/check-runs?filter=latest&per_page=100",
+		suiteID))
+	var all []CheckRun
+	for u != "" {
+		var res struct {
+			CheckRuns []CheckRun `json:"check_runs"`
+		}
+		resp, err := c.getJSON(ctx, u, &res)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, res.CheckRuns...)
+		u = nextLink(resp.Header.Get("Link"))
+	}
+	return all, nil
+}
+
+func (c *Client) Annotations(ctx context.Context, checkRunID int64) ([]Annotation, error) {
+	u := c.repoURL(fmt.Sprintf("/check-runs/%d/annotations?per_page=100", checkRunID))
+	var all []Annotation
+	for u != "" {
+		var page []Annotation
+		resp, err := c.getJSON(ctx, u, &page)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
 		u = nextLink(resp.Header.Get("Link"))
 	}
 	return all, nil
