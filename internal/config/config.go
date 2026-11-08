@@ -273,6 +273,8 @@ type Pages struct {
 	// ListTag is the subject tag the mailing list adds to every patch,
 	// like "ovs-dev"; the pages leave it out.
 	ListTag string `yaml:"list_tag"`
+	// StaleAfter is when the pages warn that the bot may not run.
+	StaleAfter Duration `yaml:"stale_after"`
 }
 
 type Secrets struct {
@@ -341,7 +343,8 @@ func defaults() Config {
 			CommitAuthor: "github-actions[bot] " +
 				"<41898282+github-actions[bot]@users.noreply.github.com>",
 		},
-		Pages: Pages{Enabled: true, Title: "LeadTestKit"},
+		Pages: Pages{Enabled: true, Title: "LeadTestKit",
+			StaleAfter: Duration(2 * time.Hour)},
 	}
 }
 

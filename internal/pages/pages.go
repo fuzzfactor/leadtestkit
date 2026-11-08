@@ -41,9 +41,11 @@ type Index struct {
 	ListTag          string `json:"list_tag,omitempty"`
 	// Outage is set while workflows do not run on the test repository.
 	Outage *state.Outage `json:"ci_outage,omitempty"`
-	Mode   Mode          `json:"mode"`
-	Queue  int           `json:"queue"`
-	Months []Month       `json:"months"`
+	// StaleAfter is the age in seconds after which the data is stale.
+	StaleAfter int64   `json:"stale_after,omitempty"`
+	Mode       Mode    `json:"mode"`
+	Queue      int     `json:"queue"`
+	Months     []Month `json:"months"`
 }
 
 type Mode struct {
@@ -76,6 +78,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 		PatchURLFormat:   cfg.Pages.PatchArchiveURLFormat,
 		ListTag:          cfg.Pages.ListTag,
 		Outage:           st.Meta.Outage,
+		StaleAfter:       int64(cfg.Pages.StaleAfter.D().Seconds()),
 		Mode: Mode{Push: cfg.Mode.Push, Checks: cfg.Mode.Checks,
 			Email: cfg.Mode.Email},
 		Queue:  len(st.Queue),

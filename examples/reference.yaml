@@ -408,6 +408,12 @@ pages:
   # out; other tags, like "net" or "RFC", are shown.
   list_tag: ""
 
+  # The pages warn that the bot may not be running when their data is
+  # older than this.  They are only updated by the bot, so they cannot
+  # tell anyone else; see SCHEDULER.rst for failure notifications.
+  # 0 turns the warning off.
+  stale_after: 2h
+
 alerts:
   # Maintainers of the bot who get an email when GitHub stops running
   # the workflows of the test fork, for example because it disabled

@@ -28,7 +28,8 @@ waiting run replaces an older one, which then shows up as cancelled.
 The built-in schedule can stay as a fallback.
 
 This page shows three schedulers: a Cloudflare Worker, cron-job.org,
-and a script run by cron on any machine.  Each needs credentials that
+and a script run by cron on any machine, and how to notice when the bot
+does not run.  Each needs credentials that
 may start workflows in the bot repository, either a personal access
 token or a GitHub App.  In all examples, replace ``<owner>/<repo>``
 with the bot repository, for example ``ovs-ci/leadtestkit``.
@@ -388,3 +389,29 @@ journal.  ``/etc/systemd/system/leadtest-dispatch.service``:
   WantedBy=timers.target
 
 Enable it with ``systemctl enable --now leadtest-dispatch.timer``.
+
+
+Noticing when the bot does not run
+----------------------------------
+
+The bot cannot report that it does not run.  The pages warn when their
+data is older than ``pages.stale_after`` (2 hours by default), but only
+to someone looking at them.  When GitHub disables Actions on the bot
+repository, or the credentials of the scheduler expire, the scheduler's
+requests fail: GitHub answers ``422`` with *Actions has been disabled
+for this repository*, or ``401``.  Let the scheduler tell you:
+
+- **cron-job.org**: enable notifications on failed executions in the
+  cronjob's settings.  The job must count only ``2xx`` answers as
+  successful.
+- **Cloudflare Worker**: the code above throws on any other answer,
+  which marks the cron event as failed, but Cloudflare sends no email
+  about it.  Look at the Worker's cron events now and then, or use one
+  of the other schedulers as well; a second scheduler does no harm, as
+  runs never overlap.
+- **cron**: cron mails the output of a job to ``MAILTO`` when it has
+  any.  The script prints errors only, apart from one line on success,
+  so drop the ``echo`` at its end and the redirection to the log file,
+  and set ``MAILTO`` at the top of the crontab.  With the systemd timer,
+  add ``OnFailure=`` to the service with a unit that sends mail, or
+  watch ``systemctl --failed``.

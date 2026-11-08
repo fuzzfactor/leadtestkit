@@ -373,13 +373,18 @@ async function loadIndex() {
     link("https://" + index.git_host + "/" + index.test_repo, index.test_repo),
     ...(index.run_url ? [" · ", link(index.run_url, "last run")] : []),
     " · push " + mode.push + ", checks " + mode.checks + ", email " + mode.email);
-  const outage = document.getElementById("outage");
   const o = index.ci_outage;
-  outage.hidden = !o;
-  outage.replaceChildren(...(o ? ["Workflows have not run on ", index.test_repo, " for ",
-    el("time", { datetime: o.since, title: o.since }, age(o.since).replace(/ ago$/, "")),
-    ": ", o.reason.replace(/\.$/, ""), ". New patches wait until they run again."]
-    : []));
+  const problems = o ? [el("div", {}, "Workflows have not run on ", index.test_repo,
+    " for ", span(o.since), ": ", o.reason.replace(/\.$/, ""),
+    ". New patches wait until they run again.")] : [];
+  const stale = (Date.now() - Date.parse(index.generated)) / 1000;
+  if (index.stale_after && stale > index.stale_after) {
+    problems.unshift(el("div", {}, "Not updated for ", span(index.generated),
+      ": the bot may not be running."));
+  }
+  const outage = document.getElementById("outage");
+  outage.hidden = !problems.length;
+  outage.replaceChildren(...problems);
   const tabs = document.getElementById("tabs");
   tabs.replaceChildren();
   const add = (tab, text) => {
@@ -390,6 +395,11 @@ async function loadIndex() {
   add("queue", "In progress (" + index.queue + ")");
   for (const m of index.months) add(m.month, m.month + " (" + m.series + ")");
   markActive();
+}
+
+// span shows how long ago something started, like "3h".
+function span(ts) {
+  return el("time", { datetime: ts, title: ts }, age(ts).replace(/ ago$/, ""));
 }
 
 function knownTab(tab) {
