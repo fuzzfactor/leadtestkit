@@ -78,6 +78,9 @@ type Outage struct {
 	NextProbe string `json:"next_probe,omitempty"`
 	// Alerted is when the maintainers were last alerted.
 	Alerted string `json:"alerted,omitempty"`
+	// AlertFailing is since when alerts cannot be sent because of the
+	// SMTP server.
+	AlertFailing string `json:"alert_failing,omitempty"`
 }
 
 const (
@@ -241,6 +244,9 @@ type Failure struct {
 	LastError string `json:"last_error"`
 	First     string `json:"first"`
 	Next      string `json:"next"`
+	// Outage is the kind of outage the failure waits for, without a
+	// deadline.  The waiting does not count once it ends.
+	Outage string `json:"outage,omitempty"`
 }
 
 const (

@@ -321,17 +321,19 @@ continues by itself once it works again.  It recognizes:
 - **GitHub refusing the GitHub App**: the App was uninstalled or its
   credentials are wrong.  Nothing is pushed or monitored until GitHub
   accepts it again, which the bot checks in every cycle.
-- **Email that cannot be sent**: the SMTP server cannot be reached or
-  refuses the login.  Reports wait and are sent once it works again.
+- **Email that cannot be sent for an hour**: the SMTP server cannot be
+  reached or refuses the login.  Reports wait and are sent once it
+  works again.
 - **An archive that cannot be read for a day**: final Patchwork checks,
   or rechecks from the dev list, wait until it can be read again.
 
 The maintainers in ``alerts.to`` get an email when the bot notices a
 problem, once a day while it lasts and when it is over.  The bot runs
 that send these emails fail, which makes them easy to find.  When email
-itself does not work, these runs fail without sending anything.
-Without ``alerts.to``, only the job summaries and the pages show the
-problems.
+itself does not work for an hour, these runs fail without sending
+anything.  Without ``alerts.to``, only the job summaries and the pages
+show the problems.  Outages of a service that gets turned off, like
+email or reading an archive, are forgotten.
 
 The bot cannot notice that it does not run itself, for example when
 GitHub disables Actions on the bot repository.  The pages warn when

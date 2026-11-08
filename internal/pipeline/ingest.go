@@ -144,13 +144,17 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			continue
 		}
 		deadline := archiveTimeout
-		if p.outage(state.OutageArchive(reportsCursor)) != nil {
+		down := p.outage(state.OutageArchive(reportsCursor)) != nil
+		if down {
 			deadline = 0
 		}
 		if state.RecordFailure(&f, "ingest", err, now, deadline) {
 			delete(c.Retry, u)
 			p.errorf("giving up on the report %s after errors: %v", u, err)
 			continue
+		}
+		if down {
+			f.Outage = state.OutageArchive(reportsCursor)
 		}
 		c.Retry[u] = f
 		p.logFailure(f, false)
@@ -176,6 +180,9 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			if err := p.ingestMessage(ctx, u); err != nil && !errors.Is(err, errSkip) {
 				var f *state.Failure
 				state.RecordFailure(&f, "ingest", err, now, archiveTimeout)
+				if p.outage(state.OutageArchive(reportsCursor)) != nil {
+					f.Outage = state.OutageArchive(reportsCursor)
+				}
 				if c.Retry == nil {
 					c.Retry = map[string]*state.Failure{}
 				}

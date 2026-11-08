@@ -40,6 +40,9 @@ const (
 	// archiveOutageAfter is how long an archive may be unreadable
 	// before it counts as an outage; archives are often briefly down.
 	archiveOutageAfter = 24 * time.Hour
+	// emailOutageAfter is how long sending an email may fail before it
+	// counts as an outage, which tolerates brief network problems.
+	emailOutageAfter = time.Hour
 )
 
 func (p *Pipeline) outage(kind string) *state.Outage {
@@ -124,7 +127,9 @@ func (p *Pipeline) startOutage(kind, reason string) {
 }
 
 func (p *Pipeline) startOutageAt(kind, reason string, since time.Time) {
-	if p.outage(kind) != nil {
+	// Refused dispatches and pushes without runs are one problem.
+	workflows := kind == state.OutageRuns || kind == state.OutageDispatch
+	if p.outage(kind) != nil || workflows && p.workflowsDown() {
 		return
 	}
 	o := &state.Outage{Since: state.FormatTime(since), Reason: reason}
@@ -147,7 +152,7 @@ func (p *Pipeline) endOutage(kind, how string) {
 		return
 	}
 	delete(p.Store.Meta.Outages, kind)
-	p.retryNow()
+	p.retryNow(kind)
 	t := p.describe(kind)
 	p.infof("Outage over, %s: %s. It lasted since %s. %s", t.fixed, how, o.Since,
 		oneLine(t.after))
@@ -160,12 +165,13 @@ func (p *Pipeline) endOutage(kind, how string) {
 		t.after, extra, p.alertLinks()))
 }
 
-// retryNow makes everything that waited for an outage be retried now.
-func (p *Pipeline) retryNow() {
+// retryNow makes everything that waited for an outage be retried now,
+// with a fresh retry deadline: the time waited for it does not count.
+func (p *Pipeline) retryNow(kind string) {
 	now := state.FormatTime(p.now())
 	due := func(f *state.Failure) {
-		if f != nil {
-			f.Next = now
+		if f != nil && f.Outage != "" && sameOutage(f.Outage, kind) {
+			f.First, f.Next, f.Attempts, f.Outage = now, now, 0, ""
 		}
 	}
 	for _, s := range p.Store.Queue {
@@ -184,17 +190,63 @@ func (p *Pipeline) retryNow() {
 	}
 }
 
+// sameOutage reports whether two kinds are the same outage; refused
+// dispatches and pushes without runs are one.
+func sameOutage(a, b string) bool {
+	workflows := func(k string) bool {
+		return k == state.OutageRuns || k == state.OutageDispatch
+	}
+	return a == b || workflows(a) && workflows(b)
+}
+
+// serviceUsed reports whether the service of an outage is still used;
+// outages of services turned off would never end.
+func (p *Pipeline) serviceUsed(kind string) bool {
+	switch kind {
+	case state.OutageEmail:
+		return !p.Cfg.Mode.EmailOff()
+	case state.OutageArchive(reportsCursor):
+		return p.archiveUsed(reportsCursor)
+	case state.OutageArchive(devCursor):
+		return p.archiveUsed(devCursor)
+	}
+	return true
+}
+
+func (p *Pipeline) archiveUsed(cursor string) bool {
+	if cursor == reportsCursor {
+		return p.Cfg.Archive.Ingest && p.Reports != nil
+	}
+	return p.Cfg.Rechecks.Enabled && !p.Cfg.UseCommentEvents() && p.Dev != nil
+}
+
 // outageCycle reports the outages once per bot run, checks whether
 // GitHub accepts the App again and reminds the maintainers once a day.
 func (p *Pipeline) outageCycle(ctx context.Context) {
+	// A failure of an archive that is not read cannot count later.
+	for cursor, c := range p.Store.Meta.Archives {
+		if c.Failing != "" && !p.archiveUsed(cursor) {
+			c.Failing = ""
+		}
+	}
 	kinds := make([]string, 0, len(p.Store.Meta.Outages))
 	for k := range p.Store.Meta.Outages {
 		kinds = append(kinds, k)
 	}
 	sort.Strings(kinds)
 	for _, kind := range kinds {
+		// Alerts sent in this loop may have ended an outage.
 		o := p.outage(kind)
+		if o == nil {
+			continue
+		}
 		t := p.describe(kind)
+		if !p.serviceUsed(kind) {
+			delete(p.Store.Meta.Outages, kind)
+			p.retryNow(kind)
+			p.infof("Forgetting that %s: it is no longer used.", t.what)
+			continue
+		}
 		if kind == state.OutageGitHub {
 			tools := "heads/" + p.Cfg.TestRepo.ToolsBranch
 			if _, err := p.GH.RefSHA(ctx, tools); err == nil {
@@ -228,9 +280,12 @@ func (p *Pipeline) markReported(kind string) {
 func (p *Pipeline) alert(kind string, o *state.Outage, subject string) {
 	t := p.describe(kind)
 	if kind == state.OutageEmail {
-		// The failing bot run is the alert.
+		// The failing bot run is the alert, for maintainers who want
+		// alerts.
 		o.Alerted = state.FormatTime(p.now())
-		p.Stats.Alerts = append(p.Stats.Alerts, subject+" (no email: "+o.Reason+")")
+		if len(p.Cfg.Alerts.To) > 0 {
+			p.Stats.Alerts = append(p.Stats.Alerts, subject+" (no email: "+o.Reason+")")
+		}
 		return
 	}
 	extra := ""
@@ -274,13 +329,20 @@ func (p *Pipeline) sendAlert(o *state.Outage, subject, body string) {
 	if err != nil {
 		p.warnf("Cannot send the alert %q; trying again in the next cycle: %v",
 			subject, err)
-		if mail.IsServerError(err) {
-			p.startOutage(state.OutageEmail, err.Error())
+		// Without reports to send, alerts failing for an hour tell
+		// that email does not work.
+		if o != nil && mail.IsServerError(err) {
+			if o.AlertFailing == "" {
+				o.AlertFailing = state.FormatTime(now)
+			}
+			if now.Sub(state.ParseTime(o.AlertFailing)) >= emailOutageAfter {
+				p.startOutage(state.OutageEmail, err.Error())
+			}
 		}
 		return
 	}
 	if o != nil {
-		o.Alerted = state.FormatTime(now)
+		o.Alerted, o.AlertFailing = state.FormatTime(now), ""
 	}
 	p.Stats.Alerts = append(p.Stats.Alerts, subject)
 	p.infof("Sent the alert %q to %s.", subject, strings.Join(p.Cfg.Alerts.To, ", "))
@@ -317,6 +379,10 @@ func (p *Pipeline) recordFailure(f **state.Failure, op string, err error,
 	now := p.now()
 	kind := p.outageOf(err)
 	if kind == "" {
+		if *f != nil && (*f).Outage != "" {
+			// The time waited for the outage does not count.
+			(*f).First, (*f).Attempts, (*f).Outage = state.FormatTime(now), 0, ""
+		}
 		done := state.RecordFailure(f, op, err, now, deadline)
 		p.logFailure(*f, done)
 		return done
@@ -326,7 +392,13 @@ func (p *Pipeline) recordFailure(f **state.Failure, op string, err error,
 		(*f).Next = state.FormatTime(next)
 	}
 	p.logFailure(*f, false)
+	if kind == state.OutageEmail && p.outage(kind) == nil &&
+		now.Sub(state.ParseTime((*f).First)) < emailOutageAfter {
+		return false
+	}
 	p.startOutage(kind, err.Error())
+	// Only the waiting for an outage that started does not count.
+	(*f).Outage = kind
 	return false
 }
 

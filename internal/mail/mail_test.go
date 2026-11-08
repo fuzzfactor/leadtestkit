@@ -188,6 +188,12 @@ func TestServerErrors(t *testing.T) {
 	if err == nil || !IsServerError(err) {
 		t.Errorf("an unreachable server: %v", err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = s.Send(ctx, testEmail(t, "lorem-build@lists.example.org"))
+	if err == nil || IsServerError(err) {
+		t.Errorf("a cancelled send: %v", err)
+	}
 	s.Allowed = []string{"lorem-build@lists.example.org"}
 	err = s.Send(context.Background(), testEmail(t, "Real Human <human@example.org>"))
 	if err == nil || IsServerError(err) {

@@ -92,6 +92,14 @@ func (s *SMTP) Send(ctx context.Context, e *report.Email) error {
 	}
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	dialer := &net.Dialer{Timeout: timeout}
+	// When the caller gave up, the server is not to blame.
+	parent := ctx
+	server := func(err error) error {
+		if parent.Err() != nil {
+			return err
+		}
+		return &ServerError{err}
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -108,7 +116,7 @@ func (s *SMTP) Send(ctx context.Context, e *report.Email) error {
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
 	}
 	if err != nil {
-		return &ServerError{fmt.Errorf("smtp dial %s: %w", addr, err)}
+		return server(fmt.Errorf("smtp dial %s: %w", addr, err))
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		conn.SetDeadline(dl)
@@ -116,24 +124,24 @@ func (s *SMTP) Send(ctx context.Context, e *report.Email) error {
 	c, err := smtp.NewClient(conn, s.Host)
 	if err != nil {
 		conn.Close()
-		return &ServerError{fmt.Errorf("smtp: %w", err)}
+		return server(fmt.Errorf("smtp: %w", err))
 	}
 	defer c.Close()
 	if s.Security != "tls" {
 		if ok, _ := c.Extension("STARTTLS"); !ok {
-			return &ServerError{fmt.Errorf("smtp: server does not support STARTTLS")}
+			return server(fmt.Errorf("smtp: server does not support STARTTLS"))
 		}
 		if err := c.StartTLS(tlsConfig); err != nil {
-			return &ServerError{fmt.Errorf("smtp starttls: %w", err)}
+			return server(fmt.Errorf("smtp starttls: %w", err))
 		}
 	}
 	if s.Username != "" {
 		if err := c.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
-			return &ServerError{fmt.Errorf("smtp auth: %w", err)}
+			return server(fmt.Errorf("smtp auth: %w", err))
 		}
 	}
 	if err := c.Mail(e.From); err != nil {
-		return &ServerError{fmt.Errorf("smtp mail from: %w", err)}
+		return server(fmt.Errorf("smtp mail from: %w", err))
 	}
 	for _, r := range e.Recipients {
 		if err := c.Rcpt(r); err != nil {

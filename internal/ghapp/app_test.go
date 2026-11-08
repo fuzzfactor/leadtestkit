@@ -103,6 +103,9 @@ type server struct {
 	permissions  string
 	repos        []string
 	requested    map[string]string
+	// tokenStatus, when set, is the answer to token requests.
+	tokenStatus int
+	rateLimited bool
 }
 
 func (s *server) handle(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +124,13 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 			`"permissions":%s}`, s.installation, s.permissions)
 	case r.Method == http.MethodPost &&
 		r.URL.Path == fmt.Sprintf("/app/installations/%d/access_tokens", s.installation):
+		if s.tokenStatus != 0 {
+			if s.rateLimited {
+				w.Header().Set("X-RateLimit-Remaining", "0")
+			}
+			w.WriteHeader(s.tokenStatus)
+			return
+		}
 		s.tokens++
 		var body struct {
 			Repositories []string          `json:"repositories"`
@@ -246,5 +256,27 @@ func TestTokenErrors(t *testing.T) {
 	}
 	if _, err := New(Options{PrivateKey: pkcs1(t)}); err == nil {
 		t.Error("an empty Client ID must be refused")
+	}
+}
+
+func TestTokenRefusals(t *testing.T) {
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		status      int
+		rateLimited bool
+		auth        bool
+	}{
+		{http.StatusForbidden, false, true},
+		{http.StatusUnauthorized, false, true},
+		{http.StatusForbidden, true, false},
+		{http.StatusInternalServerError, false, false},
+	} {
+		s := &server{t: t, installation: 77, permissions: `{}`,
+			tokenStatus: tc.status, rateLimited: tc.rateLimited}
+		_, err := newApp(t, s, &now, &bytes.Buffer{}).Token(context.Background())
+		if err == nil || IsAuthError(err) != tc.auth {
+			t.Errorf("HTTP %d, rate limited %v: auth error %v: %v", tc.status,
+				tc.rateLimited, IsAuthError(err), err)
+		}
 	}
 }

@@ -818,6 +818,7 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 			inputs); err != nil && actionsDisabled(err) {
 			// Retried with the outage checks, without a deadline.
 			state.RecordFailure(&r.Failure, "dispatch", err, p.now(), 0)
+			r.Failure.Outage = state.OutageDispatch
 			r.Failure.Next = state.FormatTime(p.now().Add(outageProbeInterval))
 			p.notePatch(pt, "dispatch-failed", "%s: GitHub refused the dispatch: "+
 				"%s. Retrying at %s.", r.File, r.Failure.LastError, r.Failure.Next)

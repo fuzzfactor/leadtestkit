@@ -261,7 +261,9 @@ func (a *App) newToken(ctx context.Context, jwt string) (string, error) {
 			a.installation = 0
 			return "", &AuthError{err}
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return "", &AuthError{err}
+			if !httpx.IsRateLimited(err) {
+				return "", &AuthError{err}
+			}
 		}
 		return "", err
 	}

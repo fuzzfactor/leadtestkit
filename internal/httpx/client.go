@@ -122,6 +122,13 @@ type StatusError struct {
 	Code int
 	URL  string
 	Body string
+	// RateLimited is a 403 or 429 that only asks to slow down.
+	RateLimited bool
+}
+
+func IsRateLimited(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.RateLimited
 }
 
 func (e *StatusError) Error() string {
@@ -350,7 +357,9 @@ func (c *Client) statusError(r Request, resp *Response) error {
 	if len(body) > errorBodySnippet {
 		body = body[:errorBodySnippet] + "..."
 	}
-	return &StatusError{Code: resp.StatusCode, URL: r.URL, Body: logx.Redact(body)}
+	return &StatusError{Code: resp.StatusCode, URL: r.URL, Body: logx.Redact(body),
+		RateLimited: (resp.StatusCode == http.StatusForbidden ||
+			resp.StatusCode == http.StatusTooManyRequests) && isTransientStatus(resp)}
 }
 
 func (c *Client) newRequest(ctx context.Context, r Request) (*http.Request, error) {

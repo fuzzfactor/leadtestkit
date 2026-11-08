@@ -344,8 +344,7 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	if now.Sub(pushed) > lim.RunTimeout.D() {
 		for _, r := range ciRuns(pt) {
 			// Dispatches refused during an outage wait for its end.
-			paused := r.Status == "dispatching" &&
-				p.outage(state.OutageDispatch) != nil
+			paused := r.Status == "dispatching" && p.workflowsDown()
 			if (r.Status != "completed" || r.Result == "") && !held(r) && !paused {
 				warn(r, "Timed out waiting for the workflow to finish.")
 			}

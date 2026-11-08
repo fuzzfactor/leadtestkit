@@ -4,6 +4,7 @@
 package pipeline
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -225,6 +226,14 @@ func TestOutageOfEmail(t *testing.T) {
 	e.mail.err, e.alerts.err = down, down
 	e.pw.addSeries(80, 1, "lorem", e.now)
 	e.step()
+	// Brief failures are no outage.
+	if e.p.outage(state.OutageEmail) != nil || len(e.p.Stats.Alerts) != 0 {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+	for i := 0; i < 5; i++ {
+		e.advance(20 * time.Minute)
+		e.step()
+	}
 	o := e.p.outage(state.OutageEmail)
 	if o == nil || len(e.p.Stats.Alerts) != 1 ||
 		!strings.Contains(e.p.Stats.Alerts[0], "connection refused") {
@@ -295,5 +304,180 @@ func TestShortArchiveFailuresAreNoOutage(t *testing.T) {
 	e.step()
 	if len(e.p.Store.Meta.Outages) != 0 || e.p.Store.Cursor(reportsCursor).Failing != "" {
 		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+}
+
+// The alert for one outage can end the email outage that kept it from
+// being sent, while the outages are being checked.
+func TestAlertEndingTheEmailOutage(t *testing.T) {
+	e := outageEnv(t)
+	since := state.FormatTime(e.now)
+	e.p.Store.Meta.Outages = map[string]*state.Outage{
+		state.OutageDispatch: {Since: since, Reason: "lorem",
+			NextProbe: state.FormatTime(e.now.Add(time.Hour))},
+		state.OutageEmail: {Since: since, Reason: "ipsum", Alerted: since},
+	}
+	e.step()
+	if e.p.outage(state.OutageEmail) != nil || e.p.outage(state.OutageDispatch) == nil {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+	if alerts := strings.Join(e.alerts.subjects(), "\n"); !strings.Contains(alerts,
+		"workflows do not run") || !strings.Contains(alerts, "emails can be sent again") {
+		t.Fatalf("alerts = %q", alerts)
+	}
+}
+
+func TestOutageEndRestartsDeadlines(t *testing.T) {
+	e := outageEnv(t)
+	e.pw.addSeries(80, 1, "lorem", e.now)
+	e.step()
+	s := e.series(80)
+	pt := s.Patches[0]
+	old := state.FormatTime(e.now.Add(-10 * 24 * time.Hour))
+	pt.Failure = &state.Failure{Op: "push", Attempts: 9, First: old, Next: old,
+		Outage: state.OutageGitHub}
+	other := &state.Failure{Op: "fetch series", Attempts: 3, First: old, Next: old}
+	s.Failure = other
+	e.p.startOutage(state.OutageGitHub, "lorem")
+	e.advance(time.Hour)
+	e.p.endOutage(state.OutageGitHub, "ipsum")
+	now := state.FormatTime(e.now)
+	if f := pt.Failure; f.First != now || f.Next != now || f.Attempts != 0 ||
+		f.Outage != "" {
+		t.Fatalf("failure = %+v", f)
+	}
+	// Failures that did not wait for the outage keep their deadline.
+	if *s.Failure != (state.Failure{Op: "fetch series", Attempts: 3, First: old,
+		Next: old}) {
+		t.Fatalf("other failure = %+v", s.Failure)
+	}
+
+	// An ordinary error after waiting does not count the waiting.
+	pt.Failure.Outage = state.OutageEmail
+	pt.Failure.First = old
+	if e.p.recordFailure(&pt.Failure, "push", errTransient, time.Hour) {
+		t.Fatalf("gave up after the outage: %+v", pt.Failure)
+	}
+}
+
+func TestOutagesOfUnusedServicesAreForgotten(t *testing.T) {
+	e := outageEnv(t)
+	since := state.FormatTime(e.now)
+	e.p.Store.Meta.Outages = map[string]*state.Outage{
+		state.OutageEmail:                  {Since: since, Reason: "lorem", Alerted: since},
+		state.OutageArchive(reportsCursor): {Since: since, Reason: "ipsum", Alerted: since},
+	}
+	e.p.Store.Cursor(reportsCursor).Failing = since
+	e.cfg.Mode.Email = "off"
+	e.cfg.Archive.Ingest = false
+	e.step()
+	if len(e.p.Store.Meta.Outages) != 0 || e.p.Store.Cursor(reportsCursor).Failing != "" {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+}
+
+func TestOneOutageOfWorkflows(t *testing.T) {
+	e := outageEnv(t)
+	e.cfg.Workflows.Custom = true
+	e.gh.files["leadtest-lint.yml"] = "name: Lint\non: [workflow_dispatch]\n"
+	e.p.startOutage(state.OutageRuns, "lorem")
+	e.gh.disabled = true
+	e.pw.addSeries(80, 1, "lorem", e.now)
+	e.advance(time.Hour)
+	e.step()
+	if len(e.gh.dispatches) != 0 || e.p.outage(state.OutageDispatch) != nil ||
+		len(e.alerts.sent) != 1 {
+		t.Fatalf("outages = %+v, %d alerts", e.p.Store.Meta.Outages, len(e.alerts.sent))
+	}
+	e.gh.disabled = false
+	e.advance(time.Hour)
+	e.step()
+	if len(e.p.Store.Meta.Outages) != 0 || len(e.alerts.sent) != 2 {
+		t.Fatalf("outages = %+v, alerts %q", e.p.Store.Meta.Outages, e.alerts.subjects())
+	}
+}
+
+func TestEmailOutageWithoutAlertsKeepsRunsGreen(t *testing.T) {
+	e := outageEnv(t)
+	e.cfg.Alerts.To = nil
+	e.p.startOutage(state.OutageEmail, "lorem")
+	if len(e.p.Stats.Alerts) != 0 {
+		t.Fatalf("alerts = %q", e.p.Stats.Alerts)
+	}
+}
+
+func TestDispatchesWaitDuringOutageOfRuns(t *testing.T) {
+	e := outageEnv(t)
+	e.pw.addSeries(80, 1, "lorem", e.now)
+	e.step()
+	e.gh.finishRun(e.gh.startRuns("series_80", "sha-8001", "Build")[0], "success")
+	pt := e.series(80).Patches[0]
+	lint := &state.Run{Kind: state.RunDispatch, File: "leadtest-lint.yml",
+		Status: "dispatching", CorrelationID: "80-8001-leadtest-lint-1"}
+	pt.Runs = append(pt.Runs, lint)
+	e.p.startOutage(state.OutageRuns, "lorem")
+	e.gh.disabled = true
+	e.advance(e.cfg.Limits.RunTimeout.D() + time.Hour)
+	e.step()
+	if lint.Result != "" || lint.Status != "dispatching" || pt.Status != state.PatchPushed ||
+		e.p.outage(state.OutageDispatch) != nil {
+		t.Fatalf("lint = %+v", lint)
+	}
+}
+
+// Without reports to send, failing alerts tell that email does not work.
+func TestFailingAlertsStartAnEmailOutage(t *testing.T) {
+	e := outageEnv(t)
+	e.alerts.err = &mail.ServerError{Err: errors.New("smtp dial: connection refused")}
+	e.p.startOutage(state.OutageGitHub, "lorem")
+	e.gh.authErr = &ghapp.AuthError{Err: errors.New("lorem")}
+	e.step()
+	if e.p.outage(state.OutageEmail) != nil {
+		t.Fatal("an email outage at the first failed alert")
+	}
+	e.advance(61 * time.Minute)
+	e.reload()
+	e.step()
+	if e.p.outage(state.OutageEmail) == nil || len(e.p.Stats.Alerts) != 1 {
+		t.Fatalf("outages = %+v, alerts %q", e.p.Store.Meta.Outages, e.p.Stats.Alerts)
+	}
+}
+
+// An outage that starts backdated, like one of an archive, does not
+// make its first failed alert an email outage.
+func TestFirstFailedAlertOfABackdatedOutage(t *testing.T) {
+	e := outageEnv(t)
+	e.alerts.err = &mail.ServerError{Err: errors.New("smtp dial: connection refused")}
+	e.p.startOutageAt(state.OutageArchive(reportsCursor), "lorem",
+		e.now.Add(-25*time.Hour))
+	if e.p.outage(state.OutageEmail) != nil {
+		t.Fatal("an email outage at the first failed alert")
+	}
+	e.advance(61 * time.Minute)
+	e.p.outageCycle(context.Background())
+	if e.p.outage(state.OutageEmail) == nil {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+}
+
+// Server errors before an email outage starts are not waiting for it:
+// ordinary errors in between keep their deadline.
+func TestBriefServerErrorsKeepTheDeadline(t *testing.T) {
+	e := outageEnv(t)
+	var f *state.Failure
+	server := &mail.ServerError{Err: errors.New("smtp dial: connection refused")}
+	e.p.recordFailure(&f, "report email", server, 2*time.Hour)
+	if f.Outage != "" || e.p.outage(state.OutageEmail) != nil {
+		t.Fatalf("failure = %+v", f)
+	}
+	first := f.First
+	e.advance(30 * time.Minute)
+	e.p.recordFailure(&f, "report email", errTransient, 2*time.Hour)
+	if f.First != first {
+		t.Fatalf("the deadline restarted: %+v", f)
+	}
+	e.advance(2 * time.Hour)
+	if !e.p.recordFailure(&f, "report email", errTransient, 2*time.Hour) {
+		t.Fatalf("never gave up: %+v", f)
 	}
 }
