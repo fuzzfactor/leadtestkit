@@ -52,6 +52,7 @@ type GitHub interface {
 	Rerun(ctx context.Context, runID int64, failedOnly bool) error
 	Dispatch(ctx context.Context, file, ref string, inputs map[string]string) error
 	WorkflowFiles(ctx context.Context, ref string) ([]string, error)
+	Workflows(ctx context.Context) ([]gh.Workflow, error)
 	File(ctx context.Context, path, ref string) ([]byte, error)
 	MergeUpstream(ctx context.Context, branch string) (string, error)
 }
@@ -97,11 +98,15 @@ type Pipeline struct {
 
 	Stats Stats
 
-	steps         int
-	customFiles   []string
-	customLoaded  bool
-	safetyNetDone bool
-	syncDone      bool
+	steps        int
+	customFiles  []string
+	customLoaded bool
+	// workflowNames maps workflow file names to workflow names; they
+	// are listed at most once per polling cycle until that succeeds.
+	workflowNames     map[string]string
+	workflowNamesStep int
+	safetyNetDone     bool
+	syncDone          bool
 	// Archives are read once per run; reports there are not urgent and
 	// the archive servers are shared.
 	reportsScanned bool

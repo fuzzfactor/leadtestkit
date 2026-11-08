@@ -54,7 +54,12 @@ func TestWarningAnnotationMakesWarning(t *testing.T) {
 		!strings.Contains(last, "WARNING: Line is 80 characters long") {
 		t.Errorf("report:\n%s", last)
 	}
-	decision(t, e.series(60).Patches[0].Decisions, "workflow-warnings", "")
+	d := decision(t, e.series(60).Patches[0].Decisions, "workflow-warnings", "")
+	if !strings.HasPrefix(d.Detail, "Checkpatch run 1001, attempt 1 passed with 1 warning:\n"+
+		"WARNING: Line is 80 characters long") ||
+		d.WorkflowURL != "https://github.com/ipsum/lorem/actions/runs/1001/attempts/1" {
+		t.Errorf("decision = %+v", d)
+	}
 }
 
 func TestOtherAnnotationsKeepSuccess(t *testing.T) {

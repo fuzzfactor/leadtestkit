@@ -20,6 +20,18 @@ func (p *Pipeline) notePatch(pt *state.Patch, action, format string, args ...any
 	p.Store.PatchChanged(pt)
 }
 
+// noteRun records a decision about an attempt of a workflow run and
+// links it.
+func (p *Pipeline) noteRun(pt *state.Patch, runURL string, attempt int, action, format string,
+	args ...any) {
+	p.note(&pt.Decisions, action, format, args...)
+	if runURL != "" && attempt > 0 {
+		runURL += fmt.Sprintf("/attempts/%d", attempt)
+	}
+	pt.Decisions[len(pt.Decisions)-1].WorkflowURL = runURL
+	p.Store.PatchChanged(pt)
+}
+
 func (p *Pipeline) note(out *[]state.Decision, action, format string, args ...any) {
 	d := state.Decision{
 		Time: state.FormatTime(p.now()), Action: action,
@@ -63,4 +75,11 @@ func (p *Pipeline) noteCheck(patchID int, action, detail string) {
 		return
 	}
 	p.notePatch(pt, action, "%s", detail)
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }

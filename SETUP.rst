@@ -43,8 +43,9 @@ The test fork runs code from anyone who sends a patch to the list.
    workflows on the branch are never started by the bot.  Workflows
    must be started by ``workflow_dispatch``, take the inputs used in
    the examples and set ``run-name: leadtest ${{
-   inputs.correlation_id }}``.  Without custom workflows, leave
-   ``main`` as it is.
+   inputs.correlation_id }}``.  Reports and checks use the workflow's
+   ``name:``, like ``Checkpatch``, not the run name.  Without custom
+   workflows, leave ``main`` as it is.
 4. Keep ``main`` the default branch of the fork.  GitHub only starts
    ``workflow_dispatch`` workflows from the default branch, and the
    runs on test branches can only restore caches saved on their own

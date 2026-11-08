@@ -352,6 +352,25 @@ func (f *fakeGH) WorkflowFiles(ctx context.Context, ref string) ([]string, error
 	return out, nil
 }
 
+// Workflows names the workflow files after their name: line.
+func (f *fakeGH) Workflows(ctx context.Context) ([]gh.Workflow, error) {
+	if err := f.maybeFail("workflows"); err != nil {
+		return nil, err
+	}
+	var out []gh.Workflow
+	for name, data := range f.files {
+		w := gh.Workflow{Name: ".github/workflows/" + name,
+			Path: ".github/workflows/" + name}
+		for _, line := range strings.Split(data, "\n") {
+			if v, ok := strings.CutPrefix(line, "name: "); ok {
+				w.Name = v
+			}
+		}
+		out = append(out, w)
+	}
+	return out, nil
+}
+
 func (f *fakeGH) File(ctx context.Context, path, ref string) ([]byte, error) {
 	return []byte(f.files[strings.TrimPrefix(path, ".github/workflows/")]), nil
 }

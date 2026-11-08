@@ -691,7 +691,8 @@ func TestCustomWorkflows(t *testing.T) {
 		d["correlation_id"] != "140-14001-leadtest-checkpatch-1" {
 		t.Errorf("dispatch = %v", d)
 	}
-	e.gh.dispatched = []gh.WorkflowRun{{ID: 5000, Name: "Checkpatch",
+	e.gh.dispatched = []gh.WorkflowRun{{ID: 5000,
+		Name:         "leadtest 140-14001-leadtest-checkpatch-1",
 		DisplayTitle: "leadtest 140-14001-leadtest-checkpatch-1", Status: "completed",
 		Conclusion: "failure",
 		RunAttempt: 1, HTMLURL: "https://github.com/ipsum/lorem/actions/runs/5000"}}
@@ -714,7 +715,8 @@ func TestForeignDispatchedRunsIgnored(t *testing.T) {
 	e.gh.files["leadtest-checkpatch.yml"] = "name: Checkpatch\non: workflow_dispatch\n"
 	// A workflow of another patch dispatched a run with the name the
 	// bot will use, before the bot does.
-	forged := gh.WorkflowRun{ID: 6000, Name: "Checkpatch",
+	forged := gh.WorkflowRun{ID: 6000,
+		Name:         "leadtest 141-14101-leadtest-checkpatch-1",
 		DisplayTitle: "leadtest 141-14101-leadtest-checkpatch-1", Status: "completed",
 		Conclusion: "success", RunAttempt: 1,
 		Actor: gh.User{Login: "github-actions[bot]"}}
@@ -893,7 +895,8 @@ func TestLostStateDoesNotStartRunsAgain(t *testing.T) {
 	}
 	for _, d := range e.gh.dispatches {
 		e.gh.dispatched = append(e.gh.dispatched,
-			gh.WorkflowRun{ID: 9000, Name: "Checkpatch",
+			gh.WorkflowRun{ID: 9000,
+				Name:         "leadtest " + d["correlation_id"],
 				DisplayTitle: "leadtest " + d["correlation_id"],
 				Status:       "in_progress", RunAttempt: 1})
 	}
@@ -1133,11 +1136,12 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Workflows.Custom = true
 	e.cfg.Report.ApplySuccess = false
-	e.gh.files["leadtest-checkpatch.yml"] = "on: workflow_dispatch\n"
+	e.gh.files["leadtest-checkpatch.yml"] = "name: Checkpatch\non: workflow_dispatch\n"
 	e.gh.files["leadtest-perf.yml"] = "on: workflow_dispatch\n"
 	e.pw.addSeries(300, 1, "lorem", e.now)
 	e.step()
-	e.gh.dispatched = []gh.WorkflowRun{{ID: 7000, Name: "Checkpatch",
+	e.gh.dispatched = []gh.WorkflowRun{{ID: 7000,
+		Name:         "leadtest 300-30001-leadtest-checkpatch-1",
 		DisplayTitle: "leadtest 300-30001-leadtest-checkpatch-1", Status: "completed",
 		Conclusion: "failure",
 		RunAttempt: 1}}
@@ -1180,6 +1184,22 @@ func TestNextCorrelationID(t *testing.T) {
 		"1-2-x-9": "1-2-x-10", "odd": "odd-2"} {
 		if got := nextCorrelationID(in); got != want {
 			t.Errorf("%q: got %q", in, got)
+		}
+	}
+}
+
+func TestDispatchNumber(t *testing.T) {
+	for _, tc := range []struct {
+		run  state.Run
+		want int
+	}{
+		{state.Run{Kind: state.RunDispatch, CorrelationID: "1-2-x-1"}, 1},
+		{state.Run{Kind: state.RunDispatch, CorrelationID: "1-2-x-3"}, 3},
+		{state.Run{Kind: state.RunDispatch, CorrelationID: "odd"}, 1},
+		{state.Run{Kind: state.RunPush, Workflow: "Build-2"}, 0},
+	} {
+		if got := dispatchNumber(&tc.run); got != tc.want {
+			t.Errorf("%+v: got %d, want %d", tc.run, got, tc.want)
 		}
 	}
 }

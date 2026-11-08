@@ -214,10 +214,14 @@ func joinNonEmpty(parts ...string) string {
 
 func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Patch, r *state.Run,
 	result, kind, extra string) (string, error) {
-	generation := state.ParseTime(s.Started).Unix()
+	generation := fmt.Sprintf("%s.%d", kind, state.ParseTime(s.Started).Unix())
+	// A new dispatch of a workflow restarts attempts from 1.
+	if n := dispatchNumber(r); n > 1 {
+		generation += fmt.Sprintf(".d%d", n)
+	}
 	label := p.label(r)
-	id := report.MessageID(p.Cfg.Report.MessageIDDomain, s.ID, pt.ID, label,
-		fmt.Sprintf("%s.%d", kind, generation), max(r.Attempt, 1))
+	id := report.MessageID(p.Cfg.Report.MessageIDDomain, s.ID, pt.ID, label, generation,
+		max(r.Attempt, 1))
 	if p.Cfg.Mode.EmailOff() {
 		p.notePatch(pt, "report-skipped", "%s email for %s (%s): email is off.",
 			kind, label, result)
@@ -262,8 +266,8 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 		return "", err
 	}
 	p.Stats.Emails++
-	p.notePatch(pt, "report-sent", "Sent %s email for %s (%s). Message-ID: %s.",
-		kind, label, result, id)
+	p.noteRun(pt, r.URL, r.Attempt, "report-sent",
+		"Sent %s email for %s (%s). Message-ID: %s.", kind, label, result, id)
 	p.infof("%s: %s report for %s (%s) sent. Message-ID: %s.",
 		patchName(pt), kind, label, result, id)
 	if kind == "final" {

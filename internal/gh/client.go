@@ -397,6 +397,31 @@ func (c *Client) WorkflowFiles(ctx context.Context, ref string) ([]string, error
 	return files, nil
 }
 
+type Workflow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// Workflows lists the workflows of the repository.  Their names are
+// the names of their runs only when they do not set run-name.
+func (c *Client) Workflows(ctx context.Context) ([]Workflow, error) {
+	var all []Workflow
+	u := c.repoURL("/actions/workflows?per_page=100")
+	for u != "" {
+		var res struct {
+			Workflows []Workflow `json:"workflows"`
+		}
+		resp, err := c.getJSON(ctx, u, &res)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, res.Workflows...)
+		u = nextLink(resp.Header.Get("Link"))
+	}
+	return all, nil
+}
+
 func (c *Client) File(ctx context.Context, path, ref string) ([]byte, error) {
 	var e contentEntry
 	u := c.repoURL("/contents/" + path + "?ref=" + url.QueryEscape(ref))

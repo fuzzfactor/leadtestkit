@@ -192,6 +192,47 @@ func TestVersionFourDropsUnpushedBranches(t *testing.T) {
 	}
 }
 
+func TestVersionFiveLinksRunDecisions(t *testing.T) {
+	dir := t.TempDir()
+	x := sampleSeries(1)
+	pt := x.Patches[0]
+	pt.Runs = []*Run{{Kind: RunDispatch, Workflow: "Checkpatch", ID: 42, Attempt: 2,
+		URL: "https://github.com/ipsum/lorem/actions/runs/42", Status: "completed",
+		Result: ResultWarning, Details: "Warnings:\nWARNING: lorem\n#1 FILE: ipsum.c:1:"}}
+	pt.Decisions = []Decision{
+		{Action: "workflow-updated", Detail: "Checkpatch run 42, attempt 2: completed."},
+		{Action: "workflow-warnings",
+			Detail: `Checkpatch run 42 passed with 1 "leadtest" warnings.`},
+		{Action: "workflow-updated", Detail: "Other run 43, attempt 1: queued."},
+		{Action: "pushed", Detail: "Updated branch series_1 to lorem."},
+	}
+	b, err := json.Marshal(queueFile{Schema: 5, Series: []*Series{x}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, QueueFile), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.Queue[0].Patches[0].Decisions
+	run := "https://github.com/ipsum/lorem/actions/runs/42"
+	want := []Decision{
+		{Action: "workflow-updated", Detail: "Checkpatch run 42, attempt 2: completed.",
+			WorkflowURL: run + "/attempts/2"},
+		{Action: "workflow-warnings", WorkflowURL: run,
+			Detail: "Checkpatch run 42 passed with 1 \"leadtest\" warnings:\n" +
+				"WARNING: lorem\n#1 FILE: ipsum.c:1:"},
+		{Action: "workflow-updated", Detail: "Other run 43, attempt 1: queued."},
+		{Action: "pushed", Detail: "Updated branch series_1 to lorem."},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("decisions:\n%+v\nwant:\n%+v", got, want)
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)

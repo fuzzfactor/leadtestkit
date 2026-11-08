@@ -98,6 +98,9 @@ type Decision struct {
 	Action string `json:"action"`
 	Detail string `json:"detail"`
 	RunURL string `json:"run_url,omitempty"`
+	// WorkflowURL links the attempt of the test workflow run the
+	// decision is about.
+	WorkflowURL string `json:"workflow_url,omitempty"`
 }
 
 type Series struct {

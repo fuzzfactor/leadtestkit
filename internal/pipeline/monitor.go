@@ -150,8 +150,9 @@ func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *
 				patchName(pt), r.File, r.CorrelationID)
 			continue
 		}
-		if wr.Name != "" {
-			r.Workflow = wr.Name
+		if name := p.workflowName(ctx, r.File); name != "" && name != r.Workflow {
+			p.infof("%s: %s is the workflow %s.", patchName(pt), r.File, name)
+			r.Workflow = name
 		}
 		p.updateRun(ctx, s, pt, r, wr)
 	}
@@ -177,8 +178,8 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 		if wr.Conclusion != "" {
 			status += ": " + wr.Conclusion
 		}
-		p.notePatch(pt, "workflow-updated", "%s run %d, attempt %d: %s.",
-			r.Workflow, wr.ID, wr.RunAttempt, status)
+		p.noteRun(pt, wr.HTMLURL, wr.RunAttempt, "workflow-updated",
+			"%s run %d, attempt %d: %s.", r.Workflow, wr.ID, wr.RunAttempt, status)
 		p.infof("%s: %s run %d, attempt %d: %s.",
 			patchName(pt), r.Workflow, wr.ID, wr.RunAttempt, status)
 	}
@@ -197,8 +198,9 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 		p.Cfg.Mode.PushLive() {
 		err := p.rerun(ctx, wr.ID)
 		if err == nil {
-			p.notePatch(pt, "rerun", "Restarted cancelled %s run %d.",
-				r.Workflow, wr.ID)
+			p.noteRun(pt, wr.HTMLURL, wr.RunAttempt, "rerun",
+				"Restarted cancelled %s run %d, attempt %d.", r.Workflow, wr.ID,
+				wr.RunAttempt)
 			p.infof("%s: restarted cancelled run %d; this is its one automatic retry.",
 				patchName(pt), wr.ID)
 			r.AutoReruns++
@@ -207,7 +209,9 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 			return
 		}
 		p.warnf("%s: could not restart cancelled run %d: %v", patchName(pt), wr.ID, err)
-		p.notePatch(pt, "rerun-failed", "Cancelled %s run %d: %v", r.Workflow, wr.ID, err)
+		p.noteRun(pt, wr.HTMLURL, wr.RunAttempt, "rerun-failed",
+			"Cancelled %s run %d, attempt %d: %v", r.Workflow, wr.ID, wr.RunAttempt,
+			err)
 	}
 	result := conclusionResult(wr.Conclusion)
 	if result == state.ResultSuccess {
@@ -274,7 +278,7 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	stamp := state.FormatTime(now)
 
 	warn := func(r *state.Run, details string) {
-		p.notePatch(pt, "workflow-warning", "%s: %s", p.label(r), details)
+		p.noteRun(pt, r.URL, r.Attempt, "workflow-warning", "%s: %s", p.label(r), details)
 		p.warnf("%s: workflow %s is being marked as a warning: %s",
 			patchName(pt), r.Workflow, details)
 		r.Status, r.Result = "completed", state.ResultWarning

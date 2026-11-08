@@ -46,8 +46,10 @@ func (p *Pipeline) successResult(ctx context.Context, pt *state.Patch, r *state.
 				patchName(pt), r.Workflow, wr.ID, err)
 			return "", false
 		case !p.fail(&r.Failure, "annotations", err):
-			p.notePatch(pt, "annotations-failed", "%s run %d, attempt %d: %s.",
-				r.Workflow, wr.ID, r.Failure.Attempts, r.Failure.LastError)
+			p.noteRun(pt, wr.HTMLURL, wr.RunAttempt, "annotations-failed",
+				"%s run %d, attempt %d: reading its annotations failed "+
+					"%d times: %s.", r.Workflow, wr.ID, wr.RunAttempt,
+				r.Failure.Attempts, r.Failure.LastError)
 			return "", false
 		default:
 			p.warnf("%s: reporting %s run %d as successful without its annotations.",
@@ -64,10 +66,11 @@ func (p *Pipeline) successResult(ctx context.Context, pt *state.Patch, r *state.
 	if len(msgs) == 0 {
 		return state.ResultSuccess, true
 	}
-	r.Details = "Warnings:\n" + headLines(strings.Join(msgs, "\n"),
-		p.Cfg.Report.LogLines)
-	p.notePatch(pt, "workflow-warnings", "%s run %d passed with %d %q warnings.",
-		r.Workflow, wr.ID, len(msgs), title)
+	warnings := headLines(strings.Join(msgs, "\n"), p.Cfg.Report.LogLines)
+	r.Details = "Warnings:\n" + warnings
+	p.noteRun(pt, wr.HTMLURL, wr.RunAttempt, "workflow-warnings",
+		"%s run %d, attempt %d passed with %s:\n%s", r.Workflow, wr.ID, wr.RunAttempt,
+		plural(len(msgs), "warning"), warnings)
 	p.infof("%s: %s run %d passed with %d %q warning annotations; reporting a warning.",
 		patchName(pt), r.Workflow, wr.ID, len(msgs), title)
 	return state.ResultWarning, true

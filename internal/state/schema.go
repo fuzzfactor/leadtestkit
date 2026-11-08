@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -16,7 +17,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 const (
 	kindMeta   = "meta"
@@ -29,6 +30,62 @@ const (
 var migrations = map[int]func(kind string, doc map[string]any) error{
 	3: skipUnfinishedPatches,
 	4: dropUnpushedBranches,
+	5: linkRunDecisions,
+}
+
+var runDecisionRe = regexp.MustCompile(`\brun (\d+)(?:, attempt (\d+))?`)
+
+// linkRunDecisions links the decisions about a workflow run to the run,
+// which schema 6 records, and adds the warnings to the decisions that
+// before only counted them.
+func linkRunDecisions(kind string, doc map[string]any) error {
+	if kind != kindSeries {
+		return nil
+	}
+	list, _ := doc["series"].([]any)
+	for _, x := range list {
+		s, _ := x.(map[string]any)
+		patches, _ := s["patches"].([]any)
+		for _, y := range patches {
+			p, _ := y.(map[string]any)
+			if p == nil {
+				continue
+			}
+			runs := map[string]map[string]any{}
+			rs, _ := p["runs"].([]any)
+			for _, z := range rs {
+				if r, _ := z.(map[string]any); r != nil && r["id"] != nil {
+					runs[fmt.Sprint(r["id"])] = r
+				}
+			}
+			ds, _ := p["decisions"].([]any)
+			for _, z := range ds {
+				d, _ := z.(map[string]any)
+				if d == nil {
+					continue
+				}
+				detail, _ := d["detail"].(string)
+				m := runDecisionRe.FindStringSubmatch(detail)
+				if m == nil || runs[m[1]] == nil {
+					continue
+				}
+				r := runs[m[1]]
+				if u, _ := r["url"].(string); u != "" {
+					if m[2] != "" {
+						u += "/attempts/" + m[2]
+					}
+					d["workflow_url"] = u
+				}
+				details, _ := r["details"].(string)
+				if d["action"] == "workflow-warnings" &&
+					strings.HasPrefix(details, "Warnings:\n") {
+					d["detail"] = strings.TrimSuffix(detail, ".") + ":\n" +
+						strings.TrimPrefix(details, "Warnings:\n")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // dropUnpushedBranches removes the test branch of series that never

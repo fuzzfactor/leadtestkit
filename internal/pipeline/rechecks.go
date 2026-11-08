@@ -327,7 +327,8 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 			err = p.rerun(ctx, r.ID)
 		}
 		if err != nil {
-			p.notePatch(pt, "rerun-failed", "%s run %d: %v", p.label(r), r.ID, err)
+			p.noteRun(pt, r.URL, r.Attempt, "rerun-failed", "%s run %d, attempt %d: %v",
+				p.label(r), r.ID, r.Attempt, err)
 			if p.fail(&pt.Failure, "recheck", err) {
 				done()
 				pt.Failure = nil
@@ -337,7 +338,7 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 			return
 		}
 		r.MinAttempt = r.Attempt
-		p.notePatch(pt, "rerun", "Restarted %s run %d after attempt %d.",
+		p.noteRun(pt, r.URL, r.Attempt, "rerun", "Restarted %s run %d after attempt %d.",
 			p.label(r), r.ID, r.Attempt)
 		reset(r)
 		p.infof("%s: rerun accepted for %s; waiting for a newer attempt.",
@@ -378,6 +379,20 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 		len(rerun), len(redispatch))
 	p.infof("%s: recheck started; %d reruns accepted and %d workflows queued for redispatch.",
 		patchName(pt), len(rerun), len(redispatch))
+}
+
+// dispatchNumber tells which dispatch of its workflow a run is, from the
+// suffix nextCorrelationID bumps, or 0 for runs that are not dispatched.
+func dispatchNumber(r *state.Run) int {
+	if r.Kind != state.RunDispatch {
+		return 0
+	}
+	i := strings.LastIndexByte(r.CorrelationID, '-')
+	n, err := strconv.Atoi(r.CorrelationID[i+1:])
+	if i < 0 || err != nil {
+		return 1
+	}
+	return n
 }
 
 // nextCorrelationID bumps the attempt suffix, so that a new dispatch
