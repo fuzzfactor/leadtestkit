@@ -41,7 +41,7 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
 .series .who { width: 150px; border-left: 1px solid var(--line); padding-left: 8px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .num { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 3.5em; }
-.ver { font-size: 12px; min-width: 2.2em; }
+.ver { font-size: 12px; min-width: 1.7em; }
 .pid { font: 12px system-ui, sans-serif; font-variant-numeric: tabular-nums; }
 .when { font-size: 12px; width: 4.5em; flex: none; text-align: right; }
 .links { font-size: 11px; font-weight: normal; font-family: system-ui, sans-serif;

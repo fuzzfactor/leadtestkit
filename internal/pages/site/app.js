@@ -206,21 +206,25 @@ function patchState(s, p) {
   }
 }
 
-function renderPatch(s, p, shown) {
+function renderPatch(s, p, shown, ver) {
   const runs = p.runs || [];
   // A badge leads to its report when it was sent, which links the run,
   // and to the run otherwise.  Its color tells the result.
   const chips = runs.map(r => {
     const st = result(r);
     const report = archiveLink(r.final && r.final.message_id);
+    // Attempts after the first are reruns.
+    const times = r.attempt > 1 ? " ×" + r.attempt : "";
     const title = [runLabel(r) + ": " + st,
+      times ? "Ran " + r.attempt + " times, " + (r.attempt - 1) +
+        (r.attempt > 2 ? " reruns." : " rerun.") : null,
       r.conclusion && conclusionResult(r.conclusion) !== st
         ? "GitHub conclusion: " + r.conclusion : null,
       r.details, r.failure && r.failure.last_error,
       report ? "Opens the report." : r.url ? "Opens the workflow run." : ""]
       .filter(Boolean).join("\n");
     return link(report || r.url, el("span", { class: "badge " + st, title,
-      "aria-label": runLabel(r) + ": " + st }, runLabel(r)));
+      "aria-label": runLabel(r) + times + ": " + st }, runLabel(r) + times));
   });
   const mail = archiveLink(p.msgid, index.patch_archive_url_format);
   const [historyButton, history] = decisions(p.decisions);
@@ -229,6 +233,7 @@ function renderPatch(s, p, shown) {
     el("div", { class: "row" },
       el("span", { class: "pname", title: p.name || null },
         el("span", { class: "muted pid" }, "#" + p.id), " ",
+        ver ? [el("span", { class: "muted pid" }, ver), " "] : null,
         subject(p.name, shown) || "", " ",
         links([[index.patchwork_web + "/patch/" + p.id + "/", "pw"],
           [mail, mail && archiveName(mail)]])),
@@ -282,7 +287,7 @@ function renderSeries(s) {
           s.failure.last_error + " (" + s.failure.attempts + " attempts)") : null,
         historyButton),
       history,
-      (s.patches || []).map(p => renderPatch(s, p, shown))));
+      (s.patches || []).map(p => renderPatch(s, p, shown, version(s)))));
   head.onclick = e => {
     if (e.target.closest && e.target.closest("a, button")) return;
     if (box.classList.toggle("open")) open.add(s.id);
