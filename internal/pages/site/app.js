@@ -112,7 +112,7 @@ function toggle(text, panel) {
 
 function decisions(list) {
   if (!list || !list.length) return [null, null];
-  const rows = list.slice().reverse().map(d => el("li", {},
+  const rows = list.map(d => el("li", {},
     when(d.time), " ", el("strong", {}, d.action.replace(/-/g, " ")), ": ", d.detail, " ",
     d.run_url ? link(d.run_url, "bot run logs") : null));
   return toggle("history (" + list.length + ")", el("ol", { class: "decisions" }, rows));
