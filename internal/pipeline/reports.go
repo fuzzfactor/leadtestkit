@@ -91,15 +91,14 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 				Description: p.description(r, state.ResultPending),
 			}
 			if !p.Cfg.Mode.PostChecks() {
-				p.infof("%s: would post pending check %s linking to %s; "+
-					"checks mode: %s.",
-					patchName(pt), chk.Context, chk.TargetURL,
-					p.Cfg.Mode.Checks)
+				p.infof("%s: would post pending check %s, checks mode is %s, "+
+					"linking to %s", patchName(pt), chk.Context,
+					p.Cfg.Mode.Checks, chk.TargetURL)
 				r.Pending.Check = state.StepLogged
-				p.notePatch(pt, "check-logged", "Would post pending check %s: %s.",
-					chk.Context, chk.TargetURL)
+				p.notePatch(pt, "check-logged", "Would post pending check %s "+
+					"linking to %s", chk.Context, chk.TargetURL)
 			} else {
-				p.infof("%s: posting pending check %s linking to %s.",
+				p.infof("%s: posting pending check %s linking to %s",
 					patchName(pt), chk.Context, chk.TargetURL)
 				if err := p.PW.CreateCheck(ctx, pt.ID, chk); err != nil {
 					p.warnf("%s: pending check %s failed: %v",

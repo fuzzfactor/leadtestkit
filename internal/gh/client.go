@@ -71,7 +71,7 @@ func (c *Client) getJSON(ctx context.Context, u string, dest any) (*httpx.Respon
 		return resp, err
 	}
 	if err := json.Unmarshal(resp.Body, dest); err != nil {
-		return resp, fmt.Errorf("decode %s: %w", u, err)
+		return resp, fmt.Errorf("cannot decode %s as JSON: %w", u, err)
 	}
 	return resp, nil
 }

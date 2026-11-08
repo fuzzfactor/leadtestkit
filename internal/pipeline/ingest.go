@@ -130,11 +130,11 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			return
 		}
 		if !f.Due(now) {
-			p.infof("Report %s: waiting until %s to retry ingestion.", u, f.Next)
+			p.infof("Waiting until %s to retry reading the report %s", f.Next, u)
 			continue
 		}
 		budget--
-		p.infof("Retrying report ingestion: %s.", u)
+		p.infof("Retrying the report %s", u)
 		err := p.ingestMessage(ctx, u)
 		if err == nil || errors.Is(err, errSkip) {
 			delete(c.Retry, u)
@@ -142,7 +142,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 		}
 		if state.RecordFailure(&f, "ingest", err, now, archiveTimeout) {
 			delete(c.Retry, u)
-			p.errorf("giving up on report %s: %v", u, err)
+			p.errorf("giving up on the report %s after errors: %v", u, err)
 			continue
 		}
 		c.Retry[u] = f
@@ -208,19 +208,19 @@ func (p *Pipeline) pwHost() string {
 }
 
 func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
-	p.infof("Reading archived report: %s.", msgURL)
+	p.infof("Reading the archived report %s", msgURL)
 	m, err := p.Reports.FetchMessage(ctx, msgURL)
 	if err != nil {
 		return err
 	}
 	parsed, err := report.Parse(m.Subject, m.Body, m.Links, p.pwHost(), p.Cfg.Mode.TestEmail())
 	if err != nil {
-		p.infof("Ignoring archive message %s: not a recognized report: %v", msgURL, err)
+		p.infof("Ignoring the archive message %s as not a report: %v", msgURL, err)
 		return errSkip
 	}
 	own := report.IsOwnMessageID(m.MessageID, p.Cfg.Report.MessageIDDomain)
 	if parsed.Test && !own {
-		p.infof("Ignoring test report %s: it was sent by another bot instance.", msgURL)
+		p.infof("Ignoring the test report %s sent by another bot instance.", msgURL)
 		return errSkip
 	}
 	// Pending checks of our own runs are posted directly with a link to
@@ -275,32 +275,32 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	p.Stats.Ingested++
 	if !p.Cfg.Mode.PostChecks() {
 		p.noteCheck(patchID, "check-logged",
-			fmt.Sprintf("Would post %s check %s from %s.",
-				chk.State, chk.Context, msgURL))
-		p.infof("Patch %d (%s): would post %s check %s linking to %s (%s); "+
-			"checks mode: %s.",
-			patchID, name, chk.State, chk.Context,
-			chk.TargetURL, chk.Description, p.Cfg.Mode.Checks)
+			fmt.Sprintf("Would post %s check %s from %s", chk.State, chk.Context,
+				msgURL))
+		p.infof("Patch %d (%s): would post %s check %s (%s), checks mode is %s, "+
+			"linking to %s", patchID, name, chk.State, chk.Context,
+			chk.Description, p.Cfg.Mode.Checks, chk.TargetURL)
 		return nil
 	}
-	p.infof("Patch %d (%s): posting %s check %s linking to archived report %s.",
+	p.infof("Patch %d (%s): posting %s check %s linking to the archived report %s",
 		patchID, name, chk.State, chk.Context, msgURL)
 	if err := p.PW.CreateCheck(ctx, patchID, chk); err != nil {
 		if code := httpx.StatusCode(err); code >= 400 && code < 500 &&
 			code != http.StatusTooManyRequests {
 			p.noteCheck(patchID, "check-rejected",
-				fmt.Sprintf("Check %s from %s: %v", chk.Context, msgURL, err))
+				fmt.Sprintf("Check %s from %s rejected: %v", chk.Context, msgURL,
+					err))
 			p.warnf("Patch %d (%s): check %s rejected; not retrying this report: %v",
 				patchID, name, chk.Context, err)
 			return errSkip
 		}
 		p.noteCheck(patchID, "check-failed",
-			fmt.Sprintf("Check %s from %s: %v", chk.Context, msgURL, err))
+			fmt.Sprintf("Check %s from %s failed: %v", chk.Context, msgURL, err))
 		return err
 	}
 	p.Stats.Checks++
 	p.noteCheck(patchID, "check-posted",
-		fmt.Sprintf("%s check %s from %s.", chk.State, chk.Context, msgURL))
+		fmt.Sprintf("%s check %s from %s", chk.State, chk.Context, msgURL))
 	p.infof("Patch %d (%s): posted %s check %s.", patchID, name, chk.State, chk.Context)
 	return nil
 }

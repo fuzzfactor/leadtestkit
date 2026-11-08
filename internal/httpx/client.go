@@ -126,12 +126,24 @@ type StatusError struct {
 
 func (e *StatusError) Error() string {
 	if e.Body == "" {
-		return fmt.Sprintf("HTTP %d: %s", e.Code, e.URL)
+		return fmt.Sprintf("HTTP %d from %s", e.Code, e.URL)
 	}
-	return fmt.Sprintf("HTTP %d: %s: %s", e.Code, e.URL, e.Body)
+	return fmt.Sprintf("HTTP %d from %s with response %q", e.Code, e.URL, e.Body)
 }
 
 var ErrBotProtection = errors.New("blocked by bot protection")
+
+// short describes an error in a message that already names the request.
+func short(err error) string {
+	var se *StatusError
+	if !errors.As(err, &se) {
+		return err.Error()
+	}
+	if se.Body == "" {
+		return fmt.Sprintf("HTTP %d", se.Code)
+	}
+	return fmt.Sprintf("HTTP %d with response %q", se.Code, se.Body)
+}
 
 func StatusCode(err error) int {
 	var se *StatusError
@@ -174,7 +186,7 @@ func New(opts Options) *Client {
 			},
 		}
 	}
-	return &Client{opts: opts, http: hc, log: opts.Logger.With("client", opts.Name)}
+	return &Client{opts: opts, http: hc, log: opts.Logger}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -206,8 +218,8 @@ func (c *Client) waitForRateLimit(ctx context.Context) error {
 			return nil
 		}
 		c.mu.Unlock()
-		c.log.Info(fmt.Sprintf("Rate limit: waiting %s before the next request.",
-			(c.opts.MinDelay - since).Round(time.Millisecond)))
+		c.infof("rate limit: waiting %s before the next request.",
+			(c.opts.MinDelay - since).Round(time.Millisecond))
 		if err := c.opts.Sleep(ctx, c.opts.MinDelay-since); err != nil {
 			return err
 		}
@@ -260,8 +272,8 @@ func (c *Client) Do(ctx context.Context, r Request) (*Response, error) {
 			return resp, nil
 		}
 		if !retry || r.NoRetry || attempt >= c.opts.Attempts {
-			c.log.Warn(fmt.Sprintf("HTTP %s %s: not retrying after attempt %d: %v",
-				r.Method, r.URL, attempt, lastErr))
+			c.warnf("HTTP %s %s not retried after attempt %d: %v",
+				r.Method, r.URL, attempt, short(lastErr))
 			if resp != nil {
 				return resp, lastErr
 			}
@@ -273,16 +285,16 @@ func (c *Client) Do(ctx context.Context, r Request) (*Response, error) {
 		}
 		if delay > c.opts.MaxDelay {
 			if retryAfter > c.opts.MaxDelay {
-				c.log.Warn(fmt.Sprintf("HTTP %s %s: wait %s exceeds the %s "+
-					"per-request limit; deferring to a later retry.",
-					r.Method, r.URL, retryAfter, c.opts.MaxDelay))
+				c.warnf("HTTP %s %s asks to wait %s, longer than the %s "+
+					"allowed per request; deferring to a later retry.",
+					r.Method, r.URL, retryAfter, c.opts.MaxDelay)
 				err := fmt.Errorf("%w (asked to wait %s)", lastErr, retryAfter)
 				return resp, err
 			}
 			delay = c.opts.MaxDelay
 		}
-		c.log.Warn(fmt.Sprintf("HTTP %s %s failed on attempt %d: %v. Retrying in %s.",
-			r.Method, r.URL, attempt, lastErr, delay))
+		c.warnf("HTTP %s %s failed on attempt %d, retrying in %s: %v",
+			r.Method, r.URL, attempt, delay, short(lastErr))
 		if err := c.opts.Sleep(ctx, delay); err != nil {
 			return nil, err
 		}
@@ -380,7 +392,7 @@ func (c *Client) resolveAuth(ctx context.Context, r *Request) error {
 	}
 	auth, err := c.opts.Auth(ctx)
 	if err != nil {
-		return fmt.Errorf("authorization for %s: %w", r.URL, err)
+		return fmt.Errorf("no authorization for %s because %w", r.URL, err)
 	}
 	r.auth = auth
 	return nil
@@ -414,13 +426,14 @@ func (c *Client) once(ctx context.Context, r Request) (*Response, error) {
 
 	// A different TLS fingerprint (curl) usually passes; if not, curl's
 	// default User-Agent is accepted by most bot filters.
-	c.log.Warn(fmt.Sprintf("Bot protection blocked %s; retrying with curl.", r.URL))
+	c.warnf("HTTP %s %s was blocked by bot protection; retrying with curl.",
+		r.Method, r.URL)
 	for _, m := range []transportMode{transportCurl, transportCurlAnon} {
 		cr, cerr := c.viaCurl(ctx, r, m)
 		if cerr == nil && !isBotResponse(cr) {
 			c.transport.Store(int32(m))
-			c.log.Warn(fmt.Sprintf("Using %s after bypassing bot protection.",
-				m.String()))
+			c.warnf("using %s from now on; it passed the bot protection.",
+				m.String())
 			return cr, nil
 		}
 	}
@@ -430,7 +443,7 @@ func (c *Client) once(ctx context.Context, r Request) (*Response, error) {
 func (c *Client) onceCurlFirst(ctx context.Context, r Request) (*Response, error) {
 	resp, err := c.viaCurl(ctx, r, transportCurl)
 	if err != nil && !curlAvailable() {
-		c.log.Warn("Curl is unavailable; falling back to Go's HTTP client.")
+		c.warnf("curl is unavailable; falling back to Go's HTTP client.")
 		resp, err = c.viaGo(ctx, r)
 	}
 	if err == nil && looksLikeChallenge(resp.Body) {
@@ -439,29 +452,44 @@ func (c *Client) onceCurlFirst(ctx context.Context, r Request) (*Response, error
 	return resp, err
 }
 
+// Messages start with the client name and keep URLs followed by a space
+// or at the end, so that terminals do not take punctuation into links.
+func (c *Client) infof(format string, args ...any) {
+	c.log.Info(c.prefix() + fmt.Sprintf(format, args...))
+}
+
+func (c *Client) warnf(format string, args ...any) {
+	c.log.Warn(c.prefix() + fmt.Sprintf(format, args...))
+}
+
+func (c *Client) prefix() string {
+	if c.opts.Name == "" {
+		return ""
+	}
+	return c.opts.Name + ": "
+}
+
 func (c *Client) viaGo(ctx context.Context, r Request) (*Response, error) {
 	req, err := c.newRequest(ctx, r)
 	if err != nil {
 		return nil, err
 	}
 	start := time.Now()
-	c.log.Info(fmt.Sprintf("HTTP %s %s: sending request using Go.", r.Method, r.URL))
 	hr, err := c.http.Do(req)
 	if err != nil {
-		c.log.Warn(fmt.Sprintf("HTTP %s %s failed after %s using Go: %v",
-			r.Method, r.URL, time.Since(start).Round(time.Millisecond), err))
+		c.warnf("HTTP go %s %s failed after %s: %v",
+			r.Method, r.URL, time.Since(start).Round(time.Millisecond), err)
 		return nil, err
 	}
 	defer hr.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(hr.Body, maxBodySize))
 	if err != nil {
-		c.log.Warn(fmt.Sprintf("HTTP %s %s: response read failed after %s using Go: %v",
-			r.Method, r.URL, time.Since(start).Round(time.Millisecond), err))
+		c.warnf("HTTP go %s %s response read failed after %s: %v",
+			r.Method, r.URL, time.Since(start).Round(time.Millisecond), err)
 		return nil, err
 	}
-	c.log.Info(fmt.Sprintf("HTTP %s %s: received %d %s in %s using Go.",
-		r.Method, r.URL, hr.StatusCode, http.StatusText(hr.StatusCode),
-		time.Since(start).Round(time.Millisecond)))
+	c.infof("HTTP go %s %s %d %s in %s.", r.Method, r.URL, hr.StatusCode,
+		http.StatusText(hr.StatusCode), time.Since(start).Round(time.Millisecond))
 	return &Response{StatusCode: hr.StatusCode, Header: hr.Header, Body: body, Via: "go"}, nil
 }
 
@@ -471,19 +499,16 @@ func (c *Client) viaCurl(ctx context.Context, r Request, mode transportMode) (*R
 		return nil, err
 	}
 	start := time.Now()
-	c.log.Info(fmt.Sprintf("HTTP %s %s: sending request using %s.",
-		r.Method, r.URL, mode.String()))
 	hr, err := execCurl(ctx, req, r.Body, mode == transportCurlAnon, c.opts.Timeout)
 	if err != nil {
-		c.log.Warn(fmt.Sprintf("HTTP %s %s failed after %s using %s: %v",
-			r.Method, r.URL, time.Since(start).Round(time.Millisecond),
-			mode.String(), err))
+		c.warnf("HTTP %s %s %s failed after %s: %v", mode.String(), r.Method, r.URL,
+			time.Since(start).Round(time.Millisecond), err)
 		return nil, err
 	}
 	body, _ := io.ReadAll(hr.Body)
-	c.log.Info(fmt.Sprintf("HTTP %s %s: received %d %s in %s using %s.",
-		r.Method, r.URL, hr.StatusCode, http.StatusText(hr.StatusCode),
-		time.Since(start).Round(time.Millisecond), mode.String()))
+	c.infof("HTTP %s %s %s %d %s in %s.", mode.String(), r.Method, r.URL,
+		hr.StatusCode, http.StatusText(hr.StatusCode),
+		time.Since(start).Round(time.Millisecond))
 	return &Response{StatusCode: hr.StatusCode, Header: hr.Header, Body: body,
 		Via: mode.String()}, nil
 }

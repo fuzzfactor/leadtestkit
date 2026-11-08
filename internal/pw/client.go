@@ -103,7 +103,7 @@ func (c *Client) getJSON(ctx context.Context, path string, params url.Values, de
 		return err
 	}
 	if err := json.Unmarshal(resp.Body, dest); err != nil {
-		return fmt.Errorf("decode %s: %w", u, err)
+		return fmt.Errorf("cannot decode %s as JSON: %w", u, err)
 	}
 	return nil
 }
@@ -121,7 +121,7 @@ func getAll[T any](c *Client, ctx context.Context, path string, params url.Value
 		}
 		var page []T
 		if err := json.Unmarshal(resp.Body, &page); err != nil {
-			return all, fmt.Errorf("decode %s: %w", u, err)
+			return all, fmt.Errorf("cannot decode %s as JSON: %w", u, err)
 		}
 		all = append(all, page...)
 		u = c.fixScheme(parseLinkNext(resp.Header.Get("Link")))

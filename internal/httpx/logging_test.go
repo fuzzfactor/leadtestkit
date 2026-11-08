@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ func TestRequestLogsIncludeDuration(t *testing.T) {
 				if (err != nil) != (tc.cancelled || tc.truncated) {
 					t.Fatalf("unexpected error: %v", err)
 				}
-				re := regexp.MustCompile(`(?:in|after) (\S+) using `)
+				re := regexp.MustCompile(` (?:in|after) ([0-9.]+[a-zµ]+)[.:]`)
 				matches := re.FindAllStringSubmatch(buf.String(), -1)
 				if len(matches) != 1 {
 					t.Fatalf("expected one timed outcome:\n%s", buf.String())
@@ -67,5 +68,45 @@ func TestRequestLogsIncludeDuration(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// urlThenPunct finds URLs that terminals would extend with punctuation.
+var urlThenPunct = regexp.MustCompile(`https?://\S*[.:;,)](\s|$)`)
+
+func TestRequestLogFormat(t *testing.T) {
+	var buf bytes.Buffer
+	failures := 1
+	c, srv := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if failures > 0 {
+			failures--
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte("lorem down"))
+			return
+		}
+		w.Write([]byte("{}"))
+	}, Options{Name: "github", Attempts: 2, Logger: logx.New(&buf, false)})
+	if _, err := c.Get(context.Background(), srv.URL+"/lorem"); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	url := `http://\S+/lorem`
+	want := []*regexp.Regexp{
+		regexp.MustCompile(`INFO  github: HTTP go GET ` + url +
+			` 502 Bad Gateway in \S+\.$`),
+		regexp.MustCompile(`WARN  github: HTTP GET ` + url + ` failed on attempt 1, ` +
+			`retrying in \S+: HTTP 502 with response "lorem down"$`),
+		regexp.MustCompile(`INFO  github: HTTP go GET ` + url + ` 200 OK in \S+\.$`),
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(want), buf.String())
+	}
+	for i, re := range want {
+		if !re.MatchString(lines[i]) {
+			t.Errorf("line %d = %q, want %v", i, lines[i], re)
+		}
+	}
+	if m := urlThenPunct.FindString(buf.String()); m != "" {
+		t.Errorf("a URL is followed by punctuation: %q", m)
 	}
 }

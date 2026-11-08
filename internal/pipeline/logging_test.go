@@ -6,6 +6,7 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,11 +18,19 @@ import (
 	"leadtestkit/internal/state"
 )
 
+// urlThenPunct finds URLs that terminals would extend with punctuation.
+var urlThenPunct = regexp.MustCompile(`https?://\S*[.:;,)](\s|$)`)
+
 func requireLogs(t *testing.T, buf *bytes.Buffer, messages ...string) {
 	t.Helper()
 	for _, message := range messages {
 		if !strings.Contains(buf.String(), message) {
 			t.Errorf("missing log %q in:\n%s", message, buf.String())
+		}
+	}
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if urlThenPunct.MatchString(line) {
+			t.Errorf("a URL is followed by punctuation in %q", line)
 		}
 	}
 }
@@ -238,7 +247,7 @@ func TestLogsExplainArchiveInitializationAndIngestion(t *testing.T) {
 	e.p.ingest(context.Background())
 	requireLogs(t, &buf,
 		"1 new after saved message 0",
-		"Reading archived report:",
+		"Reading the archived report https://",
 		"posting success check lab",
 		"posted success check lab",
 	)

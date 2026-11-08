@@ -106,7 +106,7 @@ func (p *Pipermail) FetchMessage(ctx context.Context, msgURL string) (*Message, 
 	}
 	m, err := ParseMessagePage(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", msgURL, err)
+		return nil, fmt.Errorf("cannot parse %s because %w", msgURL, err)
 	}
 	m.URL = msgURL
 	return m, nil
