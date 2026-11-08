@@ -39,7 +39,8 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
   text-overflow: ellipsis; white-space: nowrap; }
 .num { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 3.5em; }
 .when { font-size: 12px; width: 4.5em; flex: none; text-align: right; }
-.links { font-size: 11px; font-weight: normal; font-family: system-ui, sans-serif; }
+.links { font-size: 11px; font-weight: normal; font-family: system-ui, sans-serif;
+  line-height: 1; }
 .links a { color: var(--muted); }
 .links a:hover { color: var(--pending); }
 .counts { display: inline-flex; gap: 2px; font-variant-numeric: tabular-nums; }
@@ -58,14 +59,18 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
 .state.active, .state.pushed { color: var(--pending); border-color: var(--pending); }
 .state.done { color: var(--success); border-color: var(--success); }
 .state.error { color: var(--fail); border-color: var(--fail); }
-.body { display: none; padding: 0 10px 6px; }
+/* The last patch gets the same space below as every patch above. */
+.body { display: none; padding: 0 10px; }
 .series.open .body { display: block; }
 .info { color: var(--muted); font-size: 12px; padding: 4px 0; }
 .info:empty { display: none; }
 .patch { border-top: 1px solid var(--line); padding: 3px 0; }
-.patch .row { display: flex; gap: 4px 12px; align-items: baseline; flex-wrap: wrap; }
-.patch .pname { font-family: ui-monospace, monospace; font-size: 12px; flex: 1 1 300px; }
-.patch .detail { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline;
+.patch .row { display: flex; gap: 4px 12px; align-items: center; flex-wrap: wrap; }
+/* Laid out like the badges next to it: 18px lines plus 1px above and
+   below, where badges have their border. */
+.patch .pname { font-family: ui-monospace, monospace; font-size: 12px; line-height: 18px;
+  padding: 1px 0; flex: 1 1 300px; }
+.patch .detail { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center;
   justify-content: flex-end; margin-left: auto; font-size: 12px; }
 .patch .detail:empty { display: none; }
 /* Check badges look like the state pills, with a light tint of their
@@ -84,7 +89,8 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
   background: color-mix(in srgb, var(--pending) 10%, transparent); }
 a:hover .badge { background: color-mix(in srgb, currentColor 20%, transparent); }
 .error { color: var(--fail); font-size: 12px; }
-.toggle { font-size: 11px; color: var(--muted); background: none; border: 1px solid var(--line);
+.toggle { font: 11px/16px system-ui, sans-serif; color: var(--muted); background: none;
+  border: 1px solid var(--line);
   border-radius: 10px; padding: 0 6px; cursor: pointer; margin-left: 4px; }
 .toggle.on { color: var(--fg); border-color: var(--muted); }
 .decisions { margin: 2px 0 6px; padding-left: 24px; font-size: 12px; }
