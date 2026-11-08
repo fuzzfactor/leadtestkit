@@ -69,8 +69,15 @@ type Config struct {
 	Rechecks  Rechecks  `yaml:"rechecks"`
 	Runner    Runner    `yaml:"runner"`
 	Pages     Pages     `yaml:"pages"`
+	Alerts    Alerts    `yaml:"alerts"`
 
 	Secrets Secrets `yaml:"-"`
+}
+
+// Alerts are emails to the maintainers of the bot about problems that
+// need them, like GitHub no longer running workflows on the test fork.
+type Alerts struct {
+	To []string `yaml:"to"`
 }
 
 type Patchwork struct {
@@ -538,6 +545,11 @@ func (c *Config) validate() error {
 		// Test mode must never reach anyone who did not opt in.
 		if c.Mode.TestEmail() && len(c.Mode.AllowedRecipients) == 0 {
 			add("mode.allowed_recipients is required when mode.email is test")
+		}
+	}
+	for _, a := range c.Alerts.To {
+		if _, err := mail.ParseAddress(a); err != nil {
+			add("alerts.to: %v", err)
 		}
 	}
 	for _, a := range c.Mode.AllowedRecipients {

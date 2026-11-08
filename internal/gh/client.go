@@ -221,6 +221,14 @@ func (c *Client) DispatchRuns(ctx context.Context, branch string,
 	}, 10)
 }
 
+// RunsSince returns the newest runs created since a time, of any event
+// and branch; at most one page.
+func (c *Client) RunsSince(ctx context.Context, since time.Time) ([]WorkflowRun, error) {
+	return c.listRuns(ctx, url.Values{
+		"created": {">=" + since.UTC().Format("2006-01-02T15:04:05Z")},
+	}, 1)
+}
+
 func (c *Client) ActiveRuns(ctx context.Context) ([]WorkflowRun, error) {
 	var all []WorkflowRun
 	for _, st := range []string{"queued", "in_progress", "waiting", "pending"} {

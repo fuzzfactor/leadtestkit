@@ -77,3 +77,7 @@ pages:
   enabled: true
   title: OVN CI
   list_tag: ovs-dev
+
+alerts:
+  # Maintainers to email when workflows stop running on the test fork.
+  to: []

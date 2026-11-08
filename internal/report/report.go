@@ -188,6 +188,47 @@ func limitLines(s string) string {
 	return strings.Join(lines, "\n")
 }
 
+// Alert is an email to the maintainers of the bot.
+type Alert struct {
+	From      string
+	To        []string
+	Subject   string
+	Body      string
+	Date      time.Time
+	MessageID string
+}
+
+func ComposeAlert(a Alert) (*Email, error) {
+	from, err := mail.ParseAddress(a.From)
+	if err != nil {
+		return nil, fmt.Errorf("from: %w", err)
+	}
+	var to, recipients []string
+	for _, t := range a.To {
+		addr, err := mail.ParseAddress(t)
+		if err != nil {
+			return nil, fmt.Errorf("to: %w", err)
+		}
+		to = append(to, addr.String())
+		recipients = append(recipients, addr.Address)
+	}
+	if len(recipients) == 0 {
+		return nil, fmt.Errorf("no recipients")
+	}
+	var h strings.Builder
+	header := func(k, v string) { fmt.Fprintf(&h, "%s: %s\r\n", k, v) }
+	header("From", from.String())
+	header("To", strings.Join(to, ", "))
+	header("Subject", mime.QEncoding.Encode("utf-8", a.Subject))
+	header("Date", a.Date.Format(time.RFC1123Z))
+	header("Message-ID", a.MessageID)
+	header("MIME-Version", "1.0")
+	header("Content-Type", "text/plain; charset=utf-8")
+	header("Content-Transfer-Encoding", "8bit")
+	data := h.String() + "\r\n" + crlf(limitLines(strings.TrimRight(a.Body, "\n")+"\n"))
+	return &Email{From: from.Address, Recipients: recipients, Data: []byte(data)}, nil
+}
+
 func crlf(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\n", "\r\n")
 }

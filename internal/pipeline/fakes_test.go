@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"sort"
 	"strings"
 	"testing"
@@ -221,6 +222,10 @@ type fakeGH struct {
 	files            map[string]string
 	fail             map[string]int
 	nextRun          int64
+	// clock dates new runs; disabled makes dispatches fail like on a
+	// fork where GitHub disabled Actions.
+	clock    *time.Time
+	disabled bool
 }
 
 func newFakeGH() *fakeGH {
@@ -257,7 +262,11 @@ func (f *fakeGH) SetBranch(ctx context.Context, branch, sha string) error {
 }
 
 func (f *fakeGH) DeleteRef(ctx context.Context, name string) error {
+	if err := f.maybeFail("delete-ref"); err != nil {
+		return err
+	}
 	f.deleted = append(f.deleted, name)
+	delete(f.branches, strings.TrimPrefix(name, "heads/"))
 	return nil
 }
 
@@ -281,6 +290,21 @@ func (f *fakeGH) RunsForSHA(ctx context.Context, sha string) ([]gh.WorkflowRun, 
 func (f *fakeGH) DispatchRuns(ctx context.Context, branch string,
 	since time.Time) ([]gh.WorkflowRun, error) {
 	return f.dispatched, nil
+}
+
+func (f *fakeGH) RunsSince(ctx context.Context, since time.Time) ([]gh.WorkflowRun, error) {
+	if err := f.maybeFail("runs-since"); err != nil {
+		return nil, err
+	}
+	var out []gh.WorkflowRun
+	for _, runs := range f.runs {
+		for _, r := range runs {
+			if !r.CreatedAt.Before(since) {
+				out = append(out, r)
+			}
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeGH) ActiveRuns(ctx context.Context) ([]gh.WorkflowRun, error) { return f.active, nil }
@@ -334,6 +358,10 @@ func (f *fakeGH) Rerun(ctx context.Context, id int64, failedOnly bool) error {
 func (f *fakeGH) Dispatch(ctx context.Context, file, ref string, inputs map[string]string) error {
 	if err := f.maybeFail("dispatch"); err != nil {
 		return err
+	}
+	if f.disabled {
+		return &httpx.StatusError{Code: http.StatusUnprocessableEntity,
+			Body: `{"message":"Actions has been disabled for this repository."}`}
 	}
 	in := map[string]string{"file": file, "ref": ref}
 	for k, v := range inputs {
@@ -389,11 +417,15 @@ func (f *fakeGH) startRuns(branch, sha string, names ...string) []int64 {
 	for _, n := range names {
 		f.nextRun++
 		url := fmt.Sprintf("https://github.com/ipsum/lorem/actions/runs/%d", f.nextRun)
-		f.runs[sha] = append(f.runs[sha], gh.WorkflowRun{
+		run := gh.WorkflowRun{
 			ID: f.nextRun, Name: n, Event: "push", HeadBranch: branch, HeadSHA: sha,
 			Status: "in_progress", RunAttempt: 1, HTMLURL: url,
 			CheckSuiteID: f.nextRun,
-		})
+		}
+		if f.clock != nil {
+			run.CreatedAt = *f.clock
+		}
+		f.runs[sha] = append(f.runs[sha], run)
 		ids = append(ids, f.nextRun)
 	}
 	return ids
@@ -668,6 +700,7 @@ type env struct {
 	reports *fakeArchive
 	dev     *fakeArchive
 	mail    *fakeMail
+	alerts  *fakeMail
 	dir     string
 	p       *Pipeline
 }
@@ -688,8 +721,10 @@ func newEnv(t *testing.T, extra string) *env {
 		reports: newFakeArchive("https://lists.example.org/pipermail/lorem-build/"),
 		dev:     newFakeArchive("https://lists.example.org/pipermail/lorem-dev/"),
 		mail:    &fakeMail{},
+		alerts:  &fakeMail{},
 		dir:     t.TempDir(),
 	}
+	e.gh.clock = &e.now
 	e.reload()
 	return e
 }
@@ -709,6 +744,7 @@ func (e *env) reload() {
 	}
 	e.p = &Pipeline{
 		Cfg: e.cfg, Store: st, PW: e.pw, GH: e.gh, Repo: e.repo, Mail: e.mail,
+		Alerts:  e.alerts,
 		Reports: e.reports, Dev: e.dev,
 		Now: func() time.Time { return e.now },
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),

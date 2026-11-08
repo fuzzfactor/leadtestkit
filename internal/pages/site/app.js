@@ -373,6 +373,13 @@ async function loadIndex() {
     link("https://" + index.git_host + "/" + index.test_repo, index.test_repo),
     ...(index.run_url ? [" · ", link(index.run_url, "last run")] : []),
     " · push " + mode.push + ", checks " + mode.checks + ", email " + mode.email);
+  const outage = document.getElementById("outage");
+  const o = index.ci_outage;
+  outage.hidden = !o;
+  outage.replaceChildren(...(o ? ["Workflows have not run on ", index.test_repo, " for ",
+    el("time", { datetime: o.since, title: o.since }, age(o.since).replace(/ ago$/, "")),
+    ": ", o.reason.replace(/\.$/, ""), ". New patches wait until they run again."]
+    : []));
   const tabs = document.getElementById("tabs");
   tabs.replaceChildren();
   const add = (tab, text) => {

@@ -229,7 +229,8 @@ The state is plain JSON on the ``state`` branch:
 
 - ``queue.json``: series that are not finished;
 - ``history/YYYY-MM.json``: finished series;
-- ``meta.json``: event and archive cursors.
+- ``meta.json``: event and archive cursors, and ``ci_outage`` while
+  workflows do not run on the test fork (see below).
 
 Finished series and patch records are retained indefinitely.  History
 lookups are also unlimited by default (``limits.history_window: 0``).
@@ -297,6 +298,31 @@ start tests from the queue.
 
 For git command details and timings, pass ``--debug`` to
 ``leadtest run``.
+
+When workflows stop running
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+GitHub sometimes disables Actions on forks.  Pushes then start no
+workflows and dispatches fail with *Actions has been disabled for this
+repository*, while the repository settings still show Actions as
+enabled.  Only GitHub Support can undo it.
+
+The bot notices when GitHub refuses a dispatch this way, or when a
+patch got no run at all for ``limits.no_run_timeout`` and nothing else
+ran on the test fork either.  It then:
+
+- pushes no new patches and sends no warnings for patches without
+  runs;
+- pushes one patch every hour to check whether workflows run again;
+  patches that got no runs wait to be pushed again then;
+- reports the problem in the job summary and at the top of the pages;
+- emails the maintainers in ``alerts.to`` when it notices, once a day
+  while it lasts and when workflows run again.  The bot runs that send
+  these emails fail, which makes them easy to find.
+
+Once workflows run again, everything continues by itself.  Set
+``alerts.to`` to hear about it; without it, only the job summaries and
+the pages show it.
 
 
 6. Upgrading

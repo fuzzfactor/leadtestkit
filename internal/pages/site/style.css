@@ -21,6 +21,7 @@ header h1 { margin: 16px 0 4px; font-size: 22px; }
   border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 #refresh:disabled { cursor: progress; opacity: 0.6; }
 #meta, .muted, footer { color: var(--muted); }
+#outage { font-size: 14px; margin-top: 4px; }
 footer { margin: 24px 0; font-size: 12px; }
 nav { display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0; }
 nav button { border: 1px solid var(--line); background: var(--row); color: var(--fg);

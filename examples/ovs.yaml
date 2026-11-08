@@ -94,3 +94,7 @@ pages:
   enabled: true
   title: Open vSwitch CI
   list_tag: ovs-dev
+
+alerts:
+  # Maintainers to email when workflows stop running on the test fork.
+  to: []

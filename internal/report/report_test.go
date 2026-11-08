@@ -238,3 +238,31 @@ func TestComposeParseRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestComposeAlert(t *testing.T) {
+	e, err := ComposeAlert(Alert{From: "Lorem Robot <robot@example.org>",
+		To:      []string{"Ipsum <ipsum@example.org>", "dolor@example.org"},
+		Subject: "LeadTestKit Lorem: workflows do not run on ipsum/lorem",
+		Body:    "Since lorem.\n", Date: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+		MessageID: "<leadtest.alert.1@example.org>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := string(e.Data)
+	for _, want := range []string{
+		"To: \"Ipsum\" <ipsum@example.org>, <dolor@example.org>\r\n",
+		"Subject: LeadTestKit Lorem: workflows do not run on ipsum/lorem\r\n",
+		"Message-ID: <leadtest.alert.1@example.org>\r\n",
+		"\r\n\r\nSince lorem.\r\n",
+	} {
+		if !strings.Contains(data, want) {
+			t.Errorf("missing %q in:\n%s", want, data)
+		}
+	}
+	if strings.Join(e.Recipients, " ") != "ipsum@example.org dolor@example.org" {
+		t.Errorf("recipients = %v", e.Recipients)
+	}
+	if _, err := ComposeAlert(Alert{From: "robot@example.org"}); err == nil {
+		t.Error("an alert without recipients was composed")
+	}
+}

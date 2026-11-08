@@ -25,6 +25,18 @@ func (p *Pipeline) schedule(ctx context.Context) {
 		return
 	}
 	now := p.now()
+	probe := false
+	if o := p.Store.Meta.Outage; o != nil {
+		if next := state.ParseTime(o.NextProbe); now.Before(next) {
+			p.infof("Not pushing: workflows do not run on %s since %s; the next check "+
+				"is at %s.", p.Cfg.TestRepo.Repo, o.Since, o.NextProbe)
+			return
+		}
+		o.NextProbe = state.FormatTime(now.Add(outageProbeInterval))
+		probe = true
+		p.infof("Workflows do not run on %s since %s; pushing at most one patch to "+
+			"check whether they run again.", p.Cfg.TestRepo.Repo, o.Since)
+	}
 	queued, err := p.queuedJobs(ctx)
 	if err != nil {
 		p.warnf("Not scheduling: GitHub's queued jobs could not be counted: %v", err)
@@ -106,6 +118,9 @@ func (p *Pipeline) schedule(ctx context.Context) {
 		Candidates: cands,
 		Explain:    p.infof,
 	})
+	if probe && len(picks) > 1 {
+		picks = picks[:1]
+	}
 	p.infof("Scheduling decision: selected %d patch slots from %d candidate series.",
 		len(picks), len(cands))
 	for _, id := range picks {
@@ -783,7 +798,18 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 			patchName(pt), r.File, p.Cfg.TestRepo.ToolsBranch,
 			short(pt.SHA), r.CorrelationID)
 		if err := p.GH.Dispatch(ctx, r.File, p.Cfg.TestRepo.ToolsBranch,
-			inputs); err != nil {
+			inputs); err != nil && actionsDisabled(err) {
+			// Retried with the outage checks, without a deadline.
+			state.RecordFailure(&r.Failure, "dispatch", err, p.now(), 0)
+			r.Failure.Next = state.FormatTime(p.now().Add(outageProbeInterval))
+			p.notePatch(pt, "dispatch-failed", "%s: GitHub refused the dispatch: "+
+				"%s. Retrying at %s.", r.File, r.Failure.LastError, r.Failure.Next)
+			p.warnf("%s: GitHub refused to dispatch %s; retrying at %s: %v",
+				patchName(pt), r.File, r.Failure.Next, err)
+			p.startOutage(state.OutageDispatch, fmt.Sprintf("GitHub refused to "+
+				"dispatch %s: %s", r.File, short422(err)))
+			continue
+		} else if err != nil {
 			if p.fail(&r.Failure, "dispatch", err) {
 				r.Status = "completed"
 				r.Result = state.ResultWarning
@@ -798,6 +824,7 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 		r.Failure = nil
 		r.Status = "requested"
 		r.Updated = state.FormatTime(p.now())
+		p.endOutage("GitHub accepted a dispatch of " + r.File)
 		// The workflow timeouts count from the push; a dispatch sent in a
 		// later cycle (after a retry or with push mode off) restarts them.
 		if pushed := state.ParseTime(pt.Pushed); p.now().Sub(pushed) >=

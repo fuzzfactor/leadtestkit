@@ -27,21 +27,23 @@ type Month struct {
 }
 
 type Index struct {
-	Schema           int     `json:"schema"`
-	Title            string  `json:"title"`
-	Name             string  `json:"name"`
-	Generated        string  `json:"generated"`
-	RunURL           string  `json:"run_url,omitempty"`
-	PatchworkWeb     string  `json:"patchwork_web"`
-	Project          string  `json:"project"`
-	TestRepo         string  `json:"test_repo"`
-	GitHost          string  `json:"git_host"`
-	ArchiveURLFormat string  `json:"archive_url_format,omitempty"`
-	PatchURLFormat   string  `json:"patch_archive_url_format,omitempty"`
-	ListTag          string  `json:"list_tag,omitempty"`
-	Mode             Mode    `json:"mode"`
-	Queue            int     `json:"queue"`
-	Months           []Month `json:"months"`
+	Schema           int    `json:"schema"`
+	Title            string `json:"title"`
+	Name             string `json:"name"`
+	Generated        string `json:"generated"`
+	RunURL           string `json:"run_url,omitempty"`
+	PatchworkWeb     string `json:"patchwork_web"`
+	Project          string `json:"project"`
+	TestRepo         string `json:"test_repo"`
+	GitHost          string `json:"git_host"`
+	ArchiveURLFormat string `json:"archive_url_format,omitempty"`
+	PatchURLFormat   string `json:"patch_archive_url_format,omitempty"`
+	ListTag          string `json:"list_tag,omitempty"`
+	// Outage is set while workflows do not run on the test repository.
+	Outage *state.Outage `json:"ci_outage,omitempty"`
+	Mode   Mode          `json:"mode"`
+	Queue  int           `json:"queue"`
+	Months []Month       `json:"months"`
 }
 
 type Mode struct {
@@ -73,6 +75,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 		ArchiveURLFormat: cfg.Pages.ArchiveURLFormat,
 		PatchURLFormat:   cfg.Pages.PatchArchiveURLFormat,
 		ListTag:          cfg.Pages.ListTag,
+		Outage:           st.Meta.Outage,
 		Mode: Mode{Push: cfg.Mode.Push, Checks: cfg.Mode.Checks,
 			Email: cfg.Mode.Email},
 		Queue:  len(st.Queue),

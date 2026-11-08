@@ -311,6 +311,11 @@ func cmdRun(args []string) error {
 	if cpErr != nil {
 		return fmt.Errorf("saving state: %w", cpErr)
 	}
+	// Failing makes the run with an alert easy to find.
+	if len(p.Stats.Alerts) > 0 {
+		return fmt.Errorf("sent alerts to the maintainers: %s",
+			strings.Join(p.Stats.Alerts, "; "))
+	}
 	return nil
 }
 
@@ -381,7 +386,19 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 		}))
 	}
 	var sender mail.Sender = &mail.Log{Log: log}
+	var alerts mail.Sender
 	if !cfg.Mode.EmailOff() {
+		// Alerts go only to the maintainers in alerts.to, also in
+		// test mode.
+		alerts = &mail.SMTP{
+			Host:     cfg.SMTP.Host,
+			Port:     cfg.SMTP.Port,
+			Security: cfg.SMTP.Security,
+			Username: cfg.Secrets.SMTPUsername,
+			Password: cfg.Secrets.SMTPPassword,
+			Allowed:  cfg.Alerts.To,
+			Log:      log,
+		}
 		// The allowlist is what keeps test reports away from real people.
 		var allowed []string
 		if cfg.Mode.TestEmail() {
@@ -415,6 +432,7 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 		GH:     ghc,
 		Repo:   work,
 		Mail:   sender,
+		Alerts: alerts,
 		Log:    log,
 		RunURL: runURL(),
 		Actor:  actor,

@@ -19,6 +19,7 @@ import (
 const monitorDeadline = 24 * time.Hour
 
 func (p *Pipeline) monitor(ctx context.Context) {
+	p.outageCycle()
 	dispatched := p.dispatchedRuns(ctx)
 	for _, s := range p.Store.Queue {
 		if s.Status != state.SeriesTesting {
@@ -35,6 +36,7 @@ func (p *Pipeline) monitor(ctx context.Context) {
 					patchName(pt), pt.Failure.Next, pt.Failure.Op)
 			}
 		}
+		p.resetStuck(ctx, s)
 	}
 }
 
@@ -193,6 +195,7 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 	r.ID = wr.ID
 	r.Attempt = wr.RunAttempt
 	r.URL = wr.HTMLURL
+	p.outageRun(wr)
 	r.Status = wr.Status
 	r.Conclusion = wr.Conclusion
 	if wr.Status != "completed" {
@@ -302,6 +305,27 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	held := func(r *state.Run) bool {
 		return r.Status == "dispatching" && !p.Cfg.Mode.PushLive()
 	}
+	if now.Sub(pushed) > lim.NoRunTimeout.D() && noRuns(pt) && !dispatchAccepted(pt) &&
+		p.Cfg.Mode.PushLive() {
+		// Without any run, it may be GitHub that runs nothing.
+		if p.Store.Meta.Outage != nil {
+			p.infof("%s: no workflow started; workflows do not run on %s.",
+				patchName(pt), p.Cfg.TestRepo.Repo)
+			return
+		}
+		idle, err := p.ciIdle(ctx, pushed)
+		if err != nil {
+			p.warnf("%s: cannot check whether workflows run on %s; waiting: %v",
+				patchName(pt), p.Cfg.TestRepo.Repo, err)
+			return
+		}
+		if idle {
+			p.startOutage(state.OutageRuns, fmt.Sprintf("no workflow run started "+
+				"since %s, when patch %d was pushed", state.FormatTime(pushed),
+				pt.ID))
+			return
+		}
+	}
 	if now.Sub(pushed) > lim.NoRunTimeout.D() {
 		if len(runs) == 0 {
 			missing("", "No workflow runs were started for this patch.")
@@ -320,7 +344,9 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	}
 	if now.Sub(pushed) > lim.RunTimeout.D() {
 		for _, r := range ciRuns(pt) {
-			if (r.Status != "completed" || r.Result == "") && !held(r) {
+			// Dispatches refused during an outage wait for its end.
+			paused := r.Status == "dispatching" && p.Store.Meta.Outage != nil
+			if (r.Status != "completed" || r.Result == "") && !held(r) && !paused {
 				warn(r, "Timed out waiting for the workflow to finish.")
 			}
 		}

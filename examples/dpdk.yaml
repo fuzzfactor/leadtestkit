@@ -91,3 +91,7 @@ pages:
   title: DPDK CI
   archive_url_format: "https://inbox.dpdk.org/test-report/{}/"
   patch_archive_url_format: "https://inbox.dpdk.org/dev/{}/"
+
+alerts:
+  # Maintainers to email when workflows stop running on the test fork.
+  to: []

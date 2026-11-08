@@ -45,6 +45,7 @@ type GitHub interface {
 	RunsForSHA(ctx context.Context, sha string) ([]gh.WorkflowRun, error)
 	DispatchRuns(ctx context.Context, branch string, since time.Time) ([]gh.WorkflowRun, error)
 	ActiveRuns(ctx context.Context) ([]gh.WorkflowRun, error)
+	RunsSince(ctx context.Context, since time.Time) ([]gh.WorkflowRun, error)
 	Jobs(ctx context.Context, runID int64) ([]gh.Job, error)
 	JobLog(ctx context.Context, jobID int64) (string, error)
 	CheckRuns(ctx context.Context, suiteID int64) ([]gh.CheckRun, error)
@@ -85,9 +86,12 @@ type Pipeline struct {
 	Dev     Archive
 	Repo    WorkRepo
 	Mail    mail.Sender
-	Now     func() time.Time
-	Log     *slog.Logger
-	RunURL  string
+	// Alerts sends emails to the maintainers of the bot, alerts.to;
+	// nil when email is off.
+	Alerts mail.Sender
+	Now    func() time.Time
+	Log    *slog.Logger
+	RunURL string
 	// Actor returns the login of the bot on the test fork, or "" if
 	// unknown.  Dispatched runs started by anyone else are ignored.
 	Actor func() string
@@ -105,6 +109,7 @@ type Pipeline struct {
 	// are listed at most once per polling cycle until that succeeds.
 	workflowNames     map[string]string
 	workflowNamesStep int
+	outageReported    bool
 	safetyNetDone     bool
 	syncDone          bool
 	// Archives are read once per run; reports there are not urgent and
@@ -125,6 +130,8 @@ type Stats struct {
 	Rechecks   int
 	Finished   int
 	Errors     []string
+	// Alerts lists the subjects of the alerts sent to the maintainers.
+	Alerts []string
 }
 
 func (s *Stats) Summary() string {

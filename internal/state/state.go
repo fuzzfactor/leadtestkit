@@ -63,7 +63,30 @@ type Meta struct {
 	Events      map[string]int            `json:"events"`
 	Archives    map[string]*ArchiveCursor `json:"archives"`
 	Stats       Stats                     `json:"stats"`
+	// Outage is set while workflows do not run on the test repository.
+	Outage *Outage `json:"ci_outage,omitempty"`
 }
+
+// Outage records that GitHub does not run the workflows of the test
+// repository, for example because it disabled Actions on the fork.
+type Outage struct {
+	// Kind is OutageRuns when pushes start no runs, which ends with any
+	// new run, or OutageDispatch when GitHub refuses workflow
+	// dispatches, which ends when it accepts one.
+	Kind   string `json:"kind"`
+	Since  string `json:"since"`
+	Reason string `json:"reason"`
+	// NextProbe is when one patch is pushed to check whether workflows
+	// run again.
+	NextProbe string `json:"next_probe"`
+	// Alerted is when the last alert email was sent.
+	Alerted string `json:"alerted,omitempty"`
+}
+
+const (
+	OutageRuns     = "runs"
+	OutageDispatch = "dispatch"
+)
 
 type ArchiveCursor struct {
 	// LastMonth is the latest month (YYYY-MM) that was scanned.

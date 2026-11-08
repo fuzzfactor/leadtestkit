@@ -88,6 +88,7 @@ func TestValidationErrors(t *testing.T) {
 		"bad base":    minimal + "\nrules:\n  base:\n    - type: lorem\n",
 		"staging ref": minimal + "\n  staging_ref: refs/heads/x/\n",
 		"history":     minimal + "\nlimits:\n  history_window: -1d\n",
+		"bad alert":   minimal + "\nalerts:\n  to: [lorem]\n",
 		"no dev archive for rechecks": strings.Replace(minimal,
 			"archive:\n  dev_url: https://lists.example.org/pipermail/lorem-dev/\n",
 			"", 1),
@@ -385,7 +386,7 @@ mode:
 	// An empty list in the reference is the same as no list.
 	norm := func(c *Config) {
 		for _, l := range []*[]string{&c.Workflows.Expected, &c.Workflows.CustomExclude,
-			&c.Workflows.CustomPerSeries, &c.Rechecks.Labels} {
+			&c.Workflows.CustomPerSeries, &c.Rechecks.Labels, &c.Alerts.To} {
 			if len(*l) == 0 {
 				*l = nil
 			}

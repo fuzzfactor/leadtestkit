@@ -327,6 +327,8 @@ func TestNoRunsTimeout(t *testing.T) {
 	e.cfg.Report.ApplySuccess = false
 	e.pw.addSeries(50, 1, "lorem", e.now)
 	e.step()
+	// Workflows run on the repository, only not for this patch.
+	e.gh.startRuns("main", "sha-main", "Build")
 	e.advance(61 * time.Minute)
 	e.step()
 	pt := e.series(50).Patches[0]

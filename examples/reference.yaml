@@ -407,3 +407,13 @@ pages:
   # keeps in patch names like "[ovs-dev,v2,1/3]".  The pages leave it
   # out; other tags, like "net" or "RFC", are shown.
   list_tag: ""
+
+alerts:
+  # Maintainers of the bot who get an email when GitHub stops running
+  # the workflows of the test fork, for example because it disabled
+  # Actions on it: when it is noticed, once a day while it lasts and
+  # when the workflows run again.  The bot run that sends an alert
+  # fails.  Alerts use the smtp settings and are sent in mode.email
+  # test too, not only to mode.allowed_recipients, but not with
+  # mode.email off.  Empty: no alert emails.
+  to: []
