@@ -146,6 +146,10 @@ func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *
 		}
 		wr, ok := runs[r.CorrelationID]
 		if !ok {
+			// dispatchedRuns does not look for finished runs.
+			if r.Status == "completed" {
+				continue
+			}
 			p.infof("%s: waiting for dispatched workflow %s (request %s) to appear.",
 				patchName(pt), r.File, r.CorrelationID)
 			continue

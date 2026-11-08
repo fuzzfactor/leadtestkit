@@ -233,6 +233,27 @@ func TestLogsExplainDispatchAndTimeout(t *testing.T) {
 	)
 }
 
+func TestLogsDoNotWaitForFinishedDispatches(t *testing.T) {
+	e := newEnv(t, "")
+	var buf bytes.Buffer
+	e.p.Log = logx.New(&buf, false)
+	e.cfg.Workflows.Custom = true
+	e.gh.files["leadtest-lint.yml"] = "name: Lint\non: [workflow_dispatch]\n"
+	e.pw.addSeries(7, 1, "lorem", e.now)
+	e.step()
+	e.gh.dispatched = []gh.WorkflowRun{{ID: 900, Name: "leadtest 7-701-leadtest-lint-1",
+		DisplayTitle: "leadtest 7-701-leadtest-lint-1", Status: "completed",
+		Conclusion: "success", RunAttempt: 1}}
+	e.gh.startRuns("series_7", "sha-701", "Build")
+	e.step()
+	buf.Reset()
+	e.step()
+	requireLogs(t, &buf, "1 of 2 workflows finished; waiting for Build")
+	if strings.Contains(buf.String(), "waiting for dispatched workflow") {
+		t.Errorf("waiting for a finished dispatch:\n%s", buf.String())
+	}
+}
+
 func TestLogsExplainArchiveInitializationAndIngestion(t *testing.T) {
 	e := newEnv(t, "")
 	var buf bytes.Buffer
