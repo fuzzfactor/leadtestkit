@@ -76,3 +76,4 @@ rechecks:
 pages:
   enabled: true
   title: OVN CI
+  list_tag: ovs-dev

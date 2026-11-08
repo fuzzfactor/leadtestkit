@@ -263,6 +263,9 @@ type Pages struct {
 	// emails by Message-ID, e.g. https://inbox.dpdk.org/dev/{}/ for lore.
 	ArchiveURLFormat      string `yaml:"archive_url_format"`
 	PatchArchiveURLFormat string `yaml:"patch_archive_url_format"`
+	// ListTag is the subject tag the mailing list adds to every patch,
+	// like "ovs-dev"; the pages leave it out.
+	ListTag string `yaml:"list_tag"`
 }
 
 type Secrets struct {

@@ -58,6 +58,57 @@ function runLabel(r) {
   return r.workflow || r.file || "workflow";
 }
 
+// The Patchwork result of a GitHub conclusion; the result differs when
+// the bot made a successful run a warning.
+function conclusionResult(c) {
+  return c === "success" ? "success" : c === "failure" ? "fail" : "warning";
+}
+
+const VERSION = /^v(\d+)$/i;
+const POSITION = /^\d+\/\d+$/;
+
+// tags splits "[ovs-dev,v2,1/3] subject" into its tags and the subject.
+function tags(name) {
+  const m = /^\[([^\]]*)\]\s*(.*)$/.exec(name || "");
+  if (!m) return [[], name || ""];
+  return [m[1].split(",").map(t => t.trim()).filter(Boolean), m[2]];
+}
+
+// topics are the tags of a subject that say what it is for, like "net"
+// or "RFC", without the list's tag, the version and the position.
+function topics(name) {
+  return tags(name)[0].filter(t =>
+    t !== index.list_tag && !VERSION.test(t) && !POSITION.test(t));
+}
+
+// common lists the topics all patches of a series share; the series
+// shows them once.
+function common(s) {
+  const names = (s.patches || []).map(p => p.name).filter(Boolean);
+  if (!names.length) return topics(s.name);
+  return topics(names[0]).filter(t => names.every(n => topics(n).includes(t)));
+}
+
+// version shows the version of a series unless it is an implied v1.
+function version(s) {
+  const named = [s.name].concat((s.patches || []).map(p => p.name))
+    .some(n => tags(n)[0].some(t => VERSION.test(t)));
+  return s.version > 1 || (named && s.version) ? "v" + s.version : "";
+}
+
+// subject leaves out the tags that the series line shows.
+function subject(name, shown) {
+  const [list, rest] = tags(name);
+  const kept = list.filter(t =>
+    t !== index.list_tag && !VERSION.test(t) && !shown.includes(t));
+  return kept.length ? "[" + kept.join(",") + "] " + rest : rest;
+}
+
+function person(p) {
+  if (!p) return "";
+  return p.name && p.email ? p.name + " <" + p.email + ">" : p.name || p.email || "";
+}
+
 function countChecks(runs) {
   const c = { success: 0, warning: 0, fail: 0, pending: 0 };
   for (const r of runs) c[result(r)]++;
@@ -114,7 +165,7 @@ function decisions(list) {
   if (!list || !list.length) return [null, null];
   const rows = list.map(d => el("li", {},
     when(d.time), " ", el("strong", {}, d.action.replace(/-/g, " ")), ": ", d.detail, " ",
-    d.run_url ? link(d.run_url, "bot run logs") : null));
+    links([[d.workflow_url, "workflow run"], [d.run_url, "bot run logs"]])));
   return toggle("history (" + list.length + ")", el("ol", { class: "decisions" }, rows));
 }
 
@@ -155,25 +206,30 @@ function patchState(s, p) {
   }
 }
 
-function renderPatch(s, p) {
+function renderPatch(s, p, shown) {
   const runs = p.runs || [];
   // A badge leads to its report when it was sent, which links the run,
-  // and to the run otherwise.
+  // and to the run otherwise.  Its color tells the result.
   const chips = runs.map(r => {
     const st = result(r);
     const report = archiveLink(r.final && r.final.message_id);
-    const title = [r.conclusion, r.details, r.failure && r.failure.last_error,
+    const title = [runLabel(r) + ": " + st,
+      r.conclusion && conclusionResult(r.conclusion) !== st
+        ? "GitHub conclusion: " + r.conclusion : null,
+      r.details, r.failure && r.failure.last_error,
       report ? "Opens the report." : r.url ? "Opens the workflow run." : ""]
       .filter(Boolean).join("\n");
-    return link(report || r.url,
-      el("span", { class: "badge " + st, title: title || null }, runLabel(r) + ": " + st));
+    return link(report || r.url, el("span", { class: "badge " + st, title,
+      "aria-label": runLabel(r) + ": " + st }, runLabel(r)));
   });
   const mail = archiveLink(p.msgid, index.patch_archive_url_format);
   const [historyButton, history] = decisions(p.decisions);
   const state = patchState(s, p);
   return el("div", { class: "patch" },
     el("div", { class: "row" },
-      el("span", { class: "pname" }, p.name || "", " ",
+      el("span", { class: "pname", title: p.name || null },
+        el("span", { class: "muted pid" }, "#" + p.id), " ",
+        subject(p.name, shown) || "", " ",
         links([[index.patchwork_web + "/patch/" + p.id + "/", "pw"],
           [mail, mail && archiveName(mail)]])),
       el("span", { class: "detail" },
@@ -193,13 +249,20 @@ function renderSeries(s) {
     : null;
   const [cls, label, explanation] = seriesState(s);
   const runs = (s.patches || []).flatMap(p => p.runs || []);
+  const shown = common(s);
+  // Patchwork names series with a cover letter after it, without tags.
+  const cover = s.cover_id && s.total > 1 ? "[0/" + s.total + "] " : "";
+  const who = person(s.submitter);
   const head = el("div", { class: "head" },
     el("span", { class: "muted num" }, "#" + s.id),
-    el("span", { class: "name" }, s.name || "(details not fetched yet)", " ",
+    el("span", { class: "muted ver" }, version(s)),
+    el("span", { class: "name", title: s.name || null },
+      s.name ? cover + subject(s.name, shown) : "(details not fetched yet)", " ",
       links([[pwSeries, "pw"], [branch, "branch"]]), " ",
       el("span", { class: "state " + cls, title: explanation || null }, label)),
     el("span", { class: "right" },
-      el("span", { class: "muted who" },
+      el("span", { class: "muted topics" }, shown.join(" ")),
+      el("span", { class: "muted who", title: who || null },
         (s.submitter && (s.submitter.name || s.submitter.email)) || ""),
       counts(countChecks(runs)),
       when(s.finished || s.started || s.discovered)));
@@ -219,7 +282,7 @@ function renderSeries(s) {
           s.failure.last_error + " (" + s.failure.attempts + " attempts)") : null,
         historyButton),
       history,
-      (s.patches || []).map(p => renderPatch(s, p))));
+      (s.patches || []).map(p => renderPatch(s, p, shown))));
   head.onclick = e => {
     if (e.target.closest && e.target.closest("a, button")) return;
     if (box.classList.toggle("open")) open.add(s.id);

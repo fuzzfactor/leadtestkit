@@ -399,3 +399,8 @@ pages:
   # https://inbox.dpdk.org/dev/{}/ for lore.
   archive_url_format: ""
   patch_archive_url_format: ""
+
+  # The tag the mailing list adds to every subject, which Patchwork
+  # keeps in patch names like "[ovs-dev,v2,1/3]".  The pages leave it
+  # out; other tags, like "net" or "RFC", are shown.
+  list_tag: ""

@@ -30,6 +30,7 @@ rechecks:
   enabled: false
 pages:
   title: Lorem CI
+  list_tag: lorem-dev
 `
 
 func TestRender(t *testing.T) {
@@ -72,7 +73,7 @@ func TestRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	if idx.Title != "Lorem CI" || idx.Queue != 1 || len(idx.Months) != 1 ||
-		idx.Months[0].Patches != 1 ||
+		idx.Months[0].Patches != 1 || idx.ListTag != "lorem-dev" ||
 		idx.PatchworkWeb != "https://pw.example.org" {
 		t.Errorf("index = %+v", idx)
 	}

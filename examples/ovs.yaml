@@ -93,3 +93,4 @@ rechecks:
 pages:
   enabled: true
   title: Open vSwitch CI
+  list_tag: ovs-dev
