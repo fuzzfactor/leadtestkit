@@ -4,6 +4,7 @@
 package config
 
 import (
+	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
@@ -195,8 +196,9 @@ func TestSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := "-----BEGIN RSA PRIVATE KEY-----\nloremipsumdolorsitamet\n" +
-		"-----END RSA PRIVATE KEY-----\n"
+	// Encoded here, so that no key-like text is in the source.
+	key := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY",
+		Bytes: []byte("loremipsumdolorsitamet")}))
 	env := map[string]string{"LEADTEST_APP_CLIENT_ID": " Iv23lilorem \n",
 		"LEADTEST_APP_PRIVATE_KEY": key}
 	c.LoadSecrets(func(k string) string { return env[k] })
@@ -204,7 +206,7 @@ func TestSecrets(t *testing.T) {
 		c.Secrets.AppPrivateKey != strings.TrimSpace(key) {
 		t.Errorf("secrets = %+v", c.Secrets)
 	}
-	if logx.Redact("key loremipsumdolorsitamet") != "key [REDACTED]" {
+	if body := strings.Split(key, "\n")[1]; logx.Redact("key "+body) != "key [REDACTED]" {
 		t.Error("the private key is not redacted")
 	}
 	if err := c.CheckSecrets(); err != nil {

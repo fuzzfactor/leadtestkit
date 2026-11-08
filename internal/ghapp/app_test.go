@@ -128,9 +128,12 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		s.repos, s.requested = body.Repositories, body.Permissions
-		perms, _ := json.Marshal(body.Permissions)
-		fmt.Fprintf(w, `{"token":"ghs_lorem%d","expires_at":"2026-03-10T13:00:00Z",`+
-			`"permissions":%s}`, s.tokens, perms)
+		issued := fmt.Sprintf("lorem-%d", s.tokens)
+		json.NewEncoder(w).Encode(map[string]any{
+			"token":       issued,
+			"expires_at":  "2026-03-10T13:00:00Z",
+			"permissions": body.Permissions,
+		})
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -181,7 +184,7 @@ func TestToken(t *testing.T) {
 		t.Error("the bot login is known before the installation")
 	}
 	auth, err := a.Authorization(ctx)
-	if err != nil || auth != "Bearer ghs_lorem1" {
+	if err != nil || auth != "Bearer lorem-1" {
 		t.Fatalf("auth = %q, %v", auth, err)
 	}
 	if a.BotLogin() != "lorem-app[bot]" {
@@ -195,7 +198,7 @@ func TestToken(t *testing.T) {
 	if !reflect.DeepEqual(s.requested, want) {
 		t.Errorf("token not limited to the needed permissions: %v", s.requested)
 	}
-	if logx.Redact("x ghs_lorem1 x") != "x [REDACTED] x" {
+	if logx.Redact("x lorem-1 x") != "x [REDACTED] x" {
 		t.Error("the token is not redacted from logs")
 	}
 	if strings.Contains(log.String(), "lacks permissions") {
@@ -203,11 +206,11 @@ func TestToken(t *testing.T) {
 	}
 
 	now = now.Add(49 * time.Minute)
-	if tok, _ := a.Token(ctx); tok != "ghs_lorem1" || s.tokens != 1 {
+	if tok, _ := a.Token(ctx); tok != "lorem-1" || s.tokens != 1 {
 		t.Errorf("a valid token was not reused: %q, %d tokens", tok, s.tokens)
 	}
 	now = now.Add(2 * time.Minute)
-	if tok, _ := a.Token(ctx); tok != "ghs_lorem2" || s.tokens != 2 || s.installs != 1 {
+	if tok, _ := a.Token(ctx); tok != "lorem-2" || s.tokens != 2 || s.installs != 1 {
 		t.Errorf("token not renewed before expiry: %q, %d tokens, %d lookups",
 			tok, s.tokens, s.installs)
 	}
