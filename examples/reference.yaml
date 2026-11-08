@@ -268,8 +268,11 @@ limits:
   # is used instead.
   jobs_per_patch: 10
 
-  # Series older than this when discovered are skipped.
-  series_max_age: 7d
+  # Series are skipped when they are older than this, by the date of
+  # their email, when the bot first checks them.  Series that wait in
+  # the queue for testing do not expire.  This limits catching up after
+  # an outage.
+  series_max_age: 30d
 
   # How far before the first discovery time (meta.json's discovery_start)
   # to look for series; 0 excludes earlier series.  series_max_age still

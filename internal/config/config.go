@@ -315,7 +315,7 @@ func defaults() Config {
 			PerAuthorMin:       2,
 			PerAuthorMaxShare:  0.5,
 			JobsPerPatch:       10,
-			SeriesMaxAge:       Duration(7 * 24 * time.Hour),
+			SeriesMaxAge:       Duration(30 * 24 * time.Hour),
 			CompleteTimeout:    Duration(3 * 24 * time.Hour),
 			NoRunTimeout:       Duration(2 * time.Hour),
 			RunTimeout:         Duration(30 * time.Hour),

@@ -57,7 +57,7 @@ func TestParseMinimalDefaults(t *testing.T) {
 	if c.Report.MessageIDDomain != "example.org" {
 		t.Errorf("message id domain = %q", c.Report.MessageIDDomain)
 	}
-	if c.Limits.SeriesMaxAge.D() != 7*24*time.Hour {
+	if c.Limits.SeriesMaxAge.D() != 30*24*time.Hour {
 		t.Errorf("series max age = %v", c.Limits.SeriesMaxAge.D())
 	}
 	if c.Limits.HistoryWindow != 0 {
