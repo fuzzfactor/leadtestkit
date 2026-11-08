@@ -84,9 +84,13 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 				patchName(pt), p.label(r))
 			r.Pending.Check = state.StepSkipped
 		} else {
+			target := r.URL
+			if target == "" {
+				target = p.branchURL(s.Branch)
+			}
 			chk := pw.NewCheck{
 				State:       state.ResultPending,
-				TargetURL:   p.branchURL(s.Branch),
+				TargetURL:   target,
 				Context:     report.Context(p.label(r)),
 				Description: p.description(r, state.ResultPending),
 			}

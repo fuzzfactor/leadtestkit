@@ -41,13 +41,14 @@ func TestFullFlow(t *testing.T) {
 	}
 
 	e.reload()
-	e.gh.startRuns("series_7", "sha-701", "Build", "Test")
+	r1 := e.gh.startRuns("series_7", "sha-701", "Build", "Test")
 	r2 := e.gh.startRuns("series_7", "sha-702", "Build", "Test")
 	e.advance(3 * time.Minute)
 	e.step()
 	s = e.series(7)
 	if len(e.pw.posted) != 4 || e.pw.posted[0].check.State != "pending" ||
-		e.pw.posted[0].check.TargetURL != "https://github.com/ipsum/lorem/tree/series_7" ||
+		e.pw.posted[0].check.TargetURL !=
+			fmt.Sprintf("https://github.com/ipsum/lorem/actions/runs/%d", r1[0]) ||
 		e.pw.posted[0].check.Context != "github-robot-_Build" {
 		t.Fatalf("posted = %+v", e.pw.posted)
 	}

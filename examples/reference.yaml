@@ -112,7 +112,7 @@ report:
   apply_success: true
 
   # Post a pending check to Patchwork when a workflow starts, linking
-  # to the test branch.  Only logged unless mode.checks is post.
+  # to its run.  Only logged unless mode.checks is post.
   pending_check: true
 
   # Reports of failed runs include the last log_lines lines of up to
