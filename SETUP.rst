@@ -335,8 +335,9 @@ problems.
 
 The bot cannot notice that it does not run itself, for example when
 GitHub disables Actions on the bot repository.  The pages warn when
-their data is older than ``pages.stale_after``; for notifications, see
-`SCHEDULER.rst <SCHEDULER.rst>`_.
+the bot has not updated them for ``pages.stale_after``, and say when
+its last run failed; for notifications, see `SCHEDULER.rst
+<SCHEDULER.rst>`_.
 
 
 6. Upgrading

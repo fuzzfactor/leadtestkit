@@ -408,10 +408,11 @@ pages:
   # out; other tags, like "net" or "RFC", are shown.
   list_tag: ""
 
-  # The pages warn that the bot may not be running when their data is
-  # older than this.  They are only updated by the bot, so they cannot
-  # tell anyone else; see SCHEDULER.rst for failure notifications.
-  # 0 turns the warning off.
+  # The pages warn that the bot may not be running when it has not
+  # updated them for this long, and say when its last run failed, as
+  # failed runs still update them from the last saved state.  Only the
+  # bot updates them, so they cannot tell anyone else; see SCHEDULER.rst
+  # for failure notifications.  0 turns the first warning off.
   stale_after: 2h
 
 alerts:

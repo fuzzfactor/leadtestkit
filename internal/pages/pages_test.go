@@ -60,7 +60,8 @@ func TestRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(t.TempDir(), "site")
-	if err := Render(st, cfg, out, now, "https://github.com/x/y/actions/runs/1"); err != nil {
+	if err := Render(st, cfg, out, now, Run{URL: "https://github.com/x/y/actions/runs/1",
+		Failed: true}); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"index.html", "app.js", "style.css", "data/queue.json",
@@ -77,7 +78,7 @@ func TestRender(t *testing.T) {
 	if idx.Title != "Lorem CI" || idx.Queue != 1 || len(idx.Months) != 1 ||
 		idx.Months[0].Patches != 1 || idx.ListTag != "lorem-dev" ||
 		idx.Outages[state.OutageRuns].Reason != "no workflow run started" ||
-		idx.StaleAfter != 7200 ||
+		idx.StaleAfter != 7200 || !idx.RunFailed ||
 		idx.PatchworkWeb != "https://pw.example.org" {
 		t.Errorf("index = %+v", idx)
 	}
@@ -118,7 +119,7 @@ func TestRenderUpgradesPatchworkLinks(t *testing.T) {
 	queued := series(2)
 	st.Add(queued)
 	out := t.TempDir()
-	if err := Render(st, cfg, out, now, ""); err != nil {
+	if err := Render(st, cfg, out, now, Run{}); err != nil {
 		t.Fatal(err)
 	}
 	var idx Index

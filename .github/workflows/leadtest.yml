@@ -72,6 +72,7 @@ jobs:
           restore-keys: leadtest-work-
 
       - name: Run
+        id: run
         if: steps.check.outputs.configured == 'true'
         env:
           LEADTEST_PW_TOKEN: ${{ secrets.LEADTEST_PW_TOKEN }}
@@ -86,6 +87,8 @@ jobs:
       - name: Render pages
         id: pages
         if: always() && steps.check.outputs.configured == 'true'
+        env:
+          LEADTEST_RUN_OUTCOME: ${{ steps.run.outcome }}
         run: ./leadtest render-pages --state state --out _site
 
       - uses: actions/upload-pages-artifact@v5

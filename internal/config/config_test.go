@@ -89,6 +89,8 @@ func TestValidationErrors(t *testing.T) {
 		"staging ref": minimal + "\n  staging_ref: refs/heads/x/\n",
 		"history":     minimal + "\nlimits:\n  history_window: -1d\n",
 		"bad alert":   minimal + "\nalerts:\n  to: [lorem]\n",
+		"stale":       minimal + "\npages:\n  stale_after: -1h\n",
+		"stale 1s":    minimal + "\npages:\n  stale_after: 1s\n",
 		"no dev archive for rechecks": strings.Replace(minimal,
 			"archive:\n  dev_url: https://lists.example.org/pipermail/lorem-dev/\n",
 			"", 1),

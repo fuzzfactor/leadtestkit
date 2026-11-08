@@ -627,6 +627,10 @@ func (c *Config) validate() error {
 		}
 	}
 
+	if d := c.Pages.StaleAfter.D(); d < 0 || d > 0 && d < time.Minute {
+		add("pages.stale_after must be 0 (no warning) or at least 1m")
+	}
+
 	l := c.Limits
 	if l.HistoryWindow < 0 {
 		add("limits.history_window must be >= 0 (0 searches all history)")

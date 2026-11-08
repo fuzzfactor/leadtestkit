@@ -32,6 +32,7 @@ type Index struct {
 	Name             string `json:"name"`
 	Generated        string `json:"generated"`
 	RunURL           string `json:"run_url,omitempty"`
+	RunFailed        bool   `json:"run_failed,omitempty"`
 	PatchworkWeb     string `json:"patchwork_web"`
 	Project          string `json:"project"`
 	TestRepo         string `json:"test_repo"`
@@ -59,7 +60,15 @@ type seriesFile struct {
 	Series []*state.Series `json:"series"`
 }
 
-func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runURL string) error {
+// Run is the bot run that renders the pages.
+type Run struct {
+	URL string
+	// Failed is set when the bot failed before the pages were rendered;
+	// the pages are rendered anyway, from the last saved state.
+	Failed bool
+}
+
+func Render(st *state.Store, cfg *config.Config, out string, now time.Time, run Run) error {
 	if err := copySite(out); err != nil {
 		return err
 	}
@@ -69,7 +78,8 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, runU
 		Title:            cfg.Pages.Title,
 		Name:             cfg.Name,
 		Generated:        state.FormatTime(now),
-		RunURL:           runURL,
+		RunURL:           run.URL,
+		RunFailed:        run.Failed,
 		PatchworkWeb:     pw.UpgradeHTTP(cfg.PatchworkWebURL()),
 		Project:          cfg.Patchwork.Project,
 		TestRepo:         cfg.TestRepo.Repo,

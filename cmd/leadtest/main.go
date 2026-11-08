@@ -124,7 +124,10 @@ func cmdRenderPages(args []string) error {
 		return err
 	}
 	slog.Info(fmt.Sprintf("Generating Pages for %s in %s.", cfg.Name, *out))
-	if err := pages.Render(st, cfg, *out, time.Now(), runURL()); err != nil {
+	// The workflow renders the pages also when the bot run failed.
+	outcome := os.Getenv("LEADTEST_RUN_OUTCOME")
+	run := pages.Run{URL: runURL(), Failed: outcome == "failure" || outcome == "cancelled"}
+	if err := pages.Render(st, cfg, *out, time.Now(), run); err != nil {
 		return err
 	}
 	slog.Info("Pages generated successfully.")

@@ -394,12 +394,13 @@ Enable it with ``systemctl enable --now leadtest-dispatch.timer``.
 Noticing when the bot does not run
 ----------------------------------
 
-The bot cannot report that it does not run.  The pages warn when their
-data is older than ``pages.stale_after`` (2 hours by default), but only
-to someone looking at them.  When GitHub disables Actions on the bot
-repository, or the credentials of the scheduler expire, the scheduler's
-requests fail: GitHub answers ``422`` with *Actions has been disabled
-for this repository*, or ``401``.  Let the scheduler tell you:
+The bot cannot report that it does not run.  The pages warn when the
+bot has not updated them for ``pages.stale_after`` (2 hours by default),
+and say when its last run failed, but only to someone looking at them.
+When GitHub disables Actions on the bot repository, or the credentials
+of the scheduler expire, the scheduler's requests fail: GitHub answers
+``422`` with *Actions has been disabled for this repository*, or
+``401``.  Let the scheduler tell you:
 
 - **cron-job.org**: enable notifications on failed executions in the
   cronjob's settings.  The job must count only ``2xx`` answers as

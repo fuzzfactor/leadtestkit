@@ -380,6 +380,10 @@ async function loadIndex() {
     " · push " + mode.push + ", checks " + mode.checks + ", email " + mode.email);
   const problems = Object.entries(index.outages || {}).sort().map(([kind, o]) =>
     el("div", {}, outageText(kind, o)));
+  if (index.run_failed) {
+    problems.unshift(el("div", {}, "The last bot run failed; see ",
+      link(index.run_url, "its log"), "."));
+  }
   const stale = (Date.now() - Date.parse(index.generated)) / 1000;
   if (index.stale_after && stale > index.stale_after) {
     problems.unshift(el("div", {}, "Not updated for ", span(index.generated),
