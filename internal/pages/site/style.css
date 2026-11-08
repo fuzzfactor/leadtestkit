@@ -50,9 +50,9 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
 .count.warning { background: var(--warning); }
 .count.fail { background: var(--fail); }
 .count.pending { background: var(--pending); }
-.state { font-size: 12px; border: 1px solid var(--line); border-radius: 10px;
-  padding: 0 8px; white-space: nowrap; max-width: 220px; overflow: hidden;
-  text-overflow: ellipsis; color: var(--muted); }
+.state { font-size: 12px; line-height: 18px; border: 1px solid var(--line);
+  border-radius: 10px; padding: 0 8px; white-space: nowrap; max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
 .head .state { font-weight: normal; display: inline-block; vertical-align: middle; }
 .detail .state { max-width: none; }
 .state.active, .state.pushed { color: var(--pending); border-color: var(--pending); }
@@ -63,17 +63,26 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
 .info { color: var(--muted); font-size: 12px; padding: 4px 0; }
 .info:empty { display: none; }
 .patch { border-top: 1px solid var(--line); padding: 3px 0; }
-.patch .row { display: flex; gap: 4px 12px; align-items: center; flex-wrap: wrap; }
+.patch .row { display: flex; gap: 4px 12px; align-items: baseline; flex-wrap: wrap; }
 .patch .pname { font-family: ui-monospace, monospace; font-size: 12px; flex: 1 1 300px; }
-.patch .detail { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center;
+.patch .detail { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline;
   justify-content: flex-end; margin-left: auto; font-size: 12px; }
 .patch .detail:empty { display: none; }
-.badge { display: inline-block; border-radius: 10px; padding: 0 8px; font-size: 12px;
-  color: #fff; background: var(--other); white-space: nowrap; }
-.badge.success { background: var(--success); }
-.badge.fail { background: var(--fail); }
-.badge.warning { background: var(--warning); }
-.badge.pending { background: var(--pending); }
+/* Check badges look like the state pills, with a light tint of their
+   color; the link around a badge must not add a taller line box. */
+.detail > a { display: inline-flex; text-decoration: none; }
+.badge { display: inline-block; border: 1px solid var(--line); border-radius: 10px;
+  padding: 0 8px; font-size: 12px; line-height: 18px; white-space: nowrap;
+  color: var(--muted); }
+.badge.success { color: var(--success); border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, transparent); }
+.badge.fail { color: var(--fail); border-color: var(--fail);
+  background: color-mix(in srgb, var(--fail) 10%, transparent); }
+.badge.warning { color: var(--warning); border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent); }
+.badge.pending { color: var(--pending); border-color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 10%, transparent); }
+a:hover .badge { background: color-mix(in srgb, currentColor 20%, transparent); }
 .error { color: var(--fail); font-size: 12px; }
 .toggle { font-size: 11px; color: var(--muted); background: none; border: 1px solid var(--line);
   border-radius: 10px; padding: 0 6px; cursor: pointer; margin-left: 4px; }
