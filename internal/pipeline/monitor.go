@@ -40,8 +40,6 @@ func (p *Pipeline) monitor(ctx context.Context) {
 
 func (p *Pipeline) monitorPatch(ctx context.Context, s *state.Series, pt *state.Patch,
 	dispatched map[string]gh.WorkflowRun) {
-	p.infof("%s: checking push workflows for commit %s on %s.",
-		patchName(pt), short(pt.SHA), s.Branch)
 	runs, err := p.GH.RunsForSHA(ctx, pt.SHA)
 	if err != nil {
 		p.warnf("%s: cannot list workflow runs: %v", patchName(pt), err)
@@ -128,7 +126,6 @@ func (p *Pipeline) updatePushRuns(ctx context.Context, s *state.Series, pt *stat
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	p.infof("%s: found %d matching push workflows.", patchName(pt), len(names))
 	for _, name := range names {
 		wr := latest[name]
 		r := pt.Run(state.RunPush, name)
@@ -163,8 +160,6 @@ func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *
 func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Patch, r *state.Run,
 	wr gh.WorkflowRun) {
 	if r.Status == "completed" && r.Result != "" && wr.RunAttempt <= r.Attempt {
-		p.infof("%s: %s run %d attempt %d is already recorded as %s.",
-			patchName(pt), r.Workflow, wr.ID, wr.RunAttempt, r.Result)
 		return
 	}
 	// After a rerun request the old attempt is still reported until
@@ -175,6 +170,7 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 		return
 	}
 	now := state.FormatTime(p.now())
+	// Only changes are logged; the patch's waiting message sums up the rest.
 	if r.ID != wr.ID || r.Attempt != wr.RunAttempt || r.Status != wr.Status ||
 		r.Conclusion != wr.Conclusion {
 		status := wr.Status
@@ -183,6 +179,8 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 		}
 		p.notePatch(pt, "workflow-updated", "%s run %d, attempt %d: %s.",
 			r.Workflow, wr.ID, wr.RunAttempt, status)
+		p.infof("%s: %s run %d, attempt %d: %s.",
+			patchName(pt), r.Workflow, wr.ID, wr.RunAttempt, status)
 	}
 	if r.ID != wr.ID || r.Attempt != wr.RunAttempt || r.Status != wr.Status {
 		r.Updated = now
@@ -192,8 +190,6 @@ func (p *Pipeline) updateRun(ctx context.Context, s *state.Series, pt *state.Pat
 	r.URL = wr.HTMLURL
 	r.Status = wr.Status
 	r.Conclusion = wr.Conclusion
-	p.infof("%s: %s run %d, attempt %d, is %s (conclusion: %s).",
-		patchName(pt), r.Workflow, wr.ID, wr.RunAttempt, wr.Status, wr.Conclusion)
 	if wr.Status != "completed" {
 		return
 	}
@@ -328,6 +324,12 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 			patchName(pt), state.FormatTime(pushed.Add(lim.NoRunTimeout.D())))
 		return
 	}
+	finished := 0
+	for _, r := range runs {
+		if r.Status == "completed" && r.Result != "" {
+			finished++
+		}
+	}
 	var last time.Time
 	for _, r := range runs {
 		if held(r) {
@@ -336,8 +338,12 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 			return
 		}
 		if r.Status != "completed" || r.Result == "" {
-			p.infof("%s: waiting for workflow %s to finish; timeout at %s.",
-				patchName(pt), r.Workflow,
+			name := r.Workflow
+			if name == "" {
+				name = r.File
+			}
+			p.infof("%s: %d of %d workflows finished; waiting for %s, "+
+				"timeout at %s.", patchName(pt), finished, len(runs), name,
 				state.FormatTime(pushed.Add(lim.RunTimeout.D())))
 			return
 		}

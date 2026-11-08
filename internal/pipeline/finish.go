@@ -78,10 +78,9 @@ func patchFinal(pt *state.Patch) bool {
 	return true
 }
 
-// unfinished describes what keeps a series from being done, or returns
-// "" if nothing does.
-func unfinished(s *state.Series) string {
-	testing, reports := 0, 0
+// unfinished counts what keeps a series from being done: patches still
+// being tested, and reports of tested patches not sent yet.
+func unfinished(s *state.Series) (testing, reports int) {
 	for _, pt := range s.Patches {
 		switch pt.Status {
 		case state.PatchDone, state.PatchNotApplied, state.PatchSkipped,
@@ -96,24 +95,29 @@ func unfinished(s *state.Series) string {
 			}
 		}
 	}
-	var parts []string
-	if testing > 0 {
-		parts = append(parts, fmt.Sprintf("%d of %d patches are still being tested",
-			testing, len(s.Patches)))
-	}
-	if reports > 0 {
-		parts = append(parts, fmt.Sprintf("%d reports of tested patches are not sent yet",
-			reports))
-	}
-	return strings.Join(parts, "; ")
+	return testing, reports
 }
 
 func (p *Pipeline) finish(ctx context.Context) {
 	now := p.now()
+	var testing, reports []string
+	defer func() {
+		if len(testing) > 0 {
+			p.infof("Series with patches still being tested: %s.",
+				joinList(testing, 10))
+		}
+		if len(reports) > 0 {
+			p.infof("Series waiting only for reports to be sent: %s.",
+				joinList(reports, 10))
+		}
+	}()
 	for _, s := range append([]*state.Series(nil), p.Store.Queue...) {
 		if s.Status == state.SeriesTesting {
-			if waiting := unfinished(s); waiting != "" {
-				p.infof("%s: staying in the queue: %s.", seriesName(s), waiting)
+			if t, r := unfinished(s); t > 0 {
+				testing = append(testing, fmt.Sprintf("%d (%d of %d)", s.ID, t,
+					len(s.Patches)))
+			} else if r > 0 {
+				reports = append(reports, fmt.Sprintf("%d (%d)", s.ID, r))
 			} else {
 				p.finishSeries(s, state.SeriesDone, "", now)
 				p.infof("%s: all patches and reports are complete.", seriesName(s))

@@ -33,6 +33,8 @@ func (p *Pipeline) schedule(ctx context.Context) {
 
 	inflight := map[string]int{}
 	var cands []sched.Candidate
+	var ready, notReady []string
+	readyPatches := 0
 	bySeries := map[int]*state.Series{}
 	for _, s := range p.Store.Queue {
 		bySeries[s.ID] = s
@@ -50,22 +52,21 @@ func (p *Pipeline) schedule(ctx context.Context) {
 				seriesName(s), s.Failure.Op, s.Failure.Next)
 			continue
 		}
-		ready := 0
+		n := 0
 		switch s.Status {
 		case state.SeriesQueued, state.SeriesWaiting:
-			ready = len(s.Patches)
+			n = len(s.Patches)
 		case state.SeriesTesting:
-			ready = len(p.pushable(s))
+			n = len(p.pushable(s))
 		}
-		if ready > 0 {
-			p.infof("%s: %d patches are scheduling candidates for %s.",
-				seriesName(s), ready, authorKey(s))
+		if n > 0 {
+			ready = append(ready, fmt.Sprintf("%d (%d)", s.ID, n))
+			readyPatches += n
 			since := state.ParseTime(s.Discovered)
 			cands = append(cands, sched.Candidate{SeriesID: s.ID, Author: authorKey(s),
-				Since: since, Ready: ready})
+				Since: since, Ready: n})
 		} else if s.Active() {
-			p.infof("%s: no patches are ready to push (series status: %s).",
-				seriesName(s), s.Status)
+			notReady = append(notReady, fmt.Sprintf("%d (%s)", s.ID, s.Status))
 			for _, pt := range s.Patches {
 				if !pt.Failure.Due(now) {
 					p.infof("%s: waiting until %s to retry %s.",
@@ -73,6 +74,13 @@ func (p *Pipeline) schedule(ctx context.Context) {
 				}
 			}
 		}
+	}
+	if len(ready) > 0 {
+		p.infof("Ready to push: %d patches of series %s.", readyPatches,
+			joinList(ready, 10))
+	}
+	if len(notReady) > 0 {
+		p.infof("Nothing to push yet for series %s.", joinList(notReady, 10))
 	}
 	jobs := p.Cfg.Limits.JobsPerPatch
 	if avg := int(p.Store.Meta.Stats.JobsPerPatch + 0.5); avg > 0 {

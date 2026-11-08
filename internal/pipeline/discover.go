@@ -5,8 +5,10 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,19 +24,66 @@ const (
 	incompleteRecheck = 30 * time.Minute
 )
 
-func (p *Pipeline) track(id int, known map[int]bool) {
+// seen counts the series a discovery pass found, for its summary.
+type seen struct {
+	added, queued, history []int
+}
+
+func (n *seen) String() string {
+	if parts := n.parts(); len(parts) > 0 {
+		return strings.Join(parts, "; ")
+	}
+	return "none"
+}
+
+func (n *seen) parts() []string {
+	var parts []string
+	for _, x := range []struct {
+		what string
+		ids  []int
+	}{{"added", n.added}, {"already in the queue", n.queued},
+		{"already in the history", n.history}} {
+		if len(x.ids) > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s (%s)", len(x.ids), x.what,
+				joinInts(x.ids, 10)))
+		}
+	}
+	return parts
+}
+
+// joinInts lists up to max numbers.
+func joinInts(ids []int, max int) string {
+	list := make([]string, len(ids))
+	for i, id := range ids {
+		list[i] = strconv.Itoa(id)
+	}
+	return joinList(list, max)
+}
+
+// joinList lists up to max items and counts the rest, to keep long
+// lists of series readable in the log.
+func joinList(items []string, max int) string {
+	if len(items) > max {
+		items = append(items[:max:max], fmt.Sprintf("and %d more", len(items)-max))
+	}
+	return strings.Join(items, ", ")
+}
+
+// track adds a series found in Patchwork, whose name is given if known.
+func (p *Pipeline) track(id int, name string, known map[int]bool, n *seen) {
 	switch {
 	case id <= 0:
 		p.warnf("Ignoring series ID %d from Patchwork: not a valid ID.", id)
 		return
 	case known[id]:
-		if s := p.Store.Find(id); s != nil {
-			p.infof("Series %d is already in the queue (%s).", id, s.Status)
+		if p.Store.Find(id) != nil {
+			n.queued = append(n.queued, id)
 		} else {
-			p.infof("Series %d was already handled; it is in the history.", id)
+			n.history = append(n.history, id)
 		}
 		return
 	}
+	n.added = append(n.added, id)
 	known[id] = true
 	s := &state.Series{
 		ID:         id,
@@ -45,7 +94,11 @@ func (p *Pipeline) track(id int, known map[int]bool) {
 	p.noteSeries(s, "discovered", "Found in Patchwork.")
 	p.Store.Add(s)
 	p.Stats.Discovered++
-	p.infof("Found series %d; fetching its details during eligibility checks.", id)
+	if name != "" {
+		p.infof("Found series %d (%s); checking it for eligibility next.", id, name)
+	} else {
+		p.infof("Found series %d; checking it for eligibility next.", id)
+	}
 }
 
 // discover finds completed series through events, and once per run
@@ -92,16 +145,14 @@ func (p *Pipeline) discover(ctx context.Context) {
 			"only the newest-series safety scan uses the cutoff.",
 			opts.Cursor)
 	}
-	before := p.Stats.Discovered
+	var fromEvents seen
 	events := 0
 	cursor, err := p.PW.WalkEvents(ctx, opts, func(ev pw.Event) error {
 		events++
 		if pl, ok := ev.Payload.(*pw.SeriesCompletedPayload); ok {
-			p.infof("Series-completed event %d: series %d (%s).",
-				ev.ID, pl.Series.ID, ev.Date)
-			p.track(pl.Series.ID, known)
+			p.track(pl.Series.ID, pl.Series.Name, known, &fromEvents)
 		} else {
-			p.infof("Ignoring series event %d: no series-completed payload.", ev.ID)
+			p.warnf("Ignoring series event %d: no series-completed payload.", ev.ID)
 		}
 		return nil
 	})
@@ -112,8 +163,8 @@ func (p *Pipeline) discover(ctx context.Context) {
 		p.warnf("Series-event scan failed: %v. Keeping progress through event %d.",
 			err, meta.Events[seriesEvents])
 	}
-	p.infof("Read %d series events; added %d series. Saved event cursor: %d.",
-		events, p.Stats.Discovered-before, meta.Events[seriesEvents])
+	p.infof("Read %d series events: %s. Saved event cursor: %d.",
+		events, &fromEvents, meta.Events[seriesEvents])
 
 	if p.safetyNetDone {
 		p.infof("Not repeating the safety scan: already ran in this invocation.")
@@ -129,18 +180,31 @@ func (p *Pipeline) discover(ctx context.Context) {
 		return
 	}
 	p.safetyNetDone = true
-	before = p.Stats.Discovered
+	var fromList seen
+	var old []int
 	for _, s := range page.Items {
-		if d := pw.ParseDate(s.Date); d.IsZero() || d.Before(cutoff) {
-			p.infof("Series %d (%s): not adding from the safety scan; "+
-				"date %q is missing "+
-				"or before %s.", s.ID, s.Name, s.Date, state.FormatTime(cutoff))
+		d := pw.ParseDate(s.Date)
+		if d.IsZero() {
+			p.warnf("Series %d (%s): not adding from the safety scan; "+
+				"Patchwork gives no valid date (%q).", s.ID, s.Name, s.Date)
 			continue
 		}
-		p.track(s.ID, known)
+		if d.Before(cutoff) {
+			old = append(old, s.ID)
+			continue
+		}
+		p.track(s.ID, s.Name, known, &fromList)
 	}
-	p.infof("Safety scan finished: examined %d series and added %d.",
-		len(page.Items), p.Stats.Discovered-before)
+	parts := fromList.parts()
+	if len(old) > 0 {
+		parts = append(parts, fmt.Sprintf("%d from before the cutoff %s, not added (%s)",
+			len(old), state.FormatTime(cutoff), joinInts(old, 10)))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "none")
+	}
+	p.infof("Safety scan of the newest %d series: %s.", len(page.Items),
+		strings.Join(parts, "; "))
 }
 
 var terminalPatchStates = map[string]bool{

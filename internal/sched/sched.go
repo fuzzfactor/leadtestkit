@@ -7,7 +7,10 @@ package sched
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -68,6 +71,13 @@ func Pick(in Input) []int {
 
 	queued := in.QueuedJobs
 	var out []int
+	// Authors at their limit, with the limit and the series that wait,
+	// explained once after the selection.
+	type block struct {
+		limit  int
+		series []int
+	}
+	blocked := map[string]*block{}
 	for queued < l.MaxQueuedJobs && total < l.MaxInflightPatches {
 		waiting := map[string]bool{}
 		for _, c := range cands {
@@ -88,10 +98,15 @@ func Pick(in Input) []int {
 				continue
 			}
 			if inflight[c.Author] >= limit {
-				explain("Series %d: waiting for %s to drop below %d "+
-					"in-flight patches (currently %d, "+
-					"including this cycle's selections).",
-					c.SeriesID, c.Author, limit, inflight[c.Author])
+				b := blocked[c.Author]
+				if b == nil {
+					b = &block{}
+					blocked[c.Author] = b
+				}
+				b.limit = limit
+				if !slices.Contains(b.series, c.SeriesID) {
+					b.series = append(b.series, c.SeriesID)
+				}
 				continue
 			}
 			if best < 0 || inflight[c.Author] < inflight[cands[best].Author] {
@@ -112,6 +127,21 @@ func Pick(in Input) []int {
 		total++
 		queued += l.JobsPerPatch
 		out = append(out, c.SeriesID)
+	}
+	authors := make([]string, 0, len(blocked))
+	for a := range blocked {
+		authors = append(authors, a)
+	}
+	sort.Strings(authors)
+	for _, a := range authors {
+		b := blocked[a]
+		ids := make([]string, len(b.series))
+		for i, id := range b.series {
+			ids[i] = strconv.Itoa(id)
+		}
+		explain("%s has %d patches in flight, including this cycle's selections, "+
+			"reaching the per-author limit of %d; series %s wait.",
+			a, inflight[a], b.limit, strings.Join(ids, ", "))
 	}
 	selected := ""
 	if len(out) > 0 {

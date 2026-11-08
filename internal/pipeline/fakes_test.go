@@ -194,8 +194,9 @@ func (f *fakePW) addSeries(id, n int, submitter string, date time.Time) {
 	}
 	f.series[id] = s
 	f.events = append(f.events, pw.Event{ID: len(f.events) + 1, Category: "series-completed",
-		Date:    date.Format("2006-01-02T15:04:05"),
-		Payload: &pw.SeriesCompletedPayload{Series: pw.SeriesSummary{ID: id}}})
+		Date: date.Format("2006-01-02T15:04:05"),
+		Payload: &pw.SeriesCompletedPayload{
+			Series: pw.SeriesSummary{ID: id, Name: s.Name}}})
 }
 
 type fakeGH struct {

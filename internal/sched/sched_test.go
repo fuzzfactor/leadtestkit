@@ -5,6 +5,7 @@ package sched
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,5 +84,32 @@ func TestPerAuthorMinAllowsSmallLimits(t *testing.T) {
 		{SeriesID: 1, Author: "lorem", Since: t0, Ready: 5}}})
 	if len(got) != 2 {
 		t.Errorf("got %v", got)
+	}
+}
+
+func TestBlockedAuthorsExplainedOnce(t *testing.T) {
+	var lines []string
+	Pick(Input{Limits: limits(), Inflight: map[string]int{"lorem": 5},
+		Candidates: []Candidate{
+			{SeriesID: 1, Author: "lorem", Since: t0, Ready: 3},
+			{SeriesID: 2, Author: "lorem", Since: t0, Ready: 1},
+			{SeriesID: 3, Author: "ipsum", Since: t0, Ready: 9},
+		},
+		Explain: func(format string, args ...any) {
+			lines = append(lines, fmt.Sprintf(format, args...))
+		}})
+	want := "lorem has 5 patches in flight, including this cycle's selections, " +
+		"reaching the per-author limit of 5; series 1, 2 wait."
+	n := 0
+	for _, l := range lines {
+		if strings.HasPrefix(l, "lorem has") {
+			n++
+			if l != want {
+				t.Errorf("got %q, want %q", l, want)
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("lorem explained %d times:\n%s", n, strings.Join(lines, "\n"))
 	}
 }

@@ -39,8 +39,8 @@ func TestLogsExplainDiscoveryWindow(t *testing.T) {
 		"Initial backfill: 2h0m0s.",
 		"limited to 3 event pages",
 		"not an exhaustive historical scan",
-		"Found series 7",
-		"Series 8 (lorem: Series 8): not adding from the safety scan",
+		"Found series 7 (lorem: Series 7); checking it for eligibility next.",
+		"1 from before the cutoff 2026-03-10T10:00:00Z, not added (8)",
 		"newest 50 series",
 	)
 	if e.p.Store.Find(7) == nil || e.p.Store.Find(8) != nil {
@@ -65,7 +65,9 @@ func TestLogsExplainZeroBackfill(t *testing.T) {
 	e.cfg.Limits.InitialBackfill = 0
 	e.pw.addSeries(7, 1, "lorem", e.now.Add(-time.Hour))
 	e.p.discover(context.Background())
-	requireLogs(t, &buf, "Initial backfill is zero", "before "+state.FormatTime(e.now))
+	requireLogs(t, &buf, "Initial backfill is zero",
+		"Safety scan of the newest 1 series: 1 from before the cutoff "+
+			state.FormatTime(e.now)+", not added (7).")
 	if e.p.Store.Find(7) != nil {
 		t.Fatal("zero backfill picked up an older series")
 	}
@@ -112,8 +114,7 @@ func TestLogsNarrateTestLifecycle(t *testing.T) {
 	e.advance(3 * time.Minute)
 	e.step()
 	requireLogs(t, &buf,
-		"Build run",
-		"is in_progress",
+		"Build run 1001, attempt 1: in_progress.",
 		"posting pending check",
 		"pending check github-robot-_Build posted successfully",
 		"sending the pending report",
@@ -253,12 +254,13 @@ func TestLogsNameTheExactReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.p.track(7, known)
-	e.p.track(0, known)
-	requireLogs(t, &buf,
-		"Series 7 is already in the queue (testing).",
-		"Ignoring series ID 0 from Patchwork: not a valid ID.",
-	)
+	var n seen
+	e.p.track(7, "", known, &n)
+	e.p.track(0, "", known, &n)
+	requireLogs(t, &buf, "Ignoring series ID 0 from Patchwork: not a valid ID.")
+	if n.String() != "1 already in the queue (7)" {
+		t.Errorf("summary = %q", n.String())
+	}
 
 	// A run of another branch, and a series waiting for its runs.
 	buf.Reset()
@@ -269,7 +271,7 @@ func TestLogsNameTheExactReason(t *testing.T) {
 	requireLogs(t, &buf,
 		"ignoring run "+strconv.FormatInt(other, 10)+
 			" (Build): it ran on branch series_8, not series_7.",
-		"staying in the queue: 2 of 2 patches are still being tested.",
+		"Series with patches still being tested: 7 (2 of 2).",
 	)
 
 	// Recheck reasons for each run that is not rerun.
@@ -287,12 +289,52 @@ func TestLogsNameTheExactReason(t *testing.T) {
 			"reruns failures.",
 	)
 
-	buf.Reset()
-	e.p.track(7, map[int]bool{7: true})
 	e.series(7).Finish(state.SeriesDone, "", e.now)
 	if err := e.p.Store.Archive(e.series(7)); err != nil {
 		t.Fatal(err)
 	}
-	e.p.track(7, map[int]bool{7: true})
-	requireLogs(t, &buf, "Series 7 was already handled; it is in the history.")
+	n = seen{}
+	e.p.track(7, "", map[int]bool{7: true}, &n)
+	if n.String() != "1 already in the history (7)" {
+		t.Errorf("summary = %q", n.String())
+	}
+}
+
+func TestLogsSummarizeRepeatedWork(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Limits.MaxInflightPatches = 2
+	e.pw.addSeries(300, 2, "lorem", e.now)
+	e.pw.addSeries(301, 2, "ipsum", e.now)
+	e.pw.addSeries(302, 1, "dolor", e.now)
+	e.step()
+	e.gh.startRuns("series_300", "sha-30001", "Build")
+	e.advance(3 * time.Minute)
+	e.step()
+
+	var buf bytes.Buffer
+	e.p.Log = logx.New(&buf, false)
+	e.advance(3 * time.Minute)
+	e.step()
+	requireLogs(t, &buf,
+		"Ready to push: 3 patches of series 300 (1), 301 (1), 302 (1).",
+		"Series with patches still being tested: 300 (2 of 2), 301 (2 of 2).",
+		"0 of 1 workflows finished; waiting for Build,",
+	)
+	if strings.Contains(buf.String(), "attempt 1: in_progress") {
+		t.Errorf("an unchanged run was logged again:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "found 1 matching push workflows") {
+		t.Errorf("per-patch progress is still logged:\n%s", buf.String())
+	}
+}
+
+func TestLogsSummarizeUnsentReports(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(303, 2, "sit", e.now)
+	e.repo.failAt[303] = 0
+	e.mail.fail = 100
+	var buf bytes.Buffer
+	e.p.Log = logx.New(&buf, false)
+	e.step()
+	requireLogs(t, &buf, "Series waiting only for reports to be sent: 303 (1).")
 }
