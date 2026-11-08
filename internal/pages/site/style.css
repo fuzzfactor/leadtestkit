@@ -33,7 +33,7 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
 .series { border: 1px solid var(--line); border-radius: 6px; margin: 6px 0; }
 .series > .head { display: flex; gap: 8px; align-items: baseline; padding: 4px 10px;
   background: var(--row); cursor: pointer; flex-wrap: wrap; }
-.series .name { flex: 1 1 300px; font-weight: 600; }
+.series .name { flex: 1 1 300px; font-weight: 500; }
 .head .right { display: flex; gap: 8px; align-items: baseline; margin-left: auto; }
 .series .who { width: 150px; text-align: right; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
