@@ -25,17 +25,34 @@ func (p *Pipeline) schedule(ctx context.Context) {
 		return
 	}
 	now := p.now()
+	if o := p.outage(state.OutageGitHub); o != nil {
+		p.infof("Not pushing: GitHub refuses the GitHub App since %s.", o.Since)
+		return
+	}
 	probe := false
-	if o := p.Store.Meta.Outage; o != nil {
-		if next := state.ParseTime(o.NextProbe); now.Before(next) {
+	if p.workflowsDown() {
+		var down []*state.Outage
+		next := now
+		for _, k := range []string{state.OutageRuns, state.OutageDispatch} {
+			if o := p.outage(k); o != nil {
+				down = append(down, o)
+				if t := state.ParseTime(o.NextProbe); t.After(next) {
+					next = t
+				}
+			}
+		}
+		if now.Before(next) {
 			p.infof("Not pushing: workflows do not run on %s since %s; the next check "+
-				"is at %s.", p.Cfg.TestRepo.Repo, o.Since, o.NextProbe)
+				"is at %s.", p.Cfg.TestRepo.Repo, down[0].Since,
+				state.FormatTime(next))
 			return
 		}
-		o.NextProbe = state.FormatTime(now.Add(outageProbeInterval))
+		for _, o := range down {
+			o.NextProbe = state.FormatTime(now.Add(outageProbeInterval))
+		}
 		probe = true
 		p.infof("Workflows do not run on %s since %s; pushing at most one patch to "+
-			"check whether they run again.", p.Cfg.TestRepo.Repo, o.Since)
+			"check whether they run again.", p.Cfg.TestRepo.Repo, down[0].Since)
 	}
 	queued, err := p.queuedJobs(ctx)
 	if err != nil {
@@ -824,7 +841,9 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 		r.Failure = nil
 		r.Status = "requested"
 		r.Updated = state.FormatTime(p.now())
-		p.endOutage("GitHub accepted a dispatch of " + r.File)
+		// Only enabled Actions accept dispatches.
+		p.endOutage(state.OutageDispatch, "GitHub accepted a dispatch of "+r.File)
+		p.endOutage(state.OutageRuns, "GitHub accepted a dispatch of "+r.File)
 		// The workflow timeouts count from the push; a dispatch sent in a
 		// later cycle (after a retry or with push mode off) restarts them.
 		if pushed := state.ParseTime(pt.Pushed); p.now().Sub(pushed) >=

@@ -229,8 +229,8 @@ The state is plain JSON on the ``state`` branch:
 
 - ``queue.json``: series that are not finished;
 - ``history/YYYY-MM.json``: finished series;
-- ``meta.json``: event and archive cursors, and ``ci_outage`` while
-  workflows do not run on the test fork (see below).
+- ``meta.json``: event and archive cursors, and ``outages`` while
+  something the bot needs does not work (see below).
 
 Finished series and patch records are retained indefinitely.  History
 lookups are also unlimited by default (``limits.history_window: 0``).
@@ -299,30 +299,44 @@ start tests from the queue.
 For git command details and timings, pass ``--debug`` to
 ``leadtest run``.
 
-When workflows stop running
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When something stops working
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-GitHub sometimes disables Actions on forks.  Pushes then start no
-workflows and dispatches fail with *Actions has been disabled for this
-repository*, while the repository settings still show Actions as
-enabled.  Only GitHub Support can undo it.
+When a service the bot needs does not work, the failures are not the
+patches' fault.  The bot then keeps the patches waiting instead of
+giving up on them after ``limits.retry_deadline``, reports the problem
+in the job summary of every run and at the top of the pages, and
+continues by itself once it works again.  It recognizes:
 
-The bot notices when GitHub refuses a dispatch this way, or when a
-patch got no run at all for ``limits.no_run_timeout`` and nothing else
-ran on the test fork either.  It then:
+- **Workflows that do not run on the test fork.**  GitHub sometimes
+  disables Actions on forks: pushes then start no workflows and
+  dispatches fail with *Actions has been disabled for this repository*,
+  while the repository settings still show Actions as enabled.  Only
+  GitHub Support can undo it.  The bot notices the refused dispatches,
+  or a patch that got no run at all for ``limits.no_run_timeout`` while
+  nothing else ran on the test fork either.  It then pushes no new
+  patches and sends no warnings for patches without runs.  Every hour
+  it pushes one patch to check whether workflows run again; patches
+  that got no runs wait to be pushed again then.
+- **GitHub refusing the GitHub App**: the App was uninstalled or its
+  credentials are wrong.  Nothing is pushed or monitored until GitHub
+  accepts it again, which the bot checks in every cycle.
+- **Email that cannot be sent**: the SMTP server cannot be reached or
+  refuses the login.  Reports wait and are sent once it works again.
+- **An archive that cannot be read for a day**: final Patchwork checks,
+  or rechecks from the dev list, wait until it can be read again.
 
-- pushes no new patches and sends no warnings for patches without
-  runs;
-- pushes one patch every hour to check whether workflows run again;
-  patches that got no runs wait to be pushed again then;
-- reports the problem in the job summary and at the top of the pages;
-- emails the maintainers in ``alerts.to`` when it notices, once a day
-  while it lasts and when workflows run again.  The bot runs that send
-  these emails fail, which makes them easy to find.
+The maintainers in ``alerts.to`` get an email when the bot notices a
+problem, once a day while it lasts and when it is over.  The bot runs
+that send these emails fail, which makes them easy to find.  When email
+itself does not work, these runs fail without sending anything.
+Without ``alerts.to``, only the job summaries and the pages show the
+problems.
 
-Once workflows run again, everything continues by itself.  Set
-``alerts.to`` to hear about it; without it, only the job summaries and
-the pages show it.
+The bot cannot notice that it does not run itself, for example when
+GitHub disables Actions on the bot repository.  The pages warn when
+their data is older than ``pages.stale_after``; for notifications, see
+`SCHEDULER.rst <SCHEDULER.rst>`_.
 
 
 6. Upgrading

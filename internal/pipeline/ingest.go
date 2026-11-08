@@ -62,7 +62,8 @@ type monthMessages struct {
 // first scan, existing messages are only recorded as seen.  It returns
 // the month (YYYY-MM) from which the next scan has to start.
 func (p *Pipeline) newMessages(ctx context.Context, a Archive,
-	c *state.ArchiveCursor) ([]monthMessages, string, bool) {
+	cursor string) ([]monthMessages, string, bool) {
+	c := p.Store.Cursor(cursor)
 	now := p.now()
 	first := c.LastMonth == ""
 	if first {
@@ -75,6 +76,7 @@ func (p *Pipeline) newMessages(ctx context.Context, a Archive,
 		msgs, err := a.FetchMonth(ctx, m.Year(), m.Month())
 		if err != nil {
 			p.warnf("Cannot read archive index for %s: %v", m.Format("2006-01"), err)
+			p.archiveRead(cursor, c, err)
 			return out, m.Format("2006-01"), false
 		}
 		key := archive.MonthKey(m.Year(), m.Month())
@@ -90,6 +92,7 @@ func (p *Pipeline) newMessages(ctx context.Context, a Archive,
 		sort.Slice(fresh, func(i, j int) bool { return fresh[i].Number < fresh[j].Number })
 		out = append(out, monthMessages{key: key, msgs: fresh})
 	}
+	p.archiveRead(cursor, c, nil)
 	return out, now.Format("2006-01"), true
 }
 
@@ -140,7 +143,11 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			delete(c.Retry, u)
 			continue
 		}
-		if state.RecordFailure(&f, "ingest", err, now, archiveTimeout) {
+		deadline := archiveTimeout
+		if p.outage(state.OutageArchive(reportsCursor)) != nil {
+			deadline = 0
+		}
+		if state.RecordFailure(&f, "ingest", err, now, deadline) {
 			delete(c.Retry, u)
 			p.errorf("giving up on the report %s after errors: %v", u, err)
 			continue
@@ -149,7 +156,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 		p.logFailure(f, false)
 	}
 
-	months, next, ok := p.newMessages(ctx, p.Reports, c)
+	months, next, ok := p.newMessages(ctx, p.Reports, reportsCursor)
 	p.reportsScanned = ok
 	for _, mm := range months {
 		for _, m := range mm.msgs {

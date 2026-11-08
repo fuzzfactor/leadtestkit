@@ -19,7 +19,7 @@ import (
 const monitorDeadline = 24 * time.Hour
 
 func (p *Pipeline) monitor(ctx context.Context) {
-	p.outageCycle()
+	p.outageCycle(ctx)
 	dispatched := p.dispatchedRuns(ctx)
 	for _, s := range p.Store.Queue {
 		if s.Status != state.SeriesTesting {
@@ -45,8 +45,7 @@ func (p *Pipeline) monitorPatch(ctx context.Context, s *state.Series, pt *state.
 	runs, err := p.GH.RunsForSHA(ctx, pt.SHA)
 	if err != nil {
 		p.warnf("%s: cannot list workflow runs: %v", patchName(pt), err)
-		done := state.RecordFailure(&pt.Failure, "monitor", err, p.now(), monitorDeadline)
-		p.logFailure(pt.Failure, done)
+		done := p.recordFailure(&pt.Failure, "monitor", err, monitorDeadline)
 		p.notePatch(pt, "monitor-failed", "Attempt %d: %s. Next retry: %s.",
 			pt.Failure.Attempts, pt.Failure.LastError, pt.Failure.Next)
 		if done {
@@ -308,7 +307,7 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	if now.Sub(pushed) > lim.NoRunTimeout.D() && noRuns(pt) && !dispatchAccepted(pt) &&
 		p.Cfg.Mode.PushLive() {
 		// Without any run, it may be GitHub that runs nothing.
-		if p.Store.Meta.Outage != nil {
+		if p.workflowsDown() {
 			p.infof("%s: no workflow started; workflows do not run on %s.",
 				patchName(pt), p.Cfg.TestRepo.Repo)
 			return
@@ -345,7 +344,8 @@ func (p *Pipeline) checkComplete(ctx context.Context, s *state.Series, pt *state
 	if now.Sub(pushed) > lim.RunTimeout.D() {
 		for _, r := range ciRuns(pt) {
 			// Dispatches refused during an outage wait for its end.
-			paused := r.Status == "dispatching" && p.Store.Meta.Outage != nil
+			paused := r.Status == "dispatching" &&
+				p.outage(state.OutageDispatch) != nil
 			if (r.Status != "completed" || r.Result == "") && !held(r) && !paused {
 				warn(r, "Timed out waiting for the workflow to finish.")
 			}

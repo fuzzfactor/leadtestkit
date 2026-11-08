@@ -373,10 +373,8 @@ async function loadIndex() {
     link("https://" + index.git_host + "/" + index.test_repo, index.test_repo),
     ...(index.run_url ? [" · ", link(index.run_url, "last run")] : []),
     " · push " + mode.push + ", checks " + mode.checks + ", email " + mode.email);
-  const o = index.ci_outage;
-  const problems = o ? [el("div", {}, "Workflows have not run on ", index.test_repo,
-    " for ", span(o.since), ": ", o.reason.replace(/\.$/, ""),
-    ". New patches wait until they run again.")] : [];
+  const problems = Object.entries(index.outages || {}).sort().map(([kind, o]) =>
+    el("div", {}, outageText(kind, o)));
   const stale = (Date.now() - Date.parse(index.generated)) / 1000;
   if (index.stale_after && stale > index.stale_after) {
     problems.unshift(el("div", {}, "Not updated for ", span(index.generated),
@@ -400,6 +398,30 @@ async function loadIndex() {
 // span shows how long ago something started, like "3h".
 function span(ts) {
   return el("time", { datetime: ts, title: ts }, age(ts).replace(/ ago$/, ""));
+}
+
+function outageText(kind, o) {
+  const reason = ": " + o.reason.replace(/\.$/, "") + ". ";
+  switch (kind) {
+  case "runs":
+  case "dispatch":
+    return ["Workflows have not run on ", index.test_repo, " for ", span(o.since), reason,
+      "New patches wait until they run again."];
+  case "github":
+    return ["GitHub has refused the GitHub App of the bot for ", span(o.since), reason,
+      "Testing waits until it accepts it again."];
+  case "email":
+    return ["Emails could not be sent for ", span(o.since), reason,
+      "Reports wait until they can be sent."];
+  case "reports-archive":
+    return ["The reports archive could not be read for ", span(o.since), reason,
+      "Final Patchwork checks wait until it can be read."];
+  case "dev-archive":
+    return ["The dev list archive could not be read for ", span(o.since), reason,
+      "Recheck requests wait until it can be read."];
+  default:
+    return [kind, " does not work for ", span(o.since), reason];
+  }
 }
 
 function knownTab(tab) {

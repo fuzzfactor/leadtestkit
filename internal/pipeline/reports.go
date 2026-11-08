@@ -269,6 +269,7 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 	if err := p.Mail.Send(ctx, e); err != nil {
 		return "", err
 	}
+	p.endOutage(state.OutageEmail, "a report was sent")
 	p.Stats.Emails++
 	p.noteRun(pt, r.URL, r.Attempt, "report-sent",
 		"Sent %s email for %s (%s). Message-ID: %s.", kind, label, result, id)

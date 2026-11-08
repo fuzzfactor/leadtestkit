@@ -226,6 +226,8 @@ type fakeGH struct {
 	// fork where GitHub disabled Actions.
 	clock    *time.Time
 	disabled bool
+	// authErr fails every call, like GitHub refusing the App.
+	authErr error
 }
 
 func newFakeGH() *fakeGH {
@@ -236,6 +238,9 @@ func newFakeGH() *fakeGH {
 }
 
 func (f *fakeGH) maybeFail(op string) error {
+	if f.authErr != nil {
+		return f.authErr
+	}
 	if f.fail[op] > 0 {
 		f.fail[op]--
 		return errTransient
@@ -624,9 +629,14 @@ func (f *fakeArchive) add(t time.Time, n int, subject, body, msgid string) strin
 type fakeMail struct {
 	sent []*report.Email
 	fail int
+	// err fails every email, like an SMTP server that cannot be used.
+	err error
 }
 
 func (f *fakeMail) Send(ctx context.Context, e *report.Email) error {
+	if f.err != nil {
+		return f.err
+	}
 	if f.fail > 0 {
 		f.fail--
 		return errTransient

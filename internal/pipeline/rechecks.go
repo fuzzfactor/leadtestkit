@@ -196,7 +196,7 @@ func (p *Pipeline) commentsFromArchive(ctx context.Context, patches map[int]trac
 		return
 	}
 	c := p.Store.Cursor(devCursor)
-	months, next, ok := p.newMessages(ctx, p.Dev, c)
+	months, next, ok := p.newMessages(ctx, p.Dev, devCursor)
 	p.devScanned = ok
 	var msgs []archive.ArchiveMessage
 	for _, mm := range months {

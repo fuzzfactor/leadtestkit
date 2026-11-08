@@ -175,3 +175,22 @@ func TestAllowlistRefusesOtherRecipients(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestServerErrors(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	s := &SMTP{Host: "127.0.0.1", Port: port, Timeout: time.Second}
+	err = s.Send(context.Background(), testEmail(t, "lorem-build@lists.example.org"))
+	if err == nil || !IsServerError(err) {
+		t.Errorf("an unreachable server: %v", err)
+	}
+	s.Allowed = []string{"lorem-build@lists.example.org"}
+	err = s.Send(context.Background(), testEmail(t, "Real Human <human@example.org>"))
+	if err == nil || IsServerError(err) {
+		t.Errorf("a refused recipient: %v", err)
+	}
+}

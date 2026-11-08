@@ -17,7 +17,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 7
+const SchemaVersion = 8
 
 const (
 	kindMeta   = "meta"
@@ -31,6 +31,24 @@ var migrations = map[int]func(kind string, doc map[string]any) error{
 	3: skipUnfinishedPatches,
 	4: dropUnpushedBranches,
 	5: linkRunDecisions,
+	7: keyOutages,
+}
+
+// keyOutages moves the outage of workflows, the only kind before
+// schema 8, into the outages by kind.
+func keyOutages(kind string, doc map[string]any) error {
+	o, _ := doc["ci_outage"].(map[string]any)
+	if kind != kindMeta || o == nil {
+		return nil
+	}
+	delete(doc, "ci_outage")
+	k, _ := o["kind"].(string)
+	delete(o, "kind")
+	if k == "" {
+		k = OutageRuns
+	}
+	doc["outages"] = map[string]any{k: o}
+	return nil
 }
 
 var runDecisionRe = regexp.MustCompile(`\brun (\d+)(?:, attempt (\d+))?`)

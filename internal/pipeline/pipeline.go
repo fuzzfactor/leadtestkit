@@ -109,9 +109,10 @@ type Pipeline struct {
 	// are listed at most once per polling cycle until that succeeds.
 	workflowNames     map[string]string
 	workflowNamesStep int
-	outageReported    bool
-	safetyNetDone     bool
-	syncDone          bool
+	// reported lists the outages reported in this bot run.
+	reported      map[string]bool
+	safetyNetDone bool
+	syncDone      bool
 	// Archives are read once per run; reports there are not urgent and
 	// the archive servers are shared.
 	reportsScanned bool
@@ -360,9 +361,7 @@ func resetSeries(s *state.Series) {
 }
 
 func (p *Pipeline) fail(f **state.Failure, op string, err error) bool {
-	done := state.RecordFailure(f, op, err, p.now(), p.Cfg.Limits.RetryDeadline.D())
-	p.logFailure(*f, done)
-	return done
+	return p.recordFailure(f, op, err, p.Cfg.Limits.RetryDeadline.D())
 }
 
 func (p *Pipeline) logFailure(f *state.Failure, done bool) {

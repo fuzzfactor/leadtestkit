@@ -221,7 +221,8 @@ func TestTokenErrors(t *testing.T) {
 	var log bytes.Buffer
 	a := newApp(t, &server{t: t}, &now, &log)
 	_, err := a.Token(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "not installed on ipsum/lorem") {
+	if err == nil || !strings.Contains(err.Error(), "not installed on ipsum/lorem") ||
+		!IsAuthError(err) {
 		t.Errorf("err = %v", err)
 	}
 

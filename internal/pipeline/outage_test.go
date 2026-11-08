@@ -4,10 +4,13 @@
 package pipeline
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"leadtestkit/internal/ghapp"
+	"leadtestkit/internal/mail"
 	"leadtestkit/internal/state"
 )
 
@@ -31,8 +34,8 @@ func TestOutageWithoutRuns(t *testing.T) {
 	// Nothing runs on the repository: no warnings, but an alert.
 	e.advance(61 * time.Minute)
 	e.step()
-	o := e.p.Store.Meta.Outage
-	if o == nil || o.Kind != state.OutageRuns || !strings.Contains(o.Reason,
+	o := e.p.outage(state.OutageRuns)
+	if o == nil || !strings.Contains(o.Reason,
 		"no workflow run started") {
 		t.Fatalf("outage = %+v", o)
 	}
@@ -74,7 +77,7 @@ func TestOutageWithoutRuns(t *testing.T) {
 	e.advance(24 * time.Hour)
 	e.step()
 	if alerts := e.alerts.subjects(); len(alerts) != 2 ||
-		!strings.Contains(alerts[1], "still do not run") {
+		alerts[1] != "LeadTestKit: reminder: workflows do not run on ipsum/lorem" {
 		t.Fatalf("alerts = %q", alerts)
 	}
 
@@ -88,8 +91,8 @@ func TestOutageWithoutRuns(t *testing.T) {
 	e.gh.startRuns("series_80", "sha-8001", "Build")
 	e.advance(3 * time.Minute)
 	e.step()
-	if e.p.Store.Meta.Outage != nil {
-		t.Fatalf("outage = %+v", e.p.Store.Meta.Outage)
+	if len(e.p.Store.Meta.Outages) != 0 {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
 	}
 	if alerts := e.alerts.subjects(); len(alerts) != 3 ||
 		!strings.Contains(alerts[2], "run again") {
@@ -107,8 +110,8 @@ func TestOutageNeedsAQuietRepository(t *testing.T) {
 	e.gh.startRuns("main", "sha-main", "Build")
 	e.advance(61 * time.Minute)
 	e.step()
-	if e.p.Store.Meta.Outage != nil || len(e.alerts.sent) != 0 {
-		t.Fatalf("outage = %+v", e.p.Store.Meta.Outage)
+	if len(e.p.Store.Meta.Outages) != 0 || len(e.alerts.sent) != 0 {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
 	}
 	if r := ciRuns(e.series(80).Patches[0]); len(r) != 1 || r[0].Kind != state.RunMissing {
 		t.Fatalf("runs = %+v", r)
@@ -122,8 +125,8 @@ func TestOutageOfDispatches(t *testing.T) {
 	e.gh.disabled = true
 	e.pw.addSeries(80, 1, "lorem", e.now)
 	e.step()
-	o := e.p.Store.Meta.Outage
-	if o == nil || o.Kind != state.OutageDispatch ||
+	o := e.p.outage(state.OutageDispatch)
+	if o == nil ||
 		o.Reason != "GitHub refused to dispatch leadtest-lint.yml: "+
 			"Actions has been disabled for this repository" {
 		t.Fatalf("outage = %+v", o)
@@ -147,8 +150,8 @@ func TestOutageOfDispatches(t *testing.T) {
 	e.gh.disabled = false
 	e.advance(time.Hour)
 	e.step()
-	if e.p.Store.Meta.Outage != nil || lint.Status != "requested" {
-		t.Fatalf("outage = %+v, lint = %+v", e.p.Store.Meta.Outage, lint)
+	if len(e.p.Store.Meta.Outages) != 0 || lint.Status != "requested" {
+		t.Fatalf("outages = %+v, lint = %+v", e.p.Store.Meta.Outages, lint)
 	}
 	if alerts := e.alerts.subjects(); len(alerts) < 2 ||
 		!strings.Contains(alerts[len(alerts)-1], "run again") {
@@ -163,12 +166,134 @@ func TestOutageAlertRetried(t *testing.T) {
 	e.step()
 	e.advance(61 * time.Minute)
 	e.step()
-	if o := e.p.Store.Meta.Outage; o == nil || o.Alerted != "" || len(e.alerts.sent) != 0 {
+	if o := e.p.outage(state.OutageRuns); o == nil || o.Alerted != "" ||
+		len(e.alerts.sent) != 0 {
 		t.Fatalf("outage = %+v", o)
 	}
 	e.advance(3 * time.Minute)
 	e.step()
-	if o := e.p.Store.Meta.Outage; o.Alerted == "" || len(e.alerts.sent) != 1 {
+	if o := e.p.outage(state.OutageRuns); o.Alerted == "" || len(e.alerts.sent) != 1 {
 		t.Fatalf("outage = %+v, %d alerts", o, len(e.alerts.sent))
+	}
+}
+
+func TestOutageOfTheGitHubApp(t *testing.T) {
+	e := outageEnv(t)
+	e.gh.authErr = &ghapp.AuthError{Err: errors.New("the GitHub App lorem is not " +
+		"installed on ipsum/lorem")}
+	e.pw.addSeries(80, 1, "lorem", e.now)
+	e.step()
+	o := e.p.outage(state.OutageGitHub)
+	if o == nil || !strings.Contains(o.Reason, "not installed") {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+	if alerts := e.alerts.subjects(); len(alerts) != 1 || alerts[0] !=
+		"LeadTestKit: GitHub refuses the GitHub App of the bot" {
+		t.Fatalf("alerts = %q", alerts)
+	}
+	// Failures wait for the App instead of their retry deadline.
+	for i := 0; i < 3; i++ {
+		e.advance(24 * time.Hour)
+		e.step()
+	}
+	s := e.series(80)
+	if s.Status != state.SeriesTesting || s.Patches[0].Status != state.PatchApplied ||
+		e.gh.setBranch != 0 {
+		t.Fatalf("series = %+v, patch %+v", s, s.Patches[0])
+	}
+	if f := s.Patches[0].Failure; f == nil ||
+		state.ParseTime(f.Next).Sub(e.now) > outageProbeInterval {
+		t.Fatalf("failure = %+v", f)
+	}
+
+	e.gh.authErr = nil
+	e.step()
+	if len(e.p.Store.Meta.Outages) != 0 || e.gh.setBranch != 1 {
+		t.Fatalf("outages = %+v, %d pushes", e.p.Store.Meta.Outages, e.gh.setBranch)
+	}
+	if alerts := e.alerts.subjects(); !strings.Contains(alerts[len(alerts)-1],
+		"accepts the GitHub App of the bot again") {
+		t.Fatalf("alerts = %q", alerts)
+	}
+}
+
+func TestOutageOfEmail(t *testing.T) {
+	e := outageEnv(t)
+	e.cfg.Report.ApplySuccess = true
+	down := &mail.ServerError{Err: errors.New("smtp dial smtp.example.org:587: " +
+		"connection refused")}
+	e.mail.err, e.alerts.err = down, down
+	e.pw.addSeries(80, 1, "lorem", e.now)
+	e.step()
+	o := e.p.outage(state.OutageEmail)
+	if o == nil || len(e.p.Stats.Alerts) != 1 ||
+		!strings.Contains(e.p.Stats.Alerts[0], "connection refused") {
+		t.Fatalf("outage = %+v, alerts %q", o, e.p.Stats.Alerts)
+	}
+	// The report waits past the retry deadline.
+	for i := 0; i < 3; i++ {
+		e.advance(24 * time.Hour)
+		e.reload()
+		e.step()
+	}
+	r := e.series(80).Patches[0].Runs[0]
+	if r.Final.Email != "" || r.Failure == nil {
+		t.Fatalf("run = %+v", r)
+	}
+	if len(e.p.Stats.Alerts) != 1 {
+		t.Errorf("no daily reminder in the failing run: %q", e.p.Stats.Alerts)
+	}
+
+	e.mail.err, e.alerts.err = nil, nil
+	e.step()
+	if r.Final.Email != state.StepSent || e.p.outage(state.OutageEmail) != nil {
+		t.Fatalf("run = %+v, outages %+v", r, e.p.Store.Meta.Outages)
+	}
+	// Alerts that waited for email are sent too.
+	if alerts := strings.Join(e.alerts.subjects(), "\n"); !strings.Contains(alerts,
+		"emails can be sent again") || !strings.Contains(alerts, "workflows do not run") {
+		t.Fatalf("alerts = %q", alerts)
+	}
+}
+
+func TestOutageOfTheArchive(t *testing.T) {
+	e := outageEnv(t)
+	e.step()
+	e.reports.monthFail = 1000
+	for i := 0; i < 5; i++ {
+		e.advance(7 * time.Hour)
+		e.reload()
+		e.step()
+	}
+	o := e.p.outage(state.OutageArchive(reportsCursor))
+	if o == nil || o.Since != "2026-03-10T19:00:00Z" {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+	if alerts := e.alerts.subjects(); len(alerts) != 1 ||
+		alerts[0] != "LeadTestKit: the reports archive cannot be read" {
+		t.Fatalf("alerts = %q", alerts)
+	}
+	e.reports.monthFail = 0
+	e.reload()
+	e.step()
+	if len(e.p.Store.Meta.Outages) != 0 || e.p.Store.Cursor(reportsCursor).Failing != "" {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+}
+
+func TestShortArchiveFailuresAreNoOutage(t *testing.T) {
+	e := outageEnv(t)
+	e.step()
+	e.reports.monthFail = 1
+	e.reload()
+	e.step()
+	if e.p.Store.Cursor(reportsCursor).Failing == "" {
+		t.Fatal("the failure was not recorded")
+	}
+	e.advance(time.Hour)
+	e.reload()
+	e.step()
+	if len(e.p.Store.Meta.Outages) != 0 || e.p.Store.Cursor(reportsCursor).Failing != "" {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
 	}
 }

@@ -47,6 +47,20 @@ type Options struct {
 	Now        func() time.Time
 }
 
+// AuthError is GitHub refusing the App: it is not installed on the
+// repository, or its credentials are wrong.  Transient errors are not.
+type AuthError struct {
+	Err error
+}
+
+func (e *AuthError) Error() string { return e.Err.Error() }
+func (e *AuthError) Unwrap() error { return e.Err }
+
+func IsAuthError(err error) bool {
+	var ae *AuthError
+	return errors.As(err, &ae)
+}
+
 type App struct {
 	opts Options
 	key  *rsa.PrivateKey
@@ -190,11 +204,11 @@ func (a *App) findInstallation(ctx context.Context, jwt string) (int64, error) {
 	})
 	switch code := httpx.StatusCode(err); {
 	case code == http.StatusNotFound:
-		return 0, fmt.Errorf("the GitHub App %s is not installed on %s; install it "+
-			"there (see SETUP.rst)", a.opts.ClientID, a.opts.Repo)
+		return 0, &AuthError{fmt.Errorf("the GitHub App %s is not installed on %s; "+
+			"install it there (see SETUP.rst)", a.opts.ClientID, a.opts.Repo)}
 	case code == http.StatusUnauthorized:
-		return 0, fmt.Errorf("GitHub rejected the App credentials; check "+
-			"LEADTEST_APP_CLIENT_ID and LEADTEST_APP_PRIVATE_KEY: %w", err)
+		return 0, &AuthError{fmt.Errorf("GitHub rejected the App credentials; check "+
+			"LEADTEST_APP_CLIENT_ID and LEADTEST_APP_PRIVATE_KEY: %w", err)}
 	case err != nil:
 		return 0, fmt.Errorf("find the GitHub App installation on %s: %w", a.opts.Repo, err)
 	}
@@ -240,12 +254,16 @@ func (a *App) newToken(ctx context.Context, jwt string) (string, error) {
 		Body:   body,
 	})
 	if err != nil {
-		if code := httpx.StatusCode(err); code == http.StatusNotFound ||
-			code == http.StatusUnprocessableEntity {
+		err = fmt.Errorf("create a GitHub App token for %s: %w", a.opts.Repo, err)
+		switch httpx.StatusCode(err) {
+		case http.StatusNotFound, http.StatusUnprocessableEntity:
 			// Uninstalled, or the repository was removed from it.
 			a.installation = 0
+			return "", &AuthError{err}
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return "", &AuthError{err}
 		}
-		return "", fmt.Errorf("create a GitHub App token for %s: %w", a.opts.Repo, err)
+		return "", err
 	}
 	var res struct {
 		Token       string            `json:"token"`

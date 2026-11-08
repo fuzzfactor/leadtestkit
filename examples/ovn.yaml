@@ -79,5 +79,5 @@ pages:
   list_tag: ovs-dev
 
 alerts:
-  # Maintainers to email when workflows stop running on the test fork.
+  # Maintainers to email when something the bot needs stops working.
   to: []

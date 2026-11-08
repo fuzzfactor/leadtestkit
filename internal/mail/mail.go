@@ -6,6 +6,7 @@ package mail
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -19,6 +20,20 @@ import (
 
 type Sender interface {
 	Send(ctx context.Context, e *report.Email) error
+}
+
+// ServerError is a failure to use the SMTP server at all, as opposed to
+// the server refusing a message or recipient.
+type ServerError struct {
+	Err error
+}
+
+func (e *ServerError) Error() string { return e.Err.Error() }
+func (e *ServerError) Unwrap() error { return e.Err }
+
+func IsServerError(err error) bool {
+	var se *ServerError
+	return errors.As(err, &se)
 }
 
 type SMTP struct {
@@ -93,7 +108,7 @@ func (s *SMTP) Send(ctx context.Context, e *report.Email) error {
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
 	}
 	if err != nil {
-		return fmt.Errorf("smtp dial %s: %w", addr, err)
+		return &ServerError{fmt.Errorf("smtp dial %s: %w", addr, err)}
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		conn.SetDeadline(dl)
@@ -101,24 +116,24 @@ func (s *SMTP) Send(ctx context.Context, e *report.Email) error {
 	c, err := smtp.NewClient(conn, s.Host)
 	if err != nil {
 		conn.Close()
-		return fmt.Errorf("smtp: %w", err)
+		return &ServerError{fmt.Errorf("smtp: %w", err)}
 	}
 	defer c.Close()
 	if s.Security != "tls" {
 		if ok, _ := c.Extension("STARTTLS"); !ok {
-			return fmt.Errorf("smtp: server does not support STARTTLS")
+			return &ServerError{fmt.Errorf("smtp: server does not support STARTTLS")}
 		}
 		if err := c.StartTLS(tlsConfig); err != nil {
-			return fmt.Errorf("smtp starttls: %w", err)
+			return &ServerError{fmt.Errorf("smtp starttls: %w", err)}
 		}
 	}
 	if s.Username != "" {
 		if err := c.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
-			return fmt.Errorf("smtp auth: %w", err)
+			return &ServerError{fmt.Errorf("smtp auth: %w", err)}
 		}
 	}
 	if err := c.Mail(e.From); err != nil {
-		return fmt.Errorf("smtp mail from: %w", err)
+		return &ServerError{fmt.Errorf("smtp mail from: %w", err)}
 	}
 	for _, r := range e.Recipients {
 		if err := c.Rcpt(r); err != nil {

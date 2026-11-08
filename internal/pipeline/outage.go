@@ -9,28 +9,345 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 	"time"
 
 	"leadtestkit/internal/gh"
+	"leadtestkit/internal/ghapp"
 	"leadtestkit/internal/httpx"
+	"leadtestkit/internal/mail"
 	"leadtestkit/internal/report"
 	"leadtestkit/internal/state"
 )
 
-// GitHub may disable Actions on a fork without telling anyone: pushes
-// start no runs, dispatches fail, and the settings still say Actions
-// are enabled.  Only GitHub Support can undo it, so the bot pauses,
-// alerts the maintainers and checks regularly whether workflows run.
+// When a service the bot needs does not work, failures are not the
+// patches' fault: they wait without a retry deadline instead, the
+// maintainers get an alert, and everything continues once it works.
+// GitHub, for example, may disable Actions on a fork without telling
+// anyone: pushes start no runs, dispatches fail, and the settings still
+// say Actions are enabled until GitHub Support undoes it.
 const (
 	// outageProbeInterval is how often one patch is pushed to check
-	// whether workflows run again.
+	// whether workflows run again, and the longest retry delay of an
+	// operation that failed because of an outage.
 	outageProbeInterval = time.Hour
-	// outageProbeWait is how long a patch pushed during an outage may
-	// go without runs before it waits to be pushed again.
+	// outageProbeWait is how long a patch pushed while workflows do not
+	// run may go without runs before it waits to be pushed again.
 	outageProbeWait = 30 * time.Minute
 	outageReminder  = 24 * time.Hour
+	// archiveOutageAfter is how long an archive may be unreadable
+	// before it counts as an outage; archives are often briefly down.
+	archiveOutageAfter = 24 * time.Hour
 )
+
+func (p *Pipeline) outage(kind string) *state.Outage {
+	return p.Store.Meta.Outages[kind]
+}
+
+// workflowsDown reports whether GitHub does not run workflows, which
+// pauses pushes.
+func (p *Pipeline) workflowsDown() bool {
+	return p.outage(state.OutageRuns) != nil || p.outage(state.OutageDispatch) != nil
+}
+
+type outageText struct {
+	// what is the problem, also the subject of alerts.
+	what string
+	// effect says what the bot does meanwhile.
+	effect string
+	// explain helps the maintainers with the cause.
+	explain string
+	// fixed and after are the subject and the effect of the recovery.
+	fixed, after string
+}
+
+func (p *Pipeline) describe(kind string) outageText {
+	repo := p.Cfg.TestRepo.Repo
+	switch kind {
+	case state.OutageRuns, state.OutageDispatch:
+		return outageText{
+			what: "workflows do not run on " + repo,
+			effect: "The bot pushes no new patches and reports nothing for\n" +
+				"patches that got no runs.  Every hour it pushes one patch\n" +
+				"to check whether workflows run; patches that got no runs\n" +
+				"are pushed again then.",
+			explain: "This is what happens when GitHub disables Actions on a\n" +
+				"repository, which only GitHub Support can undo; the\n" +
+				"repository settings may still show Actions as enabled.",
+			fixed: "workflows run again on " + repo,
+			after: "The bot pushes patches again, also the ones that got\n" +
+				"no runs.",
+		}
+	case state.OutageGitHub:
+		return outageText{
+			what: "GitHub refuses the GitHub App of the bot",
+			effect: "The bot pushes and monitors nothing on " + repo + " and\n" +
+				"keeps all patches where they are.",
+			explain: "Check that the App is installed on " + repo + " with\n" +
+				"the permissions in SETUP.rst accepted, and that the\n" +
+				"LEADTEST_APP_CLIENT_ID and LEADTEST_APP_PRIVATE_KEY secrets\n" +
+				"of the bot repository belong to it.",
+			fixed: "GitHub accepts the GitHub App of the bot again",
+			after: "The bot continues where it stopped.",
+		}
+	case state.OutageEmail:
+		return outageText{
+			what: "emails cannot be sent through " + p.Cfg.SMTP.Host,
+			effect: "Reports wait and are sent once it works again; nothing\n" +
+				"is lost.",
+			explain: "Check the smtp settings and the LEADTEST_SMTP_USERNAME and\n" +
+				"LEADTEST_SMTP_PASSWORD secrets.",
+			fixed: "emails can be sent again through " + p.Cfg.SMTP.Host,
+			after: "The reports that waited are sent now.",
+		}
+	}
+	name, _ := strings.CutSuffix(kind, "-archive")
+	effect := "Final Patchwork checks wait until reports can be read\n" +
+		"again; nothing is lost."
+	if name == devCursor {
+		effect = "Recheck requests wait until the list can be read again;\n" +
+			"nothing is lost."
+	}
+	return outageText{
+		what:    fmt.Sprintf("the %s archive cannot be read", name),
+		effect:  effect,
+		explain: "The archive server may be down or have changed.",
+		fixed:   fmt.Sprintf("the %s archive can be read again", name),
+		after:   "The bot reads what it missed.",
+	}
+}
+
+func (p *Pipeline) startOutage(kind, reason string) {
+	p.startOutageAt(kind, reason, p.now())
+}
+
+func (p *Pipeline) startOutageAt(kind, reason string, since time.Time) {
+	if p.outage(kind) != nil {
+		return
+	}
+	o := &state.Outage{Since: state.FormatTime(since), Reason: reason}
+	if kind == state.OutageRuns || kind == state.OutageDispatch {
+		o.NextProbe = state.FormatTime(p.now().Add(outageProbeInterval))
+	}
+	if p.Store.Meta.Outages == nil {
+		p.Store.Meta.Outages = map[string]*state.Outage{}
+	}
+	p.Store.Meta.Outages[kind] = o
+	p.markReported(kind)
+	t := p.describe(kind)
+	p.errorf("%s: %s. %s", t.what, reason, oneLine(t.effect))
+	p.alert(kind, o, t.what)
+}
+
+func (p *Pipeline) endOutage(kind, how string) {
+	o := p.outage(kind)
+	if o == nil {
+		return
+	}
+	delete(p.Store.Meta.Outages, kind)
+	p.retryNow()
+	t := p.describe(kind)
+	p.infof("Outage over, %s: %s. It lasted since %s. %s", t.fixed, how, o.Since,
+		oneLine(t.after))
+	extra := ""
+	if kind == state.OutageRuns || kind == state.OutageDispatch {
+		extra = fmt.Sprintf("  Patches waiting to be tested: %d.", p.waitingPatches())
+	}
+	p.sendAlert(nil, t.fixed, fmt.Sprintf("%s:\n\n  %s\n\nThis did not work from %s "+
+		"to %s.\n%s%s\n\n%s", upper(t.fixed), how, o.Since, state.FormatTime(p.now()),
+		t.after, extra, p.alertLinks()))
+}
+
+// retryNow makes everything that waited for an outage be retried now.
+func (p *Pipeline) retryNow() {
+	now := state.FormatTime(p.now())
+	due := func(f *state.Failure) {
+		if f != nil {
+			f.Next = now
+		}
+	}
+	for _, s := range p.Store.Queue {
+		due(s.Failure)
+		for _, pt := range s.Patches {
+			due(pt.Failure)
+			for _, r := range pt.Runs {
+				due(r.Failure)
+			}
+		}
+	}
+	for _, c := range p.Store.Meta.Archives {
+		for _, f := range c.Retry {
+			due(f)
+		}
+	}
+}
+
+// outageCycle reports the outages once per bot run, checks whether
+// GitHub accepts the App again and reminds the maintainers once a day.
+func (p *Pipeline) outageCycle(ctx context.Context) {
+	kinds := make([]string, 0, len(p.Store.Meta.Outages))
+	for k := range p.Store.Meta.Outages {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	for _, kind := range kinds {
+		o := p.outage(kind)
+		t := p.describe(kind)
+		if kind == state.OutageGitHub {
+			tools := "heads/" + p.Cfg.TestRepo.ToolsBranch
+			if _, err := p.GH.RefSHA(ctx, tools); err == nil {
+				p.endOutage(kind, "it answered a request")
+				continue
+			} else {
+				p.infof("GitHub still refuses the GitHub App: %v", err)
+			}
+		}
+		if !p.reported[kind] {
+			p.markReported(kind)
+			p.errorf("%s since %s: %s. %s", t.what, o.Since, o.Reason,
+				oneLine(t.effect))
+		}
+		switch alerted := state.ParseTime(o.Alerted); {
+		case alerted.IsZero():
+			p.alert(kind, o, t.what)
+		case p.now().Sub(alerted) >= outageReminder:
+			p.alert(kind, o, "reminder: "+t.what)
+		}
+	}
+}
+
+func (p *Pipeline) markReported(kind string) {
+	if p.reported == nil {
+		p.reported = map[string]bool{}
+	}
+	p.reported[kind] = true
+}
+
+func (p *Pipeline) alert(kind string, o *state.Outage, subject string) {
+	t := p.describe(kind)
+	if kind == state.OutageEmail {
+		// The failing bot run is the alert.
+		o.Alerted = state.FormatTime(p.now())
+		p.Stats.Alerts = append(p.Stats.Alerts, subject+" (no email: "+o.Reason+")")
+		return
+	}
+	extra := ""
+	if kind == state.OutageRuns || kind == state.OutageDispatch {
+		extra = fmt.Sprintf("  Patches waiting to be tested: %d.", p.waitingPatches())
+	}
+	p.sendAlert(o, subject, fmt.Sprintf("Since %s, %s:\n\n  %s\n\n%s\n\n%s%s\n\n%s",
+		o.Since, t.what, o.Reason, t.explain, t.effect, extra, p.alertLinks()))
+}
+
+func (p *Pipeline) alertLinks() string {
+	links := fmt.Sprintf("Workflow runs: https://%s/%s/actions\n", p.Cfg.TestRepo.GitHost,
+		p.Cfg.TestRepo.Repo)
+	if p.RunURL != "" {
+		links += "Bot run: " + p.RunURL + "\n"
+	}
+	return links
+}
+
+// sendAlert emails the maintainers and records it in the outage, if
+// any.  A failed alert is sent again in the next cycle.
+func (p *Pipeline) sendAlert(o *state.Outage, subject, body string) {
+	now := p.now()
+	if len(p.Cfg.Alerts.To) == 0 || p.Alerts == nil {
+		p.infof("Not sending the alert %q: alerts.to is empty or mode.email is off.",
+			subject)
+		if o != nil {
+			o.Alerted = state.FormatTime(now)
+		}
+		return
+	}
+	subject = strings.TrimSpace("LeadTestKit "+p.Cfg.Name) + ": " + subject
+	e, err := report.ComposeAlert(report.Alert{
+		From: p.Cfg.Report.From, To: p.Cfg.Alerts.To, Subject: subject, Body: body,
+		Date: now, MessageID: fmt.Sprintf("<leadtest.alert.%d@%s>", now.UnixNano(),
+			p.Cfg.Report.MessageIDDomain),
+	})
+	if err == nil {
+		err = p.Alerts.Send(context.Background(), e)
+	}
+	if err != nil {
+		p.warnf("Cannot send the alert %q; trying again in the next cycle: %v",
+			subject, err)
+		if mail.IsServerError(err) {
+			p.startOutage(state.OutageEmail, err.Error())
+		}
+		return
+	}
+	if o != nil {
+		o.Alerted = state.FormatTime(now)
+	}
+	p.Stats.Alerts = append(p.Stats.Alerts, subject)
+	p.infof("Sent the alert %q to %s.", subject, strings.Join(p.Cfg.Alerts.To, ", "))
+	p.endOutage(state.OutageEmail, "an alert was sent")
+}
+
+// outageOf tells which outage an error comes from, if any.
+func (p *Pipeline) outageOf(err error) string {
+	switch {
+	case ghapp.IsAuthError(err) || p.githubUnauthorized(err):
+		return state.OutageGitHub
+	case mail.IsServerError(err):
+		return state.OutageEmail
+	}
+	return ""
+}
+
+// githubUnauthorized reports GitHub refusing the token of the App.
+func (p *Pipeline) githubUnauthorized(err error) bool {
+	var se *httpx.StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusUnauthorized {
+		return false
+	}
+	api, err1 := url.Parse(p.Cfg.TestRepo.APIURL)
+	u, err2 := url.Parse(se.URL)
+	return err1 == nil && err2 == nil && api.Host == u.Host
+}
+
+// recordFailure records a failure of an operation and reports whether
+// its deadline passed.  Failures caused by an outage start it and wait
+// for its end instead, retried at least every outageProbeInterval.
+func (p *Pipeline) recordFailure(f **state.Failure, op string, err error,
+	deadline time.Duration) bool {
+	now := p.now()
+	kind := p.outageOf(err)
+	if kind == "" {
+		done := state.RecordFailure(f, op, err, now, deadline)
+		p.logFailure(*f, done)
+		return done
+	}
+	state.RecordFailure(f, op, err, now, 0)
+	if next := now.Add(outageProbeInterval); state.ParseTime((*f).Next).After(next) {
+		(*f).Next = state.FormatTime(next)
+	}
+	p.logFailure(*f, false)
+	p.startOutage(kind, err.Error())
+	return false
+}
+
+// archiveRead tracks whether the index of an archive can be read; an
+// outage starts when it could not for archiveOutageAfter.
+func (p *Pipeline) archiveRead(cursor string, c *state.ArchiveCursor, err error) {
+	kind := state.OutageArchive(cursor)
+	if err == nil {
+		c.Failing = ""
+		p.endOutage(kind, "its index was read")
+		return
+	}
+	now := p.now()
+	if c.Failing == "" {
+		c.Failing = state.FormatTime(now)
+	}
+	since := state.ParseTime(c.Failing)
+	if now.Sub(since) >= archiveOutageAfter {
+		p.startOutageAt(kind, err.Error(), since)
+	}
+}
 
 func actionsDisabled(err error) bool {
 	return httpx.StatusCode(err) == http.StatusUnprocessableEntity &&
@@ -83,145 +400,23 @@ func (p *Pipeline) waitingPatches() int {
 	return n
 }
 
-func (p *Pipeline) startOutage(kind, reason string) {
-	if p.Store.Meta.Outage != nil {
-		return
-	}
-	now := p.now()
-	o := &state.Outage{Kind: kind, Since: state.FormatTime(now), Reason: reason,
-		NextProbe: state.FormatTime(now.Add(outageProbeInterval))}
-	p.Store.Meta.Outage = o
-	p.outageReported = true
-	p.errorf("workflows do not run on %s: %s. Pausing pushes; one patch will be "+
-		"pushed at %s to check whether they run again", p.Cfg.TestRepo.Repo, reason,
-		o.NextProbe)
-	p.sendAlert(o, "workflows do not run on "+p.Cfg.TestRepo.Repo, p.outageText(o))
-}
-
-func (p *Pipeline) endOutage(how string) {
-	o := p.Store.Meta.Outage
-	if o == nil {
-		return
-	}
-	p.Store.Meta.Outage = nil
-	// Dispatches refused during the outage are sent right away.
-	for _, s := range p.Store.Queue {
-		for _, pt := range s.Patches {
-			for _, r := range pt.Runs {
-				if r.Status == "dispatching" && r.Failure != nil &&
-					r.Failure.Op == "dispatch" {
-					r.Failure = nil
-				}
-			}
-		}
-	}
-	waiting := p.waitingPatches()
-	p.infof("Workflows run again on %s: %s. They did not run since %s; resuming "+
-		"pushes with %d patches waiting.", p.Cfg.TestRepo.Repo, how, o.Since, waiting)
-	p.sendAlert(nil, "workflows run again on "+p.Cfg.TestRepo.Repo, fmt.Sprintf(
-		"Workflows run again on %s:\n\n"+
-			"  %s\n\n"+
-			"They did not run from %s to %s.\n"+
-			"The bot pushes patches again, also the ones that got no runs.\n"+
-			"Patches waiting to be tested: %d.\n\n%s",
-		p.Cfg.TestRepo.Repo, how, o.Since, state.FormatTime(p.now()), waiting,
-		p.alertLinks()))
-}
-
-func (p *Pipeline) outageText(o *state.Outage) string {
-	return fmt.Sprintf("GitHub does not run the workflows of %s since %s,\n"+
-		"when the bot noticed:\n\n"+
-		"  %s\n\n"+
-		"This is what happens when GitHub disables Actions on a repository,\n"+
-		"which only GitHub Support can undo; the repository settings may still\n"+
-		"show Actions as enabled.\n\n"+
-		"Until workflows run again, the bot pushes no new patches and reports\n"+
-		"nothing for patches that got no runs.  Every hour it pushes one patch\n"+
-		"to check whether workflows run; patches that got no runs are pushed\n"+
-		"again then.  Patches waiting to be tested: %d.\n\n%s",
-		p.Cfg.TestRepo.Repo, o.Since, o.Reason, p.waitingPatches(), p.alertLinks())
-}
-
-func (p *Pipeline) alertLinks() string {
-	links := fmt.Sprintf("Workflow runs: https://%s/%s/actions\n", p.Cfg.TestRepo.GitHost,
-		p.Cfg.TestRepo.Repo)
-	if p.RunURL != "" {
-		links += "Bot run: " + p.RunURL + "\n"
-	}
-	return links
-}
-
-// outageCycle reports an ongoing outage once per bot run and reminds
-// the maintainers once a day.
-func (p *Pipeline) outageCycle() {
-	o := p.Store.Meta.Outage
-	if o == nil {
-		return
-	}
-	if !p.outageReported {
-		p.outageReported = true
-		p.errorf("workflows do not run on %s since %s: %s. Pushes are paused; the next "+
-			"check is at %s", p.Cfg.TestRepo.Repo, o.Since, o.Reason, o.NextProbe)
-	}
-	switch alerted := state.ParseTime(o.Alerted); {
-	case alerted.IsZero():
-		p.sendAlert(o, "workflows do not run on "+p.Cfg.TestRepo.Repo, p.outageText(o))
-	case p.now().Sub(alerted) >= outageReminder:
-		p.sendAlert(o, "workflows still do not run on "+p.Cfg.TestRepo.Repo,
-			p.outageText(o))
-	}
-}
-
-// sendAlert emails the maintainers and records it in the outage, if
-// any.  A failed alert is sent again in the next cycle.
-func (p *Pipeline) sendAlert(o *state.Outage, subject, body string) {
-	now := p.now()
-	if len(p.Cfg.Alerts.To) == 0 || p.Alerts == nil {
-		p.infof("Not sending the alert %q: alerts.to is empty or mode.email is off.",
-			subject)
-		if o != nil {
-			o.Alerted = state.FormatTime(now)
-		}
-		return
-	}
-	subject = strings.TrimSpace("LeadTestKit "+p.Cfg.Name) + ": " + subject
-	e, err := report.ComposeAlert(report.Alert{
-		From: p.Cfg.Report.From, To: p.Cfg.Alerts.To, Subject: subject, Body: body,
-		Date: now, MessageID: fmt.Sprintf("<leadtest.alert.%d@%s>", now.Unix(),
-			p.Cfg.Report.MessageIDDomain),
-	})
-	if err == nil {
-		err = p.Alerts.Send(context.Background(), e)
-	}
-	if err != nil {
-		p.warnf("Cannot send the alert %q; trying again in the next cycle: %v",
-			subject, err)
-		return
-	}
-	if o != nil {
-		o.Alerted = state.FormatTime(now)
-	}
-	p.Stats.Alerts = append(p.Stats.Alerts, subject)
-	p.infof("Sent the alert %q to %s.", subject, strings.Join(p.Cfg.Alerts.To, ", "))
-}
-
-// outageRun ends an outage when GitHub started a workflow after it began.
+// outageRun ends an outage of runs when GitHub started a workflow after
+// it began.
 func (p *Pipeline) outageRun(wr gh.WorkflowRun) {
-	o := p.Store.Meta.Outage
-	if o == nil || o.Kind != state.OutageRuns ||
-		!wr.CreatedAt.After(state.ParseTime(o.Since)) {
+	o := p.outage(state.OutageRuns)
+	if o == nil || !wr.CreatedAt.After(state.ParseTime(o.Since)) {
 		return
 	}
-	p.endOutage(fmt.Sprintf("%s run %d started at %s", wr.Name, wr.ID,
+	p.endOutage(state.OutageRuns, fmt.Sprintf("%s run %d started at %s", wr.Name, wr.ID,
 		state.FormatTime(wr.CreatedAt)))
 }
 
-// resetStuck makes the patches of a series that got no runs during an
-// outage wait to be pushed again.  Pushing the same commit again starts
-// nothing, so the branch is deleted and created again by the next push.
+// resetStuck makes the patches of a series that got no runs while
+// workflows do not run wait to be pushed again.  Pushing the same
+// commit again starts nothing, so the branch is deleted and created
+// again by the next push.
 func (p *Pipeline) resetStuck(ctx context.Context, s *state.Series) {
-	o := p.Store.Meta.Outage
-	if o == nil {
+	if !p.workflowsDown() {
 		return
 	}
 	now := p.now()
@@ -253,7 +448,7 @@ func (p *Pipeline) resetStuck(ctx context.Context, s *state.Series) {
 		pt.Pushed = ""
 		pt.Failure = nil
 		p.notePatch(pt, "ci-unavailable", "No workflow started; workflows do not run "+
-			"on %s since %s. Waiting to be pushed again.", p.Cfg.TestRepo.Repo, o.Since)
+			"on %s. Waiting to be pushed again.", p.Cfg.TestRepo.Repo)
 		p.infof("%s: no workflow started; it waits to be pushed again when "+
 			"workflows run on %s.", patchName(pt), p.Cfg.TestRepo.Repo)
 	}
@@ -281,4 +476,15 @@ func short422(err error) string {
 		return se.Body
 	}
 	return err.Error()
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func upper(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

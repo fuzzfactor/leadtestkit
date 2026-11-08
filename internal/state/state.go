@@ -63,30 +63,40 @@ type Meta struct {
 	Events      map[string]int            `json:"events"`
 	Archives    map[string]*ArchiveCursor `json:"archives"`
 	Stats       Stats                     `json:"stats"`
-	// Outage is set while workflows do not run on the test repository.
-	Outage *Outage `json:"ci_outage,omitempty"`
+	// Outages holds the services that do not work, by kind of outage,
+	// like OutageRuns, while it lasts.
+	Outages map[string]*Outage `json:"outages,omitempty"`
 }
 
-// Outage records that GitHub does not run the workflows of the test
-// repository, for example because it disabled Actions on the fork.
+// Outage records that a service the bot needs does not work, so that
+// patches wait instead of failing.
 type Outage struct {
-	// Kind is OutageRuns when pushes start no runs, which ends with any
-	// new run, or OutageDispatch when GitHub refuses workflow
-	// dispatches, which ends when it accepts one.
-	Kind   string `json:"kind"`
 	Since  string `json:"since"`
 	Reason string `json:"reason"`
 	// NextProbe is when one patch is pushed to check whether workflows
 	// run again.
-	NextProbe string `json:"next_probe"`
-	// Alerted is when the last alert email was sent.
+	NextProbe string `json:"next_probe,omitempty"`
+	// Alerted is when the maintainers were last alerted.
 	Alerted string `json:"alerted,omitempty"`
 }
 
 const (
-	OutageRuns     = "runs"
+	// OutageRuns: pushes start no workflow runs, for example because
+	// GitHub disabled Actions on the fork.  It ends with any new run.
+	OutageRuns = "runs"
+	// OutageDispatch: GitHub refuses workflow dispatches.  It ends
+	// when GitHub accepts one.
 	OutageDispatch = "dispatch"
+	// OutageGitHub: GitHub refuses the GitHub App of the bot.
+	OutageGitHub = "github"
+	// OutageEmail: the SMTP server cannot be used.
+	OutageEmail = "email"
 )
+
+// OutageArchive is the kind of outage of the archive with this cursor.
+func OutageArchive(cursor string) string {
+	return cursor + "-archive"
+}
 
 type ArchiveCursor struct {
 	// LastMonth is the latest month (YYYY-MM) that was scanned.
@@ -96,6 +106,8 @@ type ArchiveCursor struct {
 	Months map[string]int `json:"months"`
 	// Retry holds messages that failed and will be read again.
 	Retry map[string]*Failure `json:"retry,omitempty"`
+	// Failing is since when the index of the archive cannot be read.
+	Failing string `json:"failing,omitempty"`
 }
 
 type Stats struct {

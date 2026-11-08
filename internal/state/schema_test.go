@@ -233,6 +233,25 @@ func TestVersionFiveLinksRunDecisions(t *testing.T) {
 	}
 }
 
+func TestVersionSevenKeysOutages(t *testing.T) {
+	dir := t.TempDir()
+	meta := `{"schema":7,"events":{},"archives":{},"stats":{},"ci_outage":` +
+		`{"kind":"dispatch","since":"2026-03-10T12:00:00Z","reason":"lorem",` +
+		`"next_probe":"2026-03-10T13:00:00Z"}}`
+	if err := os.WriteFile(filepath.Join(dir, MetaFile), []byte(meta), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]*Outage{OutageDispatch: {Since: "2026-03-10T12:00:00Z",
+		Reason: "lorem", NextProbe: "2026-03-10T13:00:00Z"}}
+	if !reflect.DeepEqual(s.Meta.Outages, want) {
+		t.Errorf("outages = %+v", s.Meta.Outages)
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)
