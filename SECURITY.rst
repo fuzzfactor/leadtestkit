@@ -19,8 +19,8 @@ Place                  Code that runs there             Credentials available
 Bot repository job     LeadTestKit, git, the actions    all LeadTestKit secrets, the
                        in ``leadtest.yml``; never code  job's ``GITHUB_TOKEN``
                        from patches
-Test fork workflows    anything a patch contains,       only the fork's own
-                       including its workflow files     ``GITHUB_TOKEN``
+Test repository        anything a patch contains,       only the test repository's own
+workflows              including its workflow files     ``GITHUB_TOKEN``
 External scheduler     the scheduler code from          credentials that can start
 (optional)             SCHEDULER.rst                    workflows in the bot repository
 =====================  ===============================  ================================
@@ -47,12 +47,12 @@ Credentials
   Repository secrets of the bot repository.  The key lets anyone who
   has it act as the App on every repository the App is installed on,
   with all its permissions, until the key is deleted in the App
-  settings.  Install the App on the test fork only, and never in the
+  settings.  Install the App on the test repository only, and never in the
   bot repository.
 
 Installation token
   Created by the bot from the App key for every run, valid for an hour,
-  limited to the test fork and to the permissions the bot uses:
+  limited to the test repository and to the permissions the bot uses:
 
   - Actions: read and write (reading runs, reruns, dispatching);
   - Checks: read (warning annotations);
@@ -61,8 +61,8 @@ Installation token
   - Metadata: read (always granted).
 
   It is sent only to the configured GitHub API host and, for git, only
-  to the test fork, through environment variables rather than URLs,
-  arguments or files.  It never reaches the test fork's workflows.
+  to the test repository, through environment variables rather than URLs,
+  arguments or files.  It never reaches the test repository's workflows.
 
 ``LEADTEST_PW_TOKEN``
   A Patchwork API token, with every right of its Patchwork user.  The
@@ -89,19 +89,19 @@ change the workflow and read every secret, so only give that access to
 the people running the instance.
 
 
-The test fork
+The test repository
 -------------
 
-The test fork runs arbitrary code by design.  It must hold no secrets,
-no environments with secrets and no self-hosted runners: anything
+The test repository runs arbitrary code by design.  It must hold no
+secrets, no environments with secrets and no self-hosted runners: anything
 there is readable by every tested patch, and a self-hosted runner
 would run that code on your machine.
 
 The workflows of a tested patch, and the workflows a patch adds or
-changes, get the fork's ``GITHUB_TOKEN``.  On pushes to the fork a
+changes, get the test repository's ``GITHUB_TOKEN``.  On pushes a
 workflow can ask for write permissions with ``permissions:``, whatever
 the repository's default, so a hostile patch can use the GitHub API on
-the fork.  What it could do, and what limits it:
+the test repository.  What it could do, and what limits it:
 
 Push to branches
   Changing ``main`` would change the workflows the bot dispatches for
@@ -134,8 +134,8 @@ Create check runs and annotations
   warning, not hide a failure.
 
 Use runners
-  A patch can use the fork's runners for as long as GitHub allows.  The
-  bot limits how many patches it tests at once and per author
+  A patch can use the test repository's runners for as long as GitHub
+  allows.  The bot limits how many patches it tests at once and per author
   (``limits``), and maintainers can hold or skip series in the state.
 
 A hostile patch cannot read any LeadTestKit secret, change the bot
@@ -162,12 +162,12 @@ existing tools:
 Recommended setup
 -----------------
 
-- Run the test fork in its own organization or account, with no
+- Run the test repository in its own organization or account, with no
   secrets, environments or self-hosted runners.
 - Add the branch ruleset and read-only default workflow permissions
   from SETUP.rst, step 1.
-- Install the test fork's App on the test fork only; use a separate App
-  or token for the scheduler.
+- Install the test repository's App on the test repository only; use a
+  separate App or token for the scheduler.
 - Use a dedicated Patchwork account for the bot, with no more rights
   than posting checks needs.
 - Limit write access to the bot repository to the people running it.

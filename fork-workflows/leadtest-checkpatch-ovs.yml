@@ -1,6 +1,6 @@
 # Checkpatch for Open vSwitch patches, started by LeadTestKit.
 #
-# Commit to .github/workflows/ on the default branch of the test fork
+# Commit to .github/workflows/ on the default branch of the test repository
 # (the tools branch, see SETUP.rst).  The file name must start with
 # workflows.custom_prefix ("leadtest-").  For OVN, set UPSTREAM to
 # https://github.com/ovn-org/ovn.git.

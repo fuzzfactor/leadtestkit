@@ -476,7 +476,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 // reuseApplied finds patches applied by an earlier attempt whose
 // results were lost, e.g. when a run was killed.  Reusing the same
 // commits keeps branch updates from starting the workflows again.
-// Workflows of tested patches can write to the test fork, so a commit
+// Workflows of tested patches can write to the test repository, so a commit
 // is only reused if it makes the change of its patch.
 func (p *Pipeline) reuseApplied(ctx context.Context, s *state.Series,
 	patches []*state.Patch, data []patchData) (*state.Base, []string, error) {

@@ -1,7 +1,7 @@
 # LeadTestKit configuration for OVN.
 #
-# Copy this file to config.yaml on the `state` branch of your
-# leadtestkit fork.  Secrets are not configured here; see SETUP.rst.
+# Copy this file to config.yaml on the `state` branch of your bot
+# repository.  Secrets are not configured here; see SETUP.rst.
 # Every option is explained in reference.yaml.
 
 enabled: true

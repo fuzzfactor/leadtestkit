@@ -1,29 +1,42 @@
 Setting up a LeadTestKit instance
 =================================
 
-Every project runs its own instance from its own fork of leadtestkit,
+Every project runs its own instance from its own copy of leadtestkit,
 so runner limits and configuration are not shared.  You need:
 
-- a fork of leadtestkit (the *bot repository*), for example
+- a copy of leadtestkit (the *bot repository*), for example
   ``ovs-ci/leadtestkit``;
-- a fork of the project repository to run the tests in (the *test
-  fork*), for example ``ovs-ci/ovs``, preferably in a separate
+- a copy of the project repository to run the tests in (the *test
+  repository*), for example ``ovs-ci/ovs``, preferably in a separate
   organization so it gets its own runner concurrency;
 - a Patchwork account with an API token, if checks are posted;
 - an SMTP account allowed to post to the reports list.
 
+Both can be forks on GitHub, but standalone repositories are better:
+GitHub disables Actions on forks more readily, and forks start with
+scheduled workflows disabled.  To turn an existing fork into a
+standalone repository, use *Leave fork network* in the Danger Zone of
+its settings; it keeps its name, branches and history.
 
-1. Prepare the test fork
-------------------------
 
-The test fork runs code from anyone who sends a patch to the list.
+1. Prepare the test repository
+------------------------------
+
+The test repository runs code from anyone who sends a patch to the list.
 **Do not store any secrets in it.**
 
-1. Fork the project repository.
-2. Enable GitHub Actions in the fork.
+1. Create an empty public repository, and push the default branch and
+   tags of the project to it::
+
+     git clone --bare https://github.com/openvswitch/ovs.git
+     git -C ovs.git push https://github.com/ovs-ci/ovs.git main --tags
+
+   A fork works too.  Keep the repository public: GitHub Actions are
+   free for public repositories only.
+2. Enable GitHub Actions in it.
 3. Add the workflows you want LeadTestKit to start for every patch to
-   the fork's ``main`` branch (the *tools branch*), on top of upstream,
-   for example::
+   its ``main`` branch (the *tools branch*), on top of upstream, for
+   example::
 
      git switch main
      cp <leadtestkit>/fork-workflows/leadtest-checkpatch-ovs.yml .github/workflows/
@@ -36,7 +49,7 @@ The test fork runs code from anyone who sends a patch to the list.
    ``Makefile.am``, next to the existing ``.github/workflows/`` entries.
    Otherwise the project's workflows fail on ``main``, including the
    runs after the weekly sync that fill the caches.  If an upstream
-   change near these lines makes the sync conflict, merge by hand as
+   change near these lines makes the sync conflict, rebase by hand as
    described below.
 
    File names must start with ``leadtest-``; the project's own
@@ -46,14 +59,20 @@ The test fork runs code from anyone who sends a patch to the list.
    inputs.correlation_id }}``.  Reports and checks use the workflow's
    ``name:``, like ``Checkpatch``, not the run name.  Without custom
    workflows, leave ``main`` as it is.
-4. Keep ``main`` the default branch of the fork.  GitHub only starts
-   ``workflow_dispatch`` workflows from the default branch, and the
-   runs on test branches can only restore caches saved on their own
-   branch or on the default branch.  LeadTestKit syncs ``main`` with
-   upstream every week (``test_repo.sync_interval``) with GitHub's
-   *Sync fork*; the project's workflows then run on ``main`` and fill
-   the caches.  If the sync reports a conflict, merge upstream into
-   ``main`` by hand.
+4. Keep the tools branch, ``main``, the default branch.  GitHub only
+   starts ``workflow_dispatch`` workflows from the default branch, and
+   the runs on test branches can only restore caches saved on their own
+   branch or on the default branch.  Every week
+   (``test_repo.sync_interval``), LeadTestKit rebases the commits of
+   the tools branch that are not upstream onto upstream's default
+   branch, ``upstream.default_branch``, like ``git pull --rebase``, and
+   force-pushes it; the project's workflows then run on it and fill the
+   caches.  The tools branch stays upstream with your commits on top;
+   merge commits of earlier syncs are dropped.  If the sync reports a
+   conflict, rebase it by hand::
+
+     git pull --rebase https://github.com/openvswitch/ovs.git main
+     git push --force-with-lease origin main
 
 Patches are pushed to ``series_<id>`` branches, which runs the
 project's own workflows on push.  The applied series and patches are
@@ -61,8 +80,8 @@ also kept in ``refs/leadtest/series_<id>`` and
 ``refs/leadtest/patch_<id>``, which do not start workflows; they let
 the bot recover without running anything twice if it loses its state.
 
-The workflows of a tested patch can write to the test fork, so protect
-its branches once the App of step 2 exists, as described in
+The workflows of a tested patch can write to the test repository, so
+protect its branches once the App of step 2 exists, as described in
 `SECURITY.rst <SECURITY.rst>`_:
 
 1. Settings, Rules, Rulesets, *New ruleset*, *New branch ruleset*.
@@ -74,28 +93,28 @@ its branches once the App of step 2 exists, as described in
    deletions* and *Block force pushes*.
 
 Also set Settings, Actions, General, **Workflow permissions** to *Read
-repository contents and packages permissions*, and keep the fork free
-of secrets, environments and self-hosted runners.
+repository contents and packages permissions*, and keep the repository
+free of secrets, environments and self-hosted runners.
 
 
-2. Create a GitHub App for the test fork
+2. Create a GitHub App for the test repository
 ----------------------------------------
 
-LeadTestKit works on the test fork as a GitHub App installed on that
-repository only.  The App needs no server and no webhook: it is an
+LeadTestKit works on the test repository as a GitHub App installed on
+that repository only.  The App needs no server and no webhook: it is an
 identity with permissions.  For every run the bot signs a request with
-the App's private key and gets a token for the test fork that is valid
-for an hour, so there is no token to renew.  Changes in the test fork
-show up as made by ``<app name>[bot]``.
+the App's private key and gets a token for the test repository that is
+valid for an hour, so there is no token to renew.  Changes in the test
+repository show up as made by ``<app name>[bot]``.
 
-Create the App in the account that owns the test fork.  An App limited
-to its own account can only be installed there, so an App created in
-your user account cannot be installed in an organization.
+Create the App in the account that owns the test repository.  An App
+limited to its own account can only be installed there, so an App
+created in your user account cannot be installed in an organization.
 
-- Test fork in your user account: open
+- Test repository in your user account: open
   https://github.com/settings/apps/new (Settings, Developer settings,
   GitHub Apps, *New GitHub App*).
-- Test fork in an organization, here ``<org>``: open
+- Test repository in an organization, here ``<org>``: open
   ``https://github.com/organizations/<org>/settings/apps/new``.  The
   list of the organization's own Apps is at
   ``https://github.com/organizations/<org>/settings/apps``; in the
@@ -131,7 +150,7 @@ Then *Create GitHub App* and, on the App's settings page:
 2. Under *Private keys*, *Generate a private key*.  A ``.pem`` file is
    downloaded; it goes into a secret below.  Do not keep other copies.
 3. In the left menu, *Install App*, choose the account, then *Only
-   select repositories* and the test fork.  The App must not be
+   select repositories* and the test repository.  The App must not be
    installed on other repositories.
 
 LeadTestKit logs the permissions of every token it gets and warns about
@@ -145,10 +164,11 @@ update the secret and delete the old key in the App settings.
 3. Configure the bot repository
 -------------------------------
 
-1. Fork leadtestkit and enable GitHub Actions, including scheduled
-   workflows (forks have them disabled by default).  GitHub often
-   starts scheduled workflows late; `SCHEDULER.rst <SCHEDULER.rst>`_
-   explains how to start the bot from a scheduler elsewhere.
+1. Copy leadtestkit into a new repository, or fork it and leave the
+   fork network, and enable GitHub Actions, including scheduled
+   workflows, which forks have disabled.  GitHub often starts scheduled
+   workflows late; `SCHEDULER.rst <SCHEDULER.rst>`_ explains how to
+   start the bot from a scheduler elsewhere.
 2. Add the repository secrets (Settings, Secrets and variables,
    Actions):
 
@@ -162,7 +182,7 @@ update the secret and delete the old key in the App settings.
    ============================  ==========================================
 
    The App secrets are needed when ``mode.push`` is ``live``.  Without
-   them the public test fork is read anonymously.
+   them the public test repository is read anonymously.
 
 3. In Settings, Pages, set the source to *GitHub Actions*.
 4. Create the ``state`` branch with your configuration::
@@ -190,7 +210,7 @@ The example configurations start in test mode:
 .. code-block:: yaml
 
   mode:
-    push: live         # push to the test fork
+    push: live         # push to the test repository
     checks: log        # only log the checks that would be posted
     email: test        # mark reports and send only to allowed_recipients
     allowed_recipients:
@@ -308,13 +328,13 @@ giving up on them after ``limits.retry_deadline``, reports the problem
 in the job summary of every run and at the top of the pages, and
 continues by itself once it works again.  It recognizes:
 
-- **Workflows that do not run on the test fork.**  GitHub sometimes
+- **Workflows that do not run on the test repository.**  GitHub sometimes
   disables Actions on forks: pushes then start no workflows and
   dispatches fail with *Actions has been disabled for this repository*,
   while the repository settings still show Actions as enabled.  Only
   GitHub Support can undo it.  The bot notices the refused dispatches,
   or a patch that got no run at all for ``limits.no_run_timeout`` while
-  nothing else ran on the test fork either.  It then pushes no new
+  nothing else ran on the test repository either.  It then pushes no new
   patches and sends no warnings for patches without runs.  Every hour
   it pushes one patch to check whether workflows run again; patches
   that got no runs wait to be pushed again then.
@@ -345,7 +365,8 @@ its last run failed; for notifications, see `SCHEDULER.rst
 6. Upgrading
 ------------
 
-To upgrade, sync your fork with the upstream leadtestkit repository.
+To upgrade, pull the upstream leadtestkit repository into your copy
+and push it, or use *Sync fork* while it is a fork.
 Every state file records its ``schema`` version, and a newer leadtest
 upgrades older files automatically as it reads them.  An older leadtest
 refuses state written by a newer one with a clear error, so roll back

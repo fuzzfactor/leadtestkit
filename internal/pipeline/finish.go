@@ -5,20 +5,20 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"leadtestkit/internal/httpx"
+	"leadtestkit/internal/gitrepo"
 	"leadtestkit/internal/state"
 )
 
 const maxRefDeletes = 50
 
-// syncTools keeps the tools branch, the default branch of the test fork,
-// close to upstream.  The resulting push runs the project's workflows
+// syncTools keeps the tools branch, the default branch of the test
+// repository, close to upstream.  The resulting push runs the project's workflows
 // there, which fills the caches that series branches can restore; runs
 // only see caches of their own and of the default branch.
 func (p *Pipeline) syncTools(ctx context.Context) {
@@ -44,21 +44,28 @@ func (p *Pipeline) syncTools(ctx context.Context) {
 		return
 	}
 	branch := p.Cfg.TestRepo.ToolsBranch
-	p.infof("Syncing test-fork branch %s with upstream to refresh shared CI caches.", branch)
-	kind, err := p.GH.MergeUpstream(ctx, branch)
-	switch code := httpx.StatusCode(err); {
-	case err == nil:
-		p.infof("Test-fork branch %s synced with upstream (%s).", branch, kind)
-		p.customLoaded = false
-	case code == http.StatusConflict || code == http.StatusUnprocessableEntity ||
-		code == http.StatusNotFound:
+	up := p.Cfg.Upstream
+	p.infof("Rebasing branch %s of the test repository onto upstream %s to refresh "+
+		"shared CI caches.", branch, up.DefaultBranch)
+	res, err := p.Repo.SyncBranch(ctx, up.GitURL, up.DefaultBranch, branch)
+	var conflict *gitrepo.ConflictError
+	switch {
+	case errors.As(err, &conflict):
 		// Retrying before the next interval would not help.
-		p.errorf("cannot sync %s of the test fork with upstream (merge it manually): %v",
-			branch, err)
-	default:
-		p.warnf("Cannot sync test-fork branch %s; will retry in a later run: %v",
-			branch, err)
+		p.errorf("cannot rebase branch %s of the test repository onto upstream %s, "+
+			"rebase it by hand: %v", branch, up.DefaultBranch, err)
+	case err != nil:
+		p.warnf("Cannot sync branch %s of the test repository; will retry in a later "+
+			"run: %v", branch, err)
 		return
+	case res.New == res.Old:
+		p.infof("Branch %s of the test repository already contains upstream; its %d "+
+			"own commits are on top.", branch, res.Commits)
+	default:
+		p.infof("Branch %s of the test repository is now upstream %s with its %d own "+
+			"commits on top, at %s.", branch, up.DefaultBranch, res.Commits,
+			short(res.New))
+		p.customLoaded = false
 	}
 	p.Store.Meta.ToolsSynced = state.FormatTime(now)
 }
@@ -140,7 +147,7 @@ func (p *Pipeline) finish(ctx context.Context) {
 }
 
 // gc only deletes refs of series known to have finished long ago; the
-// fork may be shared with other tools.
+// test repository may be shared with other tools.
 func (p *Pipeline) gc(ctx context.Context) {
 	if p.gcDone {
 		p.infof("Not cleaning old refs: already checked in this invocation.")

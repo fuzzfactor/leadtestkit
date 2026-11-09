@@ -39,9 +39,9 @@ Credentials
 -----------
 
 The credentials only need permission to start workflows in the bot
-repository.  Do not reuse the App of the test fork (SETUP.rst, step 2)
-here: it can push to repositories it is installed on, and the bot
-repository holds the state branch.
+repository.  Do not reuse the App of the test repository (SETUP.rst,
+step 2) here: it can push to repositories it is installed on, and the
+bot repository holds the state branch.
 
 Personal access token
 ~~~~~~~~~~~~~~~~~~~~~

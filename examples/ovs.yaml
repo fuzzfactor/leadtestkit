@@ -1,7 +1,7 @@
 # LeadTestKit configuration for Open vSwitch.
 #
-# Copy this file to config.yaml on the `state` branch of your
-# leadtestkit fork.  Secrets are not configured here; see SETUP.rst.
+# Copy this file to config.yaml on the `state` branch of your bot
+# repository.  Secrets are not configured here; see SETUP.rst.
 # Every option is explained in reference.yaml.
 
 enabled: true
@@ -80,8 +80,8 @@ workflows:
     - Build and Test
     - FreeBSD Build and Test
 
-  # Uncomment after adding workflows to the test fork's main branch for
-  # the bot to dispatch for every patch, e.g.
+  # Uncomment after adding workflows to the test repository's main
+  # branch for the bot to dispatch for every patch, e.g.
   # fork-workflows/leadtest-checkpatch-ovs.yml (see SETUP.rst, step 1).
   # Do not list them in expected: the bot waits for its own dispatches.
   # custom: true

@@ -21,10 +21,10 @@ import (
 // downloaded, and it can be cached between runs.
 type WorkRepo struct {
 	Git *Git
-	// TestRemote is the HTTPS URL of the test fork.
+	// TestRemote is the HTTPS URL of the test repository.
 	TestRemote string
 	// TestAuth returns the environment that authenticates requests to
-	// the test fork, see AuthEnv.  It is asked every time, so that
+	// the test repository, see AuthEnv.  It is asked every time, so that
 	// short-lived tokens can be renewed.
 	TestAuth func(ctx context.Context) ([]string, error)
 	// Committer is "Name <email>".
@@ -58,8 +58,20 @@ func (w *WorkRepo) ensure(ctx context.Context) error {
 		}
 	}
 	w.abortAm(ctx)
+	w.abortRebase(ctx)
 	w.initialized = true
 	return nil
+}
+
+func (w *WorkRepo) abortRebase(ctx context.Context) {
+	dir := filepath.Join(w.Git.Dir, ".git", "rebase-merge")
+	if _, err := os.Stat(dir); err != nil {
+		return
+	}
+	w.Git.log().Info("Aborting an unfinished git rebase from an earlier sync.")
+	if _, err := w.Git.Run(ctx, "rebase", "--abort"); err != nil {
+		os.RemoveAll(dir)
+	}
 }
 
 func (w *WorkRepo) abortAm(ctx context.Context) {
@@ -209,7 +221,7 @@ func (w *WorkRepo) patchID(ctx context.Context, diff []byte) (string, error) {
 	return id, nil
 }
 
-// PushRefs force-pushes commits to refs of the test fork in one push.
+// PushRefs force-pushes commits to refs of the test repository in one push.
 func (w *WorkRepo) PushRefs(ctx context.Context, refs map[string]string) error {
 	name, err := w.remote(ctx, w.TestRemote)
 	if err != nil {
@@ -233,7 +245,7 @@ func (w *WorkRepo) PushRefs(ctx context.Context, refs map[string]string) error {
 	return err
 }
 
-// testGit returns the git runner for requests to the test fork.
+// testGit returns the git runner for requests to the test repository.
 func (w *WorkRepo) testGit(ctx context.Context) (Git, error) {
 	g := *w.Git
 	if w.TestAuth == nil {
@@ -241,14 +253,14 @@ func (w *WorkRepo) testGit(ctx context.Context) (Git, error) {
 	}
 	env, err := w.TestAuth(ctx)
 	if err != nil {
-		return g, fmt.Errorf("test fork credentials: %w", err)
+		return g, fmt.Errorf("test repository credentials: %w", err)
 	}
 	g.Env = append(append([]string(nil), g.Env...), env...)
 	return g, nil
 }
 
 // TestRefs fetches those of the given refs that exist in the test
-// fork and returns their commits.
+// repository and returns their commits.
 func (w *WorkRepo) TestRefs(ctx context.Context, refs []string) (map[string]string, error) {
 	name, err := w.remote(ctx, w.TestRemote)
 	if err != nil {
@@ -258,7 +270,8 @@ func (w *WorkRepo) TestRefs(ctx context.Context, refs []string) (map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	w.Git.log().Info(fmt.Sprintf("Looking up %d recovery refs in the test fork.", len(refs)))
+	w.Git.log().Info(fmt.Sprintf("Looking up %d recovery refs in the test repository.",
+		len(refs)))
 	out, err := g.Run(ctx, append([]string{"ls-remote", name}, refs...)...)
 	if err != nil {
 		return nil, err
@@ -281,7 +294,7 @@ func (w *WorkRepo) TestRefs(ctx context.Context, refs []string) (map[string]stri
 	if len(found) == 0 {
 		return found, nil
 	}
-	w.Git.log().Info(fmt.Sprintf("Fetching %d recovery commits from the test fork.",
+	w.Git.log().Info(fmt.Sprintf("Fetching %d recovery commits from the test repository.",
 		len(found)))
 	if _, err := g.Run(ctx, fetch...); err != nil {
 		return nil, err
@@ -299,4 +312,101 @@ func (w *WorkRepo) ChangedFiles(ctx context.Context, from, to string) ([]string,
 		return nil, err
 	}
 	return strings.Split(out, "\n"), nil
+}
+
+// SyncResult describes a sync of a branch of the test repository.
+type SyncResult struct {
+	Old, New string
+	// Commits counts the commits of the branch that are not upstream.
+	Commits int
+}
+
+// ConflictError is a rebase that needs a human.
+type ConflictError struct {
+	Files  []string
+	Output string
+}
+
+func (e *ConflictError) Error() string {
+	return fmt.Sprintf("conflicts in %s", strings.Join(e.Files, ", "))
+}
+
+// SyncBranch rebases the commits of a branch of the test repository that are
+// not upstream onto the upstream branch, like git pull --rebase, and
+// force-pushes the result unless the branch changed in the meantime.
+// Merge commits of earlier syncs are dropped.  New is Old when the
+// branch already contains upstream.
+func (w *WorkRepo) SyncBranch(ctx context.Context, upstreamURL, upstreamBranch,
+	branch string) (SyncResult, error) {
+	var res SyncResult
+	up, err := w.Resolve(ctx, upstreamURL, upstreamBranch)
+	if err != nil {
+		return res, err
+	}
+	if res.Old, err = w.Resolve(ctx, w.TestRemote, branch); err != nil {
+		return res, err
+	}
+	res.New = res.Old
+	if res.Commits, err = w.count(ctx, "--no-merges", up+".."+res.Old); err != nil {
+		return res, err
+	}
+	if _, err := w.Git.Run(ctx, "merge-base", "--is-ancestor", up, res.Old); err == nil {
+		w.Git.log().Info(fmt.Sprintf("Branch %s of the test repository already contains "+
+			"upstream %s.", branch, short(up)))
+		return res, nil
+	}
+	if _, err := w.Git.Run(ctx, "checkout", "-q", "--detach", "-f", res.Old); err != nil {
+		return res, err
+	}
+	if _, err := w.Git.Run(ctx, "clean", "-q", "-fdx"); err != nil {
+		return res, err
+	}
+	g := *w.Git
+	g.Env = append(append([]string(nil), g.Env...), w.env()...)
+	w.Git.log().Info(fmt.Sprintf("Rebasing %d commits of %s onto upstream %s.",
+		res.Commits, branch, short(up)))
+	if _, err := g.Run(ctx, "rebase", "-q", "--no-gpg-sign", up); err != nil {
+		var gerr *Error
+		if !errors.As(err, &gerr) {
+			return res, err
+		}
+		files, _ := w.Git.Out(ctx, "diff", "--name-only", "--diff-filter=U")
+		w.abortRebase(ctx)
+		return res, &ConflictError{Files: strings.Fields(files),
+			Output: strings.TrimSpace(gerr.Stdout + "\n" + gerr.Stderr)}
+	}
+	if res.New, err = w.Git.Out(ctx, "rev-parse", "HEAD"); err != nil {
+		return res, err
+	}
+	if res.Commits, err = w.count(ctx, up+".."+res.New); err != nil {
+		return res, err
+	}
+	name, err := w.remote(ctx, w.TestRemote)
+	if err != nil {
+		return res, err
+	}
+	tg, err := w.testGit(ctx)
+	if err != nil {
+		return res, err
+	}
+	ref := "refs/heads/" + branch
+	w.Git.log().Info(fmt.Sprintf("Pushing %s at %s over %s.", ref, short(res.New),
+		short(res.Old)))
+	_, err = tg.Run(ctx, "push", "-q", "--force-with-lease="+ref+":"+res.Old, name,
+		res.New+":"+ref)
+	return res, err
+}
+
+func (w *WorkRepo) count(ctx context.Context, revs ...string) (int, error) {
+	out, err := w.Git.Out(ctx, append([]string{"rev-list", "--count"}, revs...)...)
+	n := 0
+	fmt.Sscan(out, &n)
+	return n, err
+}
+
+func short(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
 }

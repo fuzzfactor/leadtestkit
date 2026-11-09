@@ -160,7 +160,7 @@ func TestTestAuthAskedForEveryRequest(t *testing.T) {
 	}
 	base, _ := w.Resolve(ctx, upstream, "main")
 	if calls != 0 {
-		t.Errorf("credentials for the test fork were sent to upstream")
+		t.Errorf("credentials for the test repository were sent to upstream")
 	}
 	shas, _, _, err := w.Apply(ctx, base, patches[:1])
 	if err != nil {
@@ -176,7 +176,7 @@ func TestTestAuthAskedForEveryRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if calls != 3 {
-		t.Errorf("credentials asked %d times, want once per test fork request", calls)
+		t.Errorf("credentials asked %d times, want once per test repository request", calls)
 	}
 	w.TestAuth = func(ctx context.Context) ([]string, error) {
 		return nil, errors.New("lorem key rejected")
@@ -213,5 +213,89 @@ func TestAuthEnv(t *testing.T) {
 	}
 	if AuthEnv("github.com", "") != nil {
 		t.Error("empty token must not produce env")
+	}
+}
+
+// syncSetup creates an upstream repository and a test repository whose main
+// has a commit of its own, merged with upstream once, like Sync fork
+// does.  It returns the paths and a clone of upstream to advance it.
+func syncSetup(t *testing.T) (upstream, test, upSrc string) {
+	root := t.TempDir()
+	upstream = filepath.Join(root, "upstream.git")
+	test = filepath.Join(root, "test.git")
+	upSrc = filepath.Join(root, "up")
+	fork := filepath.Join(root, "fork")
+	run(t, root, "init", "-q", "-b", "main", upSrc)
+	write(t, filepath.Join(upSrc, "lorem.txt"), "lorem\nipsum\n")
+	run(t, upSrc, "add", ".")
+	run(t, upSrc, "commit", "-qm", "initial")
+	run(t, root, "clone", "-q", "--bare", upSrc, upstream)
+	run(t, upSrc, "remote", "add", "origin", upstream)
+
+	run(t, root, "clone", "-q", upstream, fork)
+	write(t, filepath.Join(fork, "ci.yml"), "lorem: ci\n")
+	run(t, fork, "add", ".")
+	run(t, fork, "commit", "-qm", "ci: Add the leadtest workflow.")
+	write(t, filepath.Join(upSrc, "sit.txt"), "sit\n")
+	run(t, upSrc, "add", ".")
+	run(t, upSrc, "commit", "-qm", "sit: Add file.")
+	run(t, upSrc, "push", "-q", "origin", "main")
+	run(t, fork, "pull", "-q", "--no-rebase", "--no-edit", "origin", "main")
+	run(t, root, "clone", "-q", "--bare", fork, test)
+	return
+}
+
+func TestSyncBranch(t *testing.T) {
+	upstream, test, upSrc := syncSetup(t)
+	write(t, filepath.Join(upSrc, "amet.txt"), "amet\n")
+	run(t, upSrc, "add", ".")
+	run(t, upSrc, "commit", "-qm", "amet: Add file.")
+	run(t, upSrc, "push", "-q", "origin", "main")
+
+	ctx := context.Background()
+	w := newWork(t, test)
+	res, err := w.SyncBranch(ctx, upstream, "main", "main")
+	if err != nil || res.Commits != 1 || res.New == res.Old {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+	if got := run(t, test, "rev-parse", "main"); got != res.New {
+		t.Fatalf("main = %s, want %s", got, res.New)
+	}
+	// The commit of the fork is on top of upstream, without merges.
+	log := run(t, test, "log", "--format=%s|%cn|%an", "main")
+	want := "ci: Add the leadtest workflow.|Robot|Lorem Ipsum\n" +
+		"amet: Add file.|Lorem Ipsum|Lorem Ipsum\n" +
+		"sit: Add file.|Lorem Ipsum|Lorem Ipsum\n" +
+		"initial|Lorem Ipsum|Lorem Ipsum"
+	if log != want {
+		t.Fatalf("history:\n%s", log)
+	}
+
+	again, err := w.SyncBranch(ctx, upstream, "main", "main")
+	if err != nil || again.New != res.New || again.Old != res.New || again.Commits != 1 {
+		t.Fatalf("second sync: %+v, %v", again, err)
+	}
+}
+
+func TestSyncBranchConflict(t *testing.T) {
+	upstream, test, upSrc := syncSetup(t)
+	write(t, filepath.Join(upSrc, "ci.yml"), "ipsum: ci\n")
+	run(t, upSrc, "add", ".")
+	run(t, upSrc, "commit", "-qm", "ci: Add another workflow.")
+	run(t, upSrc, "push", "-q", "origin", "main")
+	before := run(t, test, "rev-parse", "main")
+
+	w := newWork(t, test)
+	_, err := w.SyncBranch(context.Background(), upstream, "main", "main")
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) || strings.Join(conflict.Files, ",") != "ci.yml" {
+		t.Fatalf("err = %v", err)
+	}
+	if got := run(t, test, "rev-parse", "main"); got != before {
+		t.Errorf("main changed after a conflict")
+	}
+	// The work repository is usable again.
+	if _, err := w.Resolve(context.Background(), upstream, "main"); err != nil {
+		t.Fatal(err)
 	}
 }

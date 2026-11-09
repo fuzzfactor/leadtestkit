@@ -342,7 +342,7 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 	if err != nil {
 		return nil, err
 	}
-	// Without an App (push mode off), the public test fork is read
+	// Without an App (push mode off), the public test repository is read
 	// anonymously.
 	var ghAuth func(context.Context) (string, error)
 	var gitAuth func(context.Context) ([]string, error)

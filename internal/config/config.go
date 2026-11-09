@@ -75,7 +75,7 @@ type Config struct {
 }
 
 // Alerts are emails to the maintainers of the bot about problems that
-// need them, like GitHub no longer running workflows on the test fork.
+// need them, like GitHub no longer running workflows on the test repository.
 type Alerts struct {
 	To []string `yaml:"to"`
 }
@@ -97,7 +97,7 @@ type Upstream struct {
 }
 
 type TestRepo struct {
-	// Repo is "owner/name" of the test fork on GitHub.
+	// Repo is "owner/name" of the test repository on GitHub.
 	Repo         string   `yaml:"repo"`
 	ToolsBranch  string   `yaml:"tools_branch"`
 	SyncInterval Duration `yaml:"sync_interval"`
@@ -232,8 +232,8 @@ type Workflows struct {
 	// Expected lists workflow names that must report before a patch
 	// is considered complete.  Without it, GraceAfterRuns is used.
 	Expected []string `yaml:"expected"`
-	// Custom enables dispatching workflows from the fork's tools
-	// branch.
+	// Custom enables dispatching workflows from the tools branch of the
+	// test repository.
 	Custom        bool     `yaml:"custom"`
 	CustomPrefix  string   `yaml:"custom_prefix"`
 	CustomExclude []string `yaml:"custom_exclude"`
@@ -280,7 +280,7 @@ type Pages struct {
 type Secrets struct {
 	PatchworkToken string
 	// AppClientID and AppPrivateKey identify the GitHub App installed
-	// on the test fork.  The App ID works in place of the Client ID.
+	// on the test repository.  The App ID works in place of the Client ID.
 	AppClientID   string
 	AppPrivateKey string
 	SMTPUsername  string
@@ -364,7 +364,7 @@ func Parse(data []byte) (*Config, error) {
 var ErrNotConfigured = errors.New("not configured")
 
 // Load reads config.yaml.  A missing file is ErrNotConfigured so that
-// unconfigured forks do nothing.
+// unconfigured copies of leadtestkit do nothing.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {

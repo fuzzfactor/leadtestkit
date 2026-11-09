@@ -353,30 +353,6 @@ func (c *Client) Dispatch(ctx context.Context, file, ref string, inputs map[stri
 		map[string]any{"ref": ref, "inputs": inputs}, true)
 }
 
-// MergeUpstream syncs a branch of the fork with the branch of the same
-// name in its parent repository ("Sync fork").  GitHub does the merge,
-// so no objects are transferred.  It returns "fast-forward", "merge" or
-// "none".
-func (c *Client) MergeUpstream(ctx context.Context, branch string) (string, error) {
-	data, err := json.Marshal(map[string]string{"branch": branch})
-	if err != nil {
-		return "", err
-	}
-	resp, err := c.do(ctx, httpx.Request{Method: http.MethodPost,
-		URL:  c.repoURL("/merge-upstream"),
-		Body: data, NoRetry: true})
-	if err != nil {
-		return "", err
-	}
-	var res struct {
-		MergeType string `json:"merge_type"`
-	}
-	if err := json.Unmarshal(resp.Body, &res); err != nil {
-		return "", fmt.Errorf("decode merge-upstream: %w", err)
-	}
-	return res.MergeType, nil
-}
-
 type contentEntry struct {
 	Name     string `json:"name"`
 	Path     string `json:"path"`

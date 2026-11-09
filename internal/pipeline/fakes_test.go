@@ -18,6 +18,7 @@ import (
 	"leadtestkit/internal/archive"
 	"leadtestkit/internal/config"
 	"leadtestkit/internal/gh"
+	"leadtestkit/internal/gitrepo"
 	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/pw"
 	"leadtestkit/internal/report"
@@ -214,8 +215,6 @@ type fakeGH struct {
 	reruns           []int64
 	failedOnly       []bool
 	refuseFailedOnly bool
-	merges           []string
-	mergeErr         error
 	dispatches       []map[string]string
 	refs             map[string]string
 	deleted          []string
@@ -408,14 +407,6 @@ func (f *fakeGH) File(ctx context.Context, path, ref string) ([]byte, error) {
 	return []byte(f.files[strings.TrimPrefix(path, ".github/workflows/")]), nil
 }
 
-func (f *fakeGH) MergeUpstream(ctx context.Context, branch string) (string, error) {
-	f.merges = append(f.merges, branch)
-	if f.mergeErr != nil {
-		return "", f.mergeErr
-	}
-	return "merge", nil
-}
-
 // startRuns creates push runs for the head of a branch.
 func (f *fakeGH) startRuns(branch, sha string, names ...string) []int64 {
 	var ids []int64
@@ -470,6 +461,17 @@ type fakeRepo struct {
 	resolved []string
 	files    map[string]string
 	fail     map[string]int
+	syncs    []string
+	syncErr  error
+}
+
+func (f *fakeRepo) SyncBranch(ctx context.Context, upstreamURL, upstreamBranch,
+	branch string) (gitrepo.SyncResult, error) {
+	f.syncs = append(f.syncs, upstreamURL+" "+upstreamBranch+" -> "+branch)
+	if f.syncErr != nil {
+		return gitrepo.SyncResult{}, f.syncErr
+	}
+	return gitrepo.SyncResult{Old: "tools-old", New: "tools-new", Commits: 1}, nil
 }
 
 func newFakeRepo() *fakeRepo {

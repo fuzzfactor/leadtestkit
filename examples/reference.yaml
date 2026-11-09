@@ -4,7 +4,7 @@
 # "required" have no default; the values given for them here are only
 # placeholders.  All other options may be left out of config.yaml.
 #
-# config.yaml lives on the `state` branch of your leadtestkit fork and
+# config.yaml lives on the `state` branch of your bot repository and
 # is never modified by the bot.  Secrets are not configured here; they
 # are repository secrets, see SETUP.rst.
 #
@@ -46,22 +46,25 @@ upstream:
   default_branch: main
 
 test_repo:
-  # Required.  The test fork on GitHub ("owner/name") that runs the
-  # workflows.  It must not hold any secrets.
+  # Required.  The test repository on GitHub ("owner/name") that runs
+  # the workflows, a standalone copy of upstream or a fork.  It must not
+  # hold any secrets.
   repo: example/lorem
 
-  # The default branch of the test fork: upstream's branch of the same
-  # name plus the custom workflows (see workflows.custom).  Empty means
-  # upstream.default_branch.  It has to be the default branch because
-  # GitHub only dispatches workflows found there, and because workflow
-  # runs on series branches can only restore caches saved on their own
-  # branch or on the default branch.
+  # The default branch of the test repository: upstream.default_branch
+  # plus commits of its own, like the custom workflows (see
+  # workflows.custom).  Empty means upstream.default_branch.  It has to
+  # be the default branch because GitHub only dispatches workflows found
+  # there, and because workflow runs on series branches can only restore
+  # caches saved on their own branch or on the default branch.
   tools_branch: ""
 
-  # Every sync_interval, the tools branch is synced with upstream
-  # through GitHub's "Sync fork" (no data passes through the bot).  The
-  # resulting push runs the project's workflows on the default branch,
-  # which fills the caches used by the series branches.  0 disables it.
+  # Every sync_interval, the commits of the tools branch that are not
+  # upstream are rebased onto upstream.default_branch, like git pull
+  # --rebase, and the branch is force-pushed unless it changed in the
+  # meantime.  The push runs the project's workflows on the default
+  # branch, which fills the caches used by the series branches.  0
+  # disables it.
   sync_interval: 7d
 
   # Patches are pushed to <branch_prefix><series id>.
@@ -167,7 +170,7 @@ smtp:
   security: starttls
 
 mode:
-  # "live": push patches and start workflows in the test fork.
+  # "live": push patches and start workflows in the test repository.
   # "off": no pushes, dispatches or reruns.  Unpushed patches and
   # unsent dispatches wait without timing out; existing runs are still
   # monitored and reported.
@@ -246,8 +249,8 @@ limits:
   max_series_patches: 50
 
   # Patches are pushed while fewer jobs than this wait for a runner in
-  # the test fork.  Keeping the queue short is what lets a new author
-  # get the next free runner.
+  # the test repository.  Keeping the queue short is what lets a new
+  # author get the next free runner.
   max_queued_jobs: 20
 
   # Maximum pushed patches awaiting completion, across all authors.
@@ -307,7 +310,7 @@ limits:
   retry_deadline: 2d
 
   # Test branches and staging refs of series that finished longer ago
-  # are deleted from the test fork.  0 keeps them forever.  Refs of
+  # are deleted from the test repository.  0 keeps them forever.  Refs of
   # series the bot does not know about are never deleted.
   branch_retention: 730d
 
@@ -417,8 +420,8 @@ pages:
 
 alerts:
   # Maintainers of the bot who get an email when something the bot
-  # needs stops working: workflows on the test fork, the GitHub App, or
-  # an archive (see SETUP.rst).  They get one when it is noticed, once
+  # needs stops working: workflows on the test repository, the GitHub
+  # App, or an archive (see SETUP.rst).  They get one when it is noticed, once
   # a day while it lasts and when it is over.  The bot run that sends
   # an alert fails; when email itself does not work, that failing run
   # is the only alert.  Alerts use the smtp settings and are sent in

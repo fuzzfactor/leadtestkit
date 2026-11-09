@@ -9,9 +9,9 @@ Every 15 minutes, a scheduled workflow runs ``leadtest``, which:
 
 1. finds series that were completely received by Patchwork;
 2. applies them on the right base branch and pushes them, patch by
-   patch, to ``series_<id>`` branches of a test fork, which runs the
-   project's workflows, and starts additional workflows (for example
-   checkpatch) from the fork's default branch;
+   patch, to ``series_<id>`` branches of a test repository, which runs
+   the project's workflows, and starts additional workflows (for
+   example checkpatch) from its default branch;
 3. posts ``pending`` checks to Patchwork and sends pending and final
    reports to the reports list (``ovs-build``, ``test-report``) in the
    format the existing tools understand;

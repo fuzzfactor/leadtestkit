@@ -12,7 +12,7 @@ import (
 	"leadtestkit/internal/archive"
 	"leadtestkit/internal/config"
 	"leadtestkit/internal/gh"
-	"leadtestkit/internal/httpx"
+	"leadtestkit/internal/gitrepo"
 	"leadtestkit/internal/pw"
 	"leadtestkit/internal/state"
 )
@@ -1211,38 +1211,40 @@ func TestSyncTools(t *testing.T) {
 	e := newEnv(t, "")
 	e.step()
 	e.step()
-	if fmt.Sprint(e.gh.merges) != "[main]" ||
+	want := "https://git.example.org/lorem.git main -> main"
+	if fmt.Sprint(e.repo.syncs) != "["+want+"]" ||
 		e.p.Store.Meta.ToolsSynced != state.FormatTime(e.now) {
-		t.Fatalf("merges = %v synced = %q", e.gh.merges, e.p.Store.Meta.ToolsSynced)
+		t.Fatalf("syncs = %v synced = %q", e.repo.syncs, e.p.Store.Meta.ToolsSynced)
 	}
 	e.reload()
 	e.advance(24 * time.Hour)
 	e.step()
-	if len(e.gh.merges) != 1 {
-		t.Fatalf("synced again too early: %v", e.gh.merges)
+	if len(e.repo.syncs) != 1 {
+		t.Fatalf("synced again too early: %v", e.repo.syncs)
 	}
 	e.reload()
 	e.advance(7 * 24 * time.Hour)
 	e.step()
-	if len(e.gh.merges) != 2 {
-		t.Fatalf("merges = %v", e.gh.merges)
+	if len(e.repo.syncs) != 2 {
+		t.Fatalf("syncs = %v", e.repo.syncs)
 	}
 }
 
 func TestSyncToolsErrors(t *testing.T) {
 	e := newEnv(t, "")
-	e.gh.mergeErr = errTransient
+	e.repo.syncErr = errTransient
 	e.step()
 	if e.p.Store.Meta.ToolsSynced != "" || len(e.p.Stats.Errors) != 0 {
 		t.Fatalf("transient error: synced = %q errors = %v",
 			e.p.Store.Meta.ToolsSynced, e.p.Stats.Errors)
 	}
 	e.reload()
-	e.gh.mergeErr = &httpx.StatusError{Code: 409}
+	e.repo.syncErr = &gitrepo.ConflictError{Files: []string{"lorem.yml"}}
 	e.step()
-	if len(e.gh.merges) != 2 || e.p.Store.Meta.ToolsSynced == "" || len(e.p.Stats.Errors) != 1 {
-		t.Fatalf("conflict: merges = %v synced = %q errors = %v",
-			e.gh.merges, e.p.Store.Meta.ToolsSynced, e.p.Stats.Errors)
+	if len(e.repo.syncs) != 2 || e.p.Store.Meta.ToolsSynced == "" ||
+		len(e.p.Stats.Errors) != 1 {
+		t.Fatalf("conflict: syncs = %v synced = %q errors = %v",
+			e.repo.syncs, e.p.Store.Meta.ToolsSynced, e.p.Stats.Errors)
 	}
 }
 
@@ -1254,8 +1256,8 @@ func TestSyncToolsDisabled(t *testing.T) {
 	e.cfg.TestRepo.SyncInterval = 0
 	e.reload()
 	e.step()
-	if len(e.gh.merges) != 0 {
-		t.Fatalf("merges = %v", e.gh.merges)
+	if len(e.repo.syncs) != 0 {
+		t.Fatalf("syncs = %v", e.repo.syncs)
 	}
 }
 

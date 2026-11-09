@@ -15,6 +15,7 @@ import (
 	"leadtestkit/internal/archive"
 	"leadtestkit/internal/config"
 	"leadtestkit/internal/gh"
+	"leadtestkit/internal/gitrepo"
 	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/logx"
 	"leadtestkit/internal/mail"
@@ -55,7 +56,6 @@ type GitHub interface {
 	WorkflowFiles(ctx context.Context, ref string) ([]string, error)
 	Workflows(ctx context.Context) ([]gh.Workflow, error)
 	File(ctx context.Context, path, ref string) ([]byte, error)
-	MergeUpstream(ctx context.Context, branch string) (string, error)
 }
 
 type Archive interface {
@@ -75,6 +75,8 @@ type WorkRepo interface {
 	Parent(ctx context.Context, sha string) (string, error)
 	SameChange(ctx context.Context, sha string, mbox []byte) (bool, error)
 	ChangedFiles(ctx context.Context, from, to string) ([]string, error)
+	SyncBranch(ctx context.Context, upstreamURL, upstreamBranch,
+		branch string) (gitrepo.SyncResult, error)
 }
 
 type Pipeline struct {
@@ -92,7 +94,7 @@ type Pipeline struct {
 	Now    func() time.Time
 	Log    *slog.Logger
 	RunURL string
-	// Actor returns the login of the bot on the test fork, or "" if
+	// Actor returns the login of the bot on the test repository, or "" if
 	// unknown.  Dispatched runs started by anyone else are ignored.
 	Actor func() string
 
@@ -278,7 +280,7 @@ func stageDescription(name string) string {
 	case "manual":
 		return "Checking the state for manual skips and retry requests."
 	case "sync":
-		return "Checking whether the test fork needs an upstream sync."
+		return "Checking whether the test repository needs an upstream sync."
 	case "discover":
 		return "Looking for new series in Patchwork."
 	case "qualify":
