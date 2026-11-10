@@ -108,15 +108,15 @@ report:
   # pending or success reports.  Only done when mode.email is live.
   cc_submitter: true
 
-  # Email a pending report when a workflow starts.
-  pending_email: true
+  # How to report that a workflow started: "check" posts a pending
+  # check to Patchwork that links to the run (only logged unless
+  # mode.checks is post), "email" emails a pending report, "both" does
+  # both and "off" neither.  With "email" and archive.ingest, the check
+  # comes from the archived email.
+  pending: both
 
   # Email a report for every patch that applied, not only for failures.
   apply_success: true
-
-  # Post a pending check to Patchwork when a workflow starts, linking
-  # to its run.  Only logged unless mode.checks is post.
-  pending_check: true
 
   # Reports of failed runs include the last log_lines lines of up to
   # max_log_jobs failed jobs.

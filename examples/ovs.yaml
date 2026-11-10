@@ -26,6 +26,7 @@ report:
   label: github-robot
   apply_label: apply-robot
   cc_submitter: true
+  pending: check
 
 archive:
   reports_url: https://mail.openvswitch.org/pipermail/ovs-build/

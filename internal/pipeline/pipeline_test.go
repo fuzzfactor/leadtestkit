@@ -434,6 +434,27 @@ func TestEmailFailureRetried(t *testing.T) {
 	}
 }
 
+func TestPendingModes(t *testing.T) {
+	for _, tc := range []struct{ mode, check, email string }{
+		{"check", state.StepPosted, state.StepSkipped},
+		{"email", state.StepSkipped, state.StepSent},
+		{"off", state.StepSkipped, state.StepSkipped},
+	} {
+		e := newEnv(t, "")
+		e.cfg.Report.Pending = tc.mode
+		e.pw.addSeries(73, 1, "lorem", e.now)
+		e.step()
+		pt := e.series(73).Patches[0]
+		e.gh.startRuns("series_73", pt.SHA, "Build")
+		e.advance(3 * time.Minute)
+		e.step()
+		r := pt.Run(state.RunPush, "Build")
+		if r == nil || r.Pending.Check != tc.check || r.Pending.Email != tc.email {
+			t.Errorf("%s: run = %+v", tc.mode, r)
+		}
+	}
+}
+
 func TestTestModeNeverCcs(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Mode.Email = "test"

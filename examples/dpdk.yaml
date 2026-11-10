@@ -28,7 +28,7 @@ report:
   label: github-robot
   apply_label: apply-robot
   cc_submitter: false
-  pending_check: false
+  pending: email
 
 archive:
   reports_url: https://mails.dpdk.org/archives/test-report/

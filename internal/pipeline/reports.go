@@ -77,7 +77,7 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 		return
 	}
 	if r.Pending.Check == "" {
-		if !p.Cfg.Report.PendingCheck {
+		if !p.Cfg.Report.PendingCheck() {
 			p.notePatch(pt, "check-skipped", "Pending checks disabled for %s.",
 				p.label(r))
 			p.infof("%s: pending checks disabled; not posting one for %s.",
@@ -125,7 +125,7 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 		}
 	}
 	if r.Pending.Email == "" {
-		if !p.Cfg.Report.PendingEmail {
+		if !p.Cfg.Report.PendingEmail() {
 			p.notePatch(pt, "report-skipped", "Pending emails disabled for %s.",
 				p.label(r))
 			p.infof("%s: pending emails disabled; not sending one for %s.",

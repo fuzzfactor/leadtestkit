@@ -45,7 +45,8 @@ func TestParseMinimalDefaults(t *testing.T) {
 	if c.Mode.Push != "live" || c.Mode.Checks != "log" || c.Mode.Email != "test" {
 		t.Errorf("mode = %+v", c.Mode)
 	}
-	if c.Report.Label != "github-robot" || c.Report.Style != "ovs" {
+	if c.Report.Label != "github-robot" || c.Report.Style != "ovs" ||
+		!c.Report.PendingCheck() || !c.Report.PendingEmail() {
 		t.Errorf("report = %+v", c.Report)
 	}
 	if c.PatchworkWebURL() != "https://pw.example.org" {
@@ -91,6 +92,8 @@ func TestValidationErrors(t *testing.T) {
 		"bad alert":   minimal + "\nalerts:\n  to: [lorem]\n",
 		"stale":       minimal + "\npages:\n  stale_after: -1h\n",
 		"stale 1s":    minimal + "\npages:\n  stale_after: 1s\n",
+		"bad pending": strings.Replace(minimal, "report:\n",
+			"report:\n  pending: yes\n", 1),
 		"no dev archive for rechecks": strings.Replace(minimal,
 			"archive:\n  dev_url: https://lists.example.org/pipermail/lorem-dev/\n",
 			"", 1),

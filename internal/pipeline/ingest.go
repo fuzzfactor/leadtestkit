@@ -239,7 +239,7 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	// Pending checks of our own runs are posted directly with a link to
 	// the test branch.
-	if own && parsed.Status == state.ResultPending && p.Cfg.Report.PendingCheck {
+	if own && parsed.Status == state.ResultPending && p.Cfg.Report.PendingCheck() {
 		p.infof("Ignoring our pending report %s: pending checks are posted directly.",
 			msgURL)
 		return errSkip

@@ -116,12 +116,13 @@ type Report struct {
 	ApplyLabel  string `yaml:"apply_label"`
 	BuildPrefix string `yaml:"build_prefix"`
 	// CcSubmitter adds the series submitter on non-success reports.
-	CcSubmitter  bool `yaml:"cc_submitter"`
-	PendingEmail bool `yaml:"pending_email"`
-	ApplySuccess bool `yaml:"apply_success"`
-	PendingCheck bool `yaml:"pending_check"`
-	LogLines     int  `yaml:"log_lines"`
-	MaxLogJobs   int  `yaml:"max_log_jobs"`
+	CcSubmitter bool `yaml:"cc_submitter"`
+	// Pending is how a started workflow is reported: "check", "email",
+	// "both" or "off".
+	Pending      string `yaml:"pending"`
+	ApplySuccess bool   `yaml:"apply_success"`
+	LogLines     int    `yaml:"log_lines"`
+	MaxLogJobs   int    `yaml:"max_log_jobs"`
 	// MessageIDDomain is the right-hand side of generated Message-IDs.
 	MessageIDDomain string `yaml:"message_id_domain"`
 }
@@ -152,6 +153,9 @@ type Mode struct {
 	Email             string   `yaml:"email"`
 	AllowedRecipients []string `yaml:"allowed_recipients"`
 }
+
+func (r Report) PendingCheck() bool { return r.Pending == "check" || r.Pending == "both" }
+func (r Report) PendingEmail() bool { return r.Pending == "email" || r.Pending == "both" }
 
 func (m Mode) TestEmail() bool  { return m.Email == "test" }
 func (m Mode) PostChecks() bool { return m.Checks == "post" }
@@ -304,9 +308,8 @@ func defaults() Config {
 			ApplyLabel:   "apply-robot",
 			BuildPrefix:  "github build",
 			CcSubmitter:  true,
-			PendingEmail: true,
+			Pending:      "both",
 			ApplySuccess: true,
-			PendingCheck: true,
 			LogLines:     25,
 			MaxLogJobs:   5,
 		},
@@ -513,6 +516,11 @@ func (c *Config) validate() error {
 	}
 	if c.Report.Label == "" || c.Report.ApplyLabel == "" {
 		add("report.label and report.apply_label must not be empty")
+	}
+	switch c.Report.Pending {
+	case "check", "email", "both", "off":
+	default:
+		add("report.pending must be check, email, both or off")
 	}
 
 	switch c.Mode.Push {
