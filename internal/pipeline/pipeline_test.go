@@ -1274,9 +1274,19 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 	}
 
 	// The rerun is an attempt of a run created long before the recheck.
+	// Its result is read in a later cycle when its annotations cannot
+	// be read at first.
 	e.gh.dispatched[0].RunAttempt = 2
 	e.gh.dispatched[0].Conclusion = "success"
+	e.gh.dispatched[0].CheckSuiteID = 70
+	e.gh.fail["check-runs"] = 1
 	e.advance(time.Minute)
+	e.step()
+	if r := runByFile(pt, "leadtest-checkpatch.yml"); r.Status != "completed" ||
+		r.Result != "" {
+		t.Fatalf("checkpatch run = %+v", r)
+	}
+	e.advance(10 * time.Minute)
 	e.step()
 	if r := runByFile(pt, "leadtest-checkpatch.yml"); r.Attempt != 2 ||
 		r.Result != state.ResultSuccess {

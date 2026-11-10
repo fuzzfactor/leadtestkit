@@ -148,7 +148,7 @@ func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *
 		wr, ok := runs[r.CorrelationID]
 		switch {
 		case ok:
-		case r.Status == "completed":
+		case r.Status == "completed" && r.Result != "":
 			// dispatchedRuns does not look for finished runs.
 			continue
 		case r.ID != 0:
