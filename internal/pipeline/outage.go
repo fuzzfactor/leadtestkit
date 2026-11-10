@@ -209,11 +209,17 @@ func (p *Pipeline) retryNow(kind string) {
 }
 
 // waitFor makes the failures whose errors point at an outage that just
-// started wait for it; they may have failed before it started.
+// started wait for it; they may have failed before it started.  They
+// are retried at least every outageProbeInterval, like the failures
+// during it.
 func (p *Pipeline) waitFor(kind string) {
+	next := p.now().Add(outageProbeInterval)
 	p.eachFailure(func(f *state.Failure) {
 		if f.Outage == "" && f.Cause != "" && p.waitsFor(f.Cause) == kind {
 			f.Outage = kind
+			if state.ParseTime(f.Next).After(next) {
+				f.Next = state.FormatTime(next)
+			}
 		}
 	})
 }

@@ -149,17 +149,11 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			delete(c.Retry, u)
 			continue
 		}
-		deadline := archiveTimeout
-		kind := p.reportOutage(err)
-		if kind != "" {
-			deadline = 0
-		}
-		if state.RecordFailure(&f, "ingest", err, now, deadline) {
+		if p.reportFailed(&f, err) {
 			delete(c.Retry, u)
 			p.errorf("giving up on the report %s after errors: %v", u, err)
 			continue
 		}
-		f.Outage, f.Cause = kind, p.outageOf(err)
 		c.Retry[u] = f
 		p.logFailure(f, false)
 	}
@@ -189,8 +183,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			u := p.Reports.MessageURL(mm.key, m.Number)
 			if err := p.ingestMessage(ctx, u); err != nil && !errors.Is(err, errSkip) {
 				var f *state.Failure
-				state.RecordFailure(&f, "ingest", err, now, archiveTimeout)
-				f.Outage, f.Cause = p.reportOutage(err), p.outageOf(err)
+				p.reportFailed(&f, err)
 				if c.Retry == nil {
 					c.Retry = map[string]*state.Failure{}
 				}
@@ -206,6 +199,29 @@ func (p *Pipeline) ingest(ctx context.Context) {
 	}
 	p.infof("Reports scan finished: used %d of %d message slots; %d reports await retry.",
 		p.Cfg.Archive.MaxMessages-budget, p.Cfg.Archive.MaxMessages, len(c.Retry))
+}
+
+// reportFailed records a failure to ingest a report and reports whether
+// its deadline passed.  Reports that wait for an outage of Patchwork
+// are retried at least every outageProbeInterval: they may be what
+// tells that Patchwork accepts checks again.
+func (p *Pipeline) reportFailed(f **state.Failure, err error) bool {
+	now := p.now()
+	kind := p.reportOutage(err)
+	deadline := archiveTimeout
+	if kind != "" {
+		deadline = 0
+	} else if *f != nil && (*f).Outage != "" {
+		// The time waited for the outage does not count.
+		(*f).First, (*f).Attempts = state.FormatTime(now), 0
+	}
+	done := state.RecordFailure(f, "ingest", err, now, deadline)
+	(*f).Outage, (*f).Cause = kind, p.outageOf(err)
+	if next := now.Add(outageProbeInterval); kind == state.OutagePatchwork &&
+		state.ParseTime((*f).Next).After(next) {
+		(*f).Next = state.FormatTime(next)
+	}
+	return done
 }
 
 // reportOutage tells the outage that a report waits for after an error,

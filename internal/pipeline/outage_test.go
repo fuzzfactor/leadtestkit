@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"leadtestkit/internal/archive"
 	"leadtestkit/internal/ghapp"
 	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/mail"
@@ -726,5 +727,51 @@ func TestCheckRefusedForAnotherProject(t *testing.T) {
 		len(e.p.Store.Cursor(reportsCursor).Retry) != 0 {
 		t.Fatalf("outages = %+v, retry %+v", e.p.Store.Meta.Outages,
 			e.p.Store.Cursor(reportsCursor).Retry)
+	}
+}
+
+// A report that waited for a long outage gets a fresh deadline once it
+// fails for another reason.
+func TestReportAfterLongOutageKeepsWaiting(t *testing.T) {
+	e := outageEnv(t)
+	e.cfg.Mode.Push = "off"
+	e.step()
+	e.reload()
+	u := e.reports.add(e.now, 1, "|FAILURE| pw9001 x",
+		reportBody("lab-robot: Perf test", "FAILURE", 9001), "<b@lab>")
+	c := e.p.Store.Cursor(reportsCursor)
+	c.Months = map[string]int{archive.MonthKey(e.now.Year(), e.now.Month()): 1}
+	c.Retry = map[string]*state.Failure{u: {Op: "ingest", Attempts: 20,
+		First: state.FormatTime(e.now.Add(-8 * 24 * time.Hour)),
+		Next:  state.FormatTime(e.now), Outage: state.OutagePatchwork}}
+	e.reports.fail[u] = 1
+	e.step()
+	f := c.Retry[u]
+	if f == nil || f.First != state.FormatTime(e.now) || f.Outage != "" {
+		t.Fatalf("report failure = %+v", f)
+	}
+}
+
+// Reports refused while Patchwork refuses checks are tried at least
+// every hour, as they tell when it accepts checks again.
+func TestRefusedReportsRetriedHourly(t *testing.T) {
+	e := outageEnv(t)
+	e.cfg.Mode.Push = "off"
+	e.step()
+	e.reload()
+	e.pw.addSeries(90, 1, "lorem", e.now)
+	u := e.reports.add(e.now, 1, "|FAILURE| pw9001 x",
+		reportBody("lab-robot: Perf test", "FAILURE", 9001), "<b@lab>")
+	e.pw.errs["create-check"] = &httpx.StatusError{Code: 403,
+		URL: "https://pw.example.org/api/1.2/patches/9001/checks/"}
+	for i := 0; i < 12; i++ {
+		e.advance(time.Hour)
+		e.reload()
+		e.step()
+	}
+	f := e.p.Store.Cursor(reportsCursor).Retry[u]
+	if f == nil || f.Attempts < 10 ||
+		state.ParseTime(f.Next).Sub(e.now) > outageProbeInterval {
+		t.Fatalf("report failure = %+v", f)
 	}
 }
