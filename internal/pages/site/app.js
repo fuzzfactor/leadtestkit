@@ -420,8 +420,9 @@ function availabilityButton() {
   const outages = Object.keys(index.outages || {}).length;
   const down = (index.unavailable || []).map(s => SERVICES[s] || s);
   const kind = outages ? "outage" : down.length ? "short" : "";
-  document.getElementById("show-availability").replaceChildren(
-    kind ? alertIcon(kind) : null, "Availability");
+  const button = document.getElementById("show-availability");
+  if (kind) button.replaceChildren(alertIcon(kind), "Availability");
+  else button.replaceChildren("Availability");
   document.getElementById("show-availability").title = down.length
     ? "Unavailable now: " + down.join(", ") + (outages ? " (outage)" : "")
     : "When the services the bot uses were unavailable";
