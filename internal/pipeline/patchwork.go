@@ -41,11 +41,11 @@ func checksRefused(err error) bool {
 	return errors.As(err, &se) && se.Code == http.StatusForbidden && !se.RateLimited
 }
 
-// pwUnavailable reports whether an error says that Patchwork is
-// unavailable, rather than that one request is wrong.
+// pwUnavailable reports whether an error of a request whose context
+// is not done says that Patchwork is unavailable, rather than that one
+// request is wrong.  Timeouts of requests count.
 func pwUnavailable(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || errors.Is(err, context.Canceled) {
 		return false
 	}
 	var se *httpx.StatusError
@@ -153,10 +153,15 @@ func (g pwGate) skip() error {
 	return nil
 }
 
-func (g pwGate) note(err error) error {
+func (g pwGate) note(ctx context.Context, err error) error {
 	if err == nil {
 		g.p.pwWorked(false)
 		return nil
+	}
+	if ctx.Err() != nil {
+		// The polling cycle was stopped, which says nothing about
+		// Patchwork.
+		return err
 	}
 	err = &pwError{err}
 	if g.p.pwDown == nil && pwUnavailable(err) {
@@ -174,7 +179,7 @@ func (g pwGate) WalkEvents(ctx context.Context, opts pw.WalkOptions,
 		return opts.Cursor, err
 	}
 	cursor, err := g.p.PW.WalkEvents(ctx, opts, handle)
-	return cursor, g.note(err)
+	return cursor, g.note(ctx, err)
 }
 
 func (g pwGate) BuildSeriesURL(params pw.SeriesListParams) string {
@@ -187,7 +192,7 @@ func (g pwGate) GetSeriesPage(ctx context.Context,
 		return nil, err
 	}
 	page, err := g.p.PW.GetSeriesPage(ctx, pageURL)
-	return page, g.note(err)
+	return page, g.note(ctx, err)
 }
 
 func (g pwGate) GetSeries(ctx context.Context, id int) (*pw.Series, error) {
@@ -195,7 +200,7 @@ func (g pwGate) GetSeries(ctx context.Context, id int) (*pw.Series, error) {
 		return nil, err
 	}
 	s, err := g.p.PW.GetSeries(ctx, id)
-	return s, g.note(err)
+	return s, g.note(ctx, err)
 }
 
 func (g pwGate) GetPatch(ctx context.Context, id int) (*pw.PatchDetail, error) {
@@ -203,7 +208,7 @@ func (g pwGate) GetPatch(ctx context.Context, id int) (*pw.PatchDetail, error) {
 		return nil, err
 	}
 	d, err := g.p.PW.GetPatch(ctx, id)
-	return d, g.note(err)
+	return d, g.note(ctx, err)
 }
 
 func (g pwGate) GetCover(ctx context.Context, id int) (*pw.CoverDetail, error) {
@@ -211,7 +216,7 @@ func (g pwGate) GetCover(ctx context.Context, id int) (*pw.CoverDetail, error) {
 		return nil, err
 	}
 	c, err := g.p.PW.GetCover(ctx, id)
-	return c, g.note(err)
+	return c, g.note(ctx, err)
 }
 
 func (g pwGate) GetPatchComments(ctx context.Context, id int) ([]pw.Comment, error) {
@@ -219,7 +224,7 @@ func (g pwGate) GetPatchComments(ctx context.Context, id int) ([]pw.Comment, err
 		return nil, err
 	}
 	c, err := g.p.PW.GetPatchComments(ctx, id)
-	return c, g.note(err)
+	return c, g.note(ctx, err)
 }
 
 func (g pwGate) GetPatchChecks(ctx context.Context, id int) ([]pw.Check, error) {
@@ -227,7 +232,7 @@ func (g pwGate) GetPatchChecks(ctx context.Context, id int) ([]pw.Check, error) 
 		return nil, err
 	}
 	c, err := g.p.PW.GetPatchChecks(ctx, id)
-	return c, g.note(err)
+	return c, g.note(ctx, err)
 }
 
 func (g pwGate) CreateCheck(ctx context.Context, patchID int, chk pw.NewCheck) error {
@@ -242,8 +247,8 @@ func (g pwGate) CreateCheck(ctx context.Context, patchID int, chk pw.NewCheck) e
 		g.p.pwWorked(true)
 		return nil
 	}
-	if !checksRefused(err) {
-		return g.note(err)
+	if !checksRefused(err) || ctx.Err() != nil {
+		return g.note(ctx, err)
 	}
 	err = &pwError{err}
 	g.p.checksDown = err
@@ -264,7 +269,7 @@ func (g pwGate) FindPatchesByMsgID(ctx context.Context, msgid string) ([]pw.Patc
 		return nil, err
 	}
 	found, err := g.p.PW.FindPatchesByMsgID(ctx, msgid)
-	return found, g.note(err)
+	return found, g.note(ctx, err)
 }
 
 func (g pwGate) PatchWebURL(id int) string { return g.p.PW.PatchWebURL(id) }

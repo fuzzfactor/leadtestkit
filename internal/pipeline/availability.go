@@ -88,11 +88,11 @@ func (p *Pipeline) outageStarted(kind string, o *state.Outage) {
 	per.Outage = true
 }
 
-// ghUnavailable reports whether an error says that GitHub is
-// unavailable to the bot, rather than that one request is wrong.
+// ghUnavailable reports whether an error of a request whose context is
+// not done says that GitHub is unavailable to the bot, rather than that
+// one request is wrong.  Timeouts of requests count.
 func ghUnavailable(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || errors.Is(err, context.Canceled) {
 		return false
 	}
 	if ghapp.IsAuthError(err) {
@@ -114,10 +114,12 @@ type ghWatch struct{ p *Pipeline }
 
 var _ GitHub = ghWatch{}
 
-func (g ghWatch) note(err error) error {
+func (g ghWatch) note(ctx context.Context, err error) error {
 	switch {
 	case err == nil:
 		g.p.available(state.ServiceGitHub)
+	case ctx.Err() != nil:
+		// The polling cycle was stopped, which says nothing about GitHub.
 	case ghUnavailable(err):
 		g.p.unavailable(state.ServiceGitHub, err)
 	}
@@ -126,88 +128,88 @@ func (g ghWatch) note(err error) error {
 
 func (g ghWatch) RefSHA(ctx context.Context, name string) (string, error) {
 	sha, err := g.p.GH.RefSHA(ctx, name)
-	return sha, g.note(err)
+	return sha, g.note(ctx, err)
 }
 
 func (g ghWatch) SetBranch(ctx context.Context, branch, sha string) error {
-	return g.note(g.p.GH.SetBranch(ctx, branch, sha))
+	return g.note(ctx, g.p.GH.SetBranch(ctx, branch, sha))
 }
 
 func (g ghWatch) DeleteRef(ctx context.Context, name string) error {
-	return g.note(g.p.GH.DeleteRef(ctx, name))
+	return g.note(ctx, g.p.GH.DeleteRef(ctx, name))
 }
 
 func (g ghWatch) MatchingRefs(ctx context.Context, prefix string) (map[string]string, error) {
 	refs, err := g.p.GH.MatchingRefs(ctx, prefix)
-	return refs, g.note(err)
+	return refs, g.note(ctx, err)
 }
 
 func (g ghWatch) RunsForSHA(ctx context.Context, sha string) ([]gh.WorkflowRun, error) {
 	runs, err := g.p.GH.RunsForSHA(ctx, sha)
-	return runs, g.note(err)
+	return runs, g.note(ctx, err)
 }
 
 func (g ghWatch) DispatchRuns(ctx context.Context, branch string,
 	since time.Time) ([]gh.WorkflowRun, error) {
 	runs, err := g.p.GH.DispatchRuns(ctx, branch, since)
-	return runs, g.note(err)
+	return runs, g.note(ctx, err)
 }
 
 func (g ghWatch) ActiveRuns(ctx context.Context) ([]gh.WorkflowRun, error) {
 	runs, err := g.p.GH.ActiveRuns(ctx)
-	return runs, g.note(err)
+	return runs, g.note(ctx, err)
 }
 
 func (g ghWatch) RunsSince(ctx context.Context, since time.Time) ([]gh.WorkflowRun, error) {
 	runs, err := g.p.GH.RunsSince(ctx, since)
-	return runs, g.note(err)
+	return runs, g.note(ctx, err)
 }
 
 func (g ghWatch) Run(ctx context.Context, id int64) (gh.WorkflowRun, error) {
 	r, err := g.p.GH.Run(ctx, id)
-	return r, g.note(err)
+	return r, g.note(ctx, err)
 }
 
 func (g ghWatch) Jobs(ctx context.Context, runID int64) ([]gh.Job, error) {
 	jobs, err := g.p.GH.Jobs(ctx, runID)
-	return jobs, g.note(err)
+	return jobs, g.note(ctx, err)
 }
 
 func (g ghWatch) JobLog(ctx context.Context, jobID int64) (string, error) {
 	log, err := g.p.GH.JobLog(ctx, jobID)
-	return log, g.note(err)
+	return log, g.note(ctx, err)
 }
 
 func (g ghWatch) CheckRuns(ctx context.Context, suiteID int64) ([]gh.CheckRun, error) {
 	runs, err := g.p.GH.CheckRuns(ctx, suiteID)
-	return runs, g.note(err)
+	return runs, g.note(ctx, err)
 }
 
 func (g ghWatch) Annotations(ctx context.Context, checkRunID int64) ([]gh.Annotation, error) {
 	list, err := g.p.GH.Annotations(ctx, checkRunID)
-	return list, g.note(err)
+	return list, g.note(ctx, err)
 }
 
 func (g ghWatch) Rerun(ctx context.Context, runID int64, failedOnly bool) error {
-	return g.note(g.p.GH.Rerun(ctx, runID, failedOnly))
+	return g.note(ctx, g.p.GH.Rerun(ctx, runID, failedOnly))
 }
 
 func (g ghWatch) Dispatch(ctx context.Context, file, ref string,
 	inputs map[string]string) error {
-	return g.note(g.p.GH.Dispatch(ctx, file, ref, inputs))
+	return g.note(ctx, g.p.GH.Dispatch(ctx, file, ref, inputs))
 }
 
 func (g ghWatch) WorkflowFiles(ctx context.Context, ref string) ([]string, error) {
 	files, err := g.p.GH.WorkflowFiles(ctx, ref)
-	return files, g.note(err)
+	return files, g.note(ctx, err)
 }
 
 func (g ghWatch) Workflows(ctx context.Context) ([]gh.Workflow, error) {
 	list, err := g.p.GH.Workflows(ctx)
-	return list, g.note(err)
+	return list, g.note(ctx, err)
 }
 
 func (g ghWatch) File(ctx context.Context, path, ref string) ([]byte, error) {
 	data, err := g.p.GH.File(ctx, path, ref)
-	return data, g.note(err)
+	return data, g.note(ctx, err)
 }

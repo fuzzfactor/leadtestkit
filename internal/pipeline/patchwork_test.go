@@ -50,6 +50,7 @@ func TestPWUnavailable(t *testing.T) {
 		{&httpx.StatusError{Code: 404}, false},
 		{&httpx.StatusError{Code: 403}, false},
 		{&httpx.StatusError{Code: 400}, false},
+		{fmt.Errorf("lorem: %w", context.DeadlineExceeded), true},
 		{context.Canceled, false},
 		{nil, false},
 	} {
@@ -70,5 +71,25 @@ func TestRecheckWithoutPatchwork(t *testing.T) {
 	e.step()
 	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{failed}) || !pt.CommentsPending {
 		t.Fatalf("reruns = %v, patch = %+v", e.gh.reruns, pt)
+	}
+}
+
+// A request that times out counts, but not one of a stopped cycle.
+func TestPatchworkTimeouts(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.errs["series"] = fmt.Errorf("lorem (Client.Timeout exceeded): %w",
+		context.DeadlineExceeded)
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := e.p.pw().GetSeries(stopped, 1); err == nil || e.p.pwDown != nil ||
+		e.p.Store.Availability.Failing[state.ServicePatchwork] != nil {
+		t.Fatalf("a stopped cycle counted: %v, %v", err, e.p.pwDown)
+	}
+	if !ghUnavailable(e.pw.errs["series"]) {
+		t.Error("a timeout of GitHub does not count")
+	}
+	if _, err := e.p.pw().GetSeries(context.Background(), 1); err == nil ||
+		e.p.pwDown == nil {
+		t.Fatalf("a timeout did not count: %v", err)
 	}
 }
