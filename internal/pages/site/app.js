@@ -181,10 +181,19 @@ function toggle(text, panel) {
   return [b, panel];
 }
 
+// stamp shows a time as local "YYYY-MM-DD HH:MM", for logs of events.
+function stamp(ts) {
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2, "0");
+  return el("time", { class: "muted", datetime: ts, title: ts },
+    d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " +
+    pad(d.getHours()) + ":" + pad(d.getMinutes()));
+}
+
 function decisions(list) {
   if (!list || !list.length) return [null, null];
   const rows = list.map(d => el("li", {},
-    when(d.time), " ", el("strong", {}, d.action.replace(/-/g, " ")), ": ", d.detail, " ",
+    stamp(d.time), " ", el("strong", {}, d.action.replace(/-/g, " ")), ": ", d.detail, " ",
     links([[d.workflow_url, "workflow run"], [d.run_url, "bot run logs"]])));
   return toggle("history (" + list.length + ")", el("ol", { class: "decisions" }, rows));
 }
