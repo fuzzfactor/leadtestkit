@@ -17,7 +17,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 9
+const SchemaVersion = 10
 
 const (
 	kindMeta   = "meta"
@@ -32,6 +32,34 @@ var migrations = map[int]func(kind string, doc map[string]any) error{
 	4: dropUnpushedBranches,
 	5: linkRunDecisions,
 	7: keyOutages,
+	9: splitCheckFailures,
+}
+
+// splitCheckFailures moves the retry delays of pending checks, which
+// delayed all reports of their runs before schema 10, to their own
+// field.
+func splitCheckFailures(kind string, doc map[string]any) error {
+	if kind != kindSeries {
+		return nil
+	}
+	list, _ := doc["series"].([]any)
+	for _, x := range list {
+		s, _ := x.(map[string]any)
+		patches, _ := s["patches"].([]any)
+		for _, y := range patches {
+			p, _ := y.(map[string]any)
+			runs, _ := p["runs"].([]any)
+			for _, z := range runs {
+				r, _ := z.(map[string]any)
+				f, _ := r["failure"].(map[string]any)
+				if f != nil && f["op"] == "pending check" {
+					r["check_failure"] = f
+					delete(r, "failure")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // keyOutages moves the outage of workflows, the only kind before

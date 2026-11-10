@@ -230,6 +230,9 @@ type Run struct {
 	Pending Report   `json:"pending"`
 	Final   Report   `json:"final"`
 	Failure *Failure `json:"failure,omitempty"`
+	// CheckFailure delays retries of the pending check.  It is kept
+	// apart from Failure so that the emails do not wait for it.
+	CheckFailure *Failure `json:"check_failure,omitempty"`
 }
 
 type Report struct {

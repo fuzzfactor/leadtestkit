@@ -27,6 +27,7 @@ func (p *Pipeline) report(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
+				p.dropPendingRetries(pt, r)
 				if !r.Failure.Due(p.now()) {
 					p.infof("%s: delaying %s report until the %s retry at %s.",
 						patchName(pt), p.label(r),
@@ -68,6 +69,32 @@ func (p *Pipeline) description(r *state.Run, result string) string {
 	return prefix + ": " + resultWord(result)
 }
 
+// dropPendingRetries gives up the pending reports of a completed run
+// that wait for a retry, so that the final report does not wait for
+// them; the final check replaces the pending one.
+func (p *Pipeline) dropPendingRetries(pt *state.Patch, r *state.Run) {
+	if r.Status != "completed" {
+		return
+	}
+	if f := r.CheckFailure; f != nil {
+		p.notePatch(pt, "check-failed", "Gave up the pending check for %s: the run "+
+			"completed. Last error: %s", p.label(r), f.LastError)
+		p.infof("%s: giving up the pending check for %s, which completed; the final "+
+			"check replaces it. Last error: %s", patchName(pt), p.label(r), f.LastError)
+		r.Pending.Check = state.StepFailed
+		r.CheckFailure = nil
+	}
+	if f := r.Failure; f != nil && f.Op == "pending email" {
+		p.notePatch(pt, "report-failed", "Gave up the pending email for %s: the run "+
+			"completed. Last error: %s", p.label(r), f.LastError)
+		p.infof("%s: giving up the pending email for %s, which completed; sending the "+
+			"final report instead. Last error: %s", patchName(pt), p.label(r),
+			f.LastError)
+		r.Pending.Email = state.StepFailed
+		r.Failure = nil
+	}
+}
+
 func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 	pt *state.Patch, r *state.Run) {
 	if r.Kind != state.RunPush && r.Kind != state.RunDispatch {
@@ -76,79 +103,91 @@ func (p *Pipeline) reportPending(ctx context.Context, s *state.Series,
 	if r.ID == 0 || r.Status == "completed" || r.Status == "requested" {
 		return
 	}
-	if r.Pending.Check == "" {
-		if !p.Cfg.Report.PendingCheck() {
-			p.notePatch(pt, "check-skipped", "Pending checks disabled for %s.",
-				p.label(r))
-			p.infof("%s: pending checks disabled; not posting one for %s.",
-				patchName(pt), p.label(r))
-			r.Pending.Check = state.StepSkipped
-		} else {
-			target := r.URL
-			if target == "" {
-				target = p.branchURL(s.Branch)
-			}
-			chk := pw.NewCheck{
-				State:       state.ResultPending,
-				TargetURL:   target,
-				Context:     report.Context(p.label(r)),
-				Description: p.description(r, state.ResultPending),
-			}
-			if !p.Cfg.Mode.PostChecks() {
-				p.infof("%s: would post pending check %s, checks mode is %s, "+
-					"linking to %s", patchName(pt), chk.Context,
-					p.Cfg.Mode.Checks, chk.TargetURL)
-				r.Pending.Check = state.StepLogged
-				p.notePatch(pt, "check-logged", "Would post pending check %s "+
-					"linking to %s", chk.Context, chk.TargetURL)
-			} else {
-				p.infof("%s: posting pending check %s linking to %s",
-					patchName(pt), chk.Context, chk.TargetURL)
-				if err := p.PW.CreateCheck(ctx, pt.ID, chk); err != nil {
-					p.warnf("%s: pending check %s failed: %v",
-						patchName(pt), chk.Context, err)
-					if p.fail(&r.Failure, "pending check", err) {
-						r.Pending.Check = state.StepFailed
-						r.Failure = nil
-					}
-					p.notePatch(pt, "check-failed", "Pending check %s: %v",
-						chk.Context, err)
-					return
-				}
-				r.Pending.Check = state.StepPosted
-				p.Stats.Checks++
-				p.notePatch(pt, "check-posted", "Pending check %s linking to %s.",
-					chk.Context, chk.TargetURL)
-				p.infof("%s: pending check %s posted successfully.",
-					patchName(pt), chk.Context)
-			}
-		}
+	p.pendingCheck(ctx, s, pt, r)
+	p.pendingEmail(ctx, s, pt, r)
+}
+
+// pendingCheck posts the pending check of a run.  Its failures only
+// delay its own retries.
+func (p *Pipeline) pendingCheck(ctx context.Context, s *state.Series,
+	pt *state.Patch, r *state.Run) {
+	if r.Pending.Check != "" {
+		return
 	}
-	if r.Pending.Email == "" {
-		if !p.Cfg.Report.PendingEmail() {
-			p.notePatch(pt, "report-skipped", "Pending emails disabled for %s.",
-				p.label(r))
-			p.infof("%s: pending emails disabled; not sending one for %s.",
-				patchName(pt), p.label(r))
-			r.Pending.Email = state.StepSkipped
-			return
-		}
-		id, err := p.sendReport(ctx, s, pt, r, state.ResultPending, "pending", "")
-		if err != nil {
-			p.notePatch(pt, "report-failed", "Pending email for %s: %v",
-				p.label(r), err)
-			p.warnf("%s: pending email for %s failed: %v",
-				patchName(pt), p.label(r), err)
-			if p.fail(&r.Failure, "pending email", err) {
-				r.Pending.Email = state.StepFailed
-				r.Failure = nil
-			}
-			return
-		}
-		r.Failure = nil
-		r.Pending.MessageID = id
-		r.Pending.Email = emailStep(p.Cfg.Mode.EmailOff())
+	if !p.Cfg.Report.PendingCheck() {
+		p.notePatch(pt, "check-skipped", "Pending checks disabled for %s.", p.label(r))
+		p.infof("%s: pending checks disabled; not posting one for %s.",
+			patchName(pt), p.label(r))
+		r.Pending.Check = state.StepSkipped
+		return
 	}
+	if !r.CheckFailure.Due(p.now()) {
+		p.infof("%s: delaying the pending check for %s until the retry at %s.",
+			patchName(pt), p.label(r), r.CheckFailure.Next)
+		return
+	}
+	target := r.URL
+	if target == "" {
+		target = p.branchURL(s.Branch)
+	}
+	chk := pw.NewCheck{
+		State:       state.ResultPending,
+		TargetURL:   target,
+		Context:     report.Context(p.label(r)),
+		Description: p.description(r, state.ResultPending),
+	}
+	if !p.Cfg.Mode.PostChecks() {
+		p.infof("%s: would post pending check %s, checks mode is %s, linking to %s",
+			patchName(pt), chk.Context, p.Cfg.Mode.Checks, chk.TargetURL)
+		r.Pending.Check = state.StepLogged
+		p.notePatch(pt, "check-logged", "Would post pending check %s linking to %s",
+			chk.Context, chk.TargetURL)
+		return
+	}
+	p.infof("%s: posting pending check %s linking to %s",
+		patchName(pt), chk.Context, chk.TargetURL)
+	if err := p.PW.CreateCheck(ctx, pt.ID, chk); err != nil {
+		p.warnf("%s: pending check %s failed: %v", patchName(pt), chk.Context, err)
+		if p.fail(&r.CheckFailure, "pending check", err) {
+			r.Pending.Check = state.StepFailed
+			r.CheckFailure = nil
+		}
+		p.notePatch(pt, "check-failed", "Pending check %s: %v", chk.Context, err)
+		return
+	}
+	r.CheckFailure = nil
+	r.Pending.Check = state.StepPosted
+	p.Stats.Checks++
+	p.notePatch(pt, "check-posted", "Pending check %s linking to %s.",
+		chk.Context, chk.TargetURL)
+	p.infof("%s: pending check %s posted successfully.", patchName(pt), chk.Context)
+}
+
+func (p *Pipeline) pendingEmail(ctx context.Context, s *state.Series,
+	pt *state.Patch, r *state.Run) {
+	if r.Pending.Email != "" {
+		return
+	}
+	if !p.Cfg.Report.PendingEmail() {
+		p.notePatch(pt, "report-skipped", "Pending emails disabled for %s.", p.label(r))
+		p.infof("%s: pending emails disabled; not sending one for %s.",
+			patchName(pt), p.label(r))
+		r.Pending.Email = state.StepSkipped
+		return
+	}
+	id, err := p.sendReport(ctx, s, pt, r, state.ResultPending, "pending", "")
+	if err != nil {
+		p.notePatch(pt, "report-failed", "Pending email for %s: %v", p.label(r), err)
+		p.warnf("%s: pending email for %s failed: %v", patchName(pt), p.label(r), err)
+		if p.fail(&r.Failure, "pending email", err) {
+			r.Pending.Email = state.StepFailed
+			r.Failure = nil
+		}
+		return
+	}
+	r.Failure = nil
+	r.Pending.MessageID = id
+	r.Pending.Email = emailStep(p.Cfg.Mode.EmailOff())
 }
 
 func emailStep(off bool) string {

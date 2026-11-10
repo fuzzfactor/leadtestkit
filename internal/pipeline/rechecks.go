@@ -314,7 +314,7 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 		r.Result, r.Conclusion, r.Completed, r.Details = "", "", "", ""
 		r.Pending, r.Final = state.Report{}, state.Report{}
 		r.AutoReruns = 0
-		r.Failure = nil
+		r.Failure, r.CheckFailure = nil, nil
 		r.Updated = state.FormatTime(now)
 	}
 	for _, r := range rerun {

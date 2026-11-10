@@ -252,6 +252,37 @@ func TestVersionSevenKeysOutages(t *testing.T) {
 	}
 }
 
+func TestVersionNineSplitsCheckFailures(t *testing.T) {
+	dir := t.TempDir()
+	x := sampleSeries(1)
+	f := &Failure{Op: "pending check", Attempts: 2, LastError: "lorem",
+		First: "2026-03-10T12:00:00Z", Next: "2026-03-10T12:10:00Z"}
+	other := &Failure{Op: "logs", Attempts: 1, LastError: "ipsum",
+		First: "2026-03-10T12:00:00Z", Next: "2026-03-10T12:05:00Z"}
+	x.Patches[0].Runs = []*Run{{Kind: RunPush, ID: 1, Failure: f},
+		{Kind: RunPush, ID: 2, Failure: other}}
+	b, err := json.Marshal(queueFile{Schema: 9, Series: []*Series{x}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, QueueFile), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := s.Queue[0].Patches[0].Runs
+	if runs[0].Failure != nil || !reflect.DeepEqual(runs[0].CheckFailure, f) {
+		t.Errorf("pending check: failure = %+v, check failure = %+v",
+			runs[0].Failure, runs[0].CheckFailure)
+	}
+	if !reflect.DeepEqual(runs[1].Failure, other) || runs[1].CheckFailure != nil {
+		t.Errorf("logs: failure = %+v, check failure = %+v",
+			runs[1].Failure, runs[1].CheckFailure)
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)

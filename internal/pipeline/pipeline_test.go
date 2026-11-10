@@ -434,6 +434,66 @@ func TestEmailFailureRetried(t *testing.T) {
 	}
 }
 
+// A failing pending check delays only its own retries, and is given up
+// when the run completes.
+func TestPendingCheckFailureDoesNotDelayEmails(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(71, 1, "lorem", e.now)
+	e.step()
+	pt := e.series(71).Patches[0]
+	ids := e.gh.startRuns("series_71", pt.SHA, "Build")
+	e.pw.fail["create-check"] = 100
+	e.advance(3 * time.Minute)
+	e.step()
+	r := pt.Run(state.RunPush, "Build")
+	if r == nil || r.Pending.Check != "" || r.CheckFailure == nil ||
+		r.Pending.Email != state.StepSent || r.Failure != nil {
+		t.Fatalf("run = %+v", r)
+	}
+	calls := e.pw.calls["create-check"]
+	e.advance(time.Minute)
+	e.step()
+	if e.pw.calls["create-check"] != calls {
+		t.Fatalf("pending check retried before its delay")
+	}
+	e.gh.finishRun(ids[0], "success")
+	e.advance(time.Minute)
+	e.step()
+	e.advance(11 * time.Minute)
+	e.step()
+	if r.Pending.Check != state.StepFailed || r.CheckFailure != nil ||
+		r.Final.Email != state.StepSent {
+		t.Fatalf("run = %+v", r)
+	}
+}
+
+// A pending email waiting for a retry is given up when the run
+// completes, so the final email does not wait for it.
+func TestPendingEmailRetryDroppedOnCompletion(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(72, 1, "lorem", e.now)
+	e.step()
+	pt := e.series(72).Patches[0]
+	ids := e.gh.startRuns("series_72", pt.SHA, "Build")
+	e.mail.fail = 1
+	e.advance(3 * time.Minute)
+	e.step()
+	r := pt.Run(state.RunPush, "Build")
+	if r == nil || r.Failure == nil || r.Failure.Op != "pending email" {
+		t.Fatalf("run = %+v", r)
+	}
+	r.Failure.Next = state.FormatTime(e.now.Add(24 * time.Hour))
+	e.gh.finishRun(ids[0], "success")
+	e.advance(time.Minute)
+	e.step()
+	e.advance(11 * time.Minute)
+	e.step()
+	if r.Pending.Email != state.StepFailed || r.Failure != nil ||
+		r.Final.Email != state.StepSent {
+		t.Fatalf("run = %+v", r)
+	}
+}
+
 func TestPendingModes(t *testing.T) {
 	for _, tc := range []struct{ mode, check, email string }{
 		{"check", state.StepPosted, state.StepSkipped},
