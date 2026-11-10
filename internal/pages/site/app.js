@@ -455,6 +455,13 @@ function outageText(kind, o) {
   case "reports-archive":
     return ["The reports archive could not be read for ", span(o.since), reason,
       "Final Patchwork checks wait until it can be read."];
+  case "patchwork":
+    if (o.checks) {
+      return ["Patchwork has refused the checks of the bot for ", span(o.since), reason,
+        "Checks wait until it accepts them."];
+    }
+    return ["Patchwork has been unavailable for ", span(o.since), reason,
+      "New series, recheck requests and checks wait until it is available."];
   case "dev-archive":
     return ["The dev list archive could not be read for ", span(o.since), reason,
       "Recheck requests wait until it can be read."];

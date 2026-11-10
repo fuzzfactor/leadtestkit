@@ -109,7 +109,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 		p.infof("Not rescanning reports: the archive was already read in this invocation.")
 		return
 	}
-	if p.pwSkipped("reading archived reports") {
+	if p.checksSkipped("reading archived reports") {
 		return
 	}
 	p.infof("Scanning the reports archive; at most %d messages will be processed this cycle.",
@@ -139,7 +139,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			p.infof("Waiting until %s to retry reading the report %s", f.Next, u)
 			continue
 		}
-		if p.pwSkipped("reading archived reports") {
+		if p.checksSkipped("reading archived reports") {
 			return
 		}
 		budget--
@@ -150,8 +150,8 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			continue
 		}
 		deadline := archiveTimeout
-		down := p.outage(state.OutageArchive(reportsCursor)) != nil
-		if down {
+		kind := p.reportOutage(err)
+		if kind != "" {
 			deadline = 0
 		}
 		if state.RecordFailure(&f, "ingest", err, now, deadline) {
@@ -159,9 +159,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			p.errorf("giving up on the report %s after errors: %v", u, err)
 			continue
 		}
-		if down {
-			f.Outage = state.OutageArchive(reportsCursor)
-		}
+		f.Outage, f.Cause = kind, p.outageOf(err)
 		c.Retry[u] = f
 		p.logFailure(f, false)
 	}
@@ -181,7 +179,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 				c.LastMonth = monthOfKey(mm.key)
 				return
 			}
-			if p.pwSkipped("reading archived reports") {
+			if p.checksSkipped("reading archived reports") {
 				c.LastMonth = monthOfKey(mm.key)
 				return
 			}
@@ -190,9 +188,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 			if err := p.ingestMessage(ctx, u); err != nil && !errors.Is(err, errSkip) {
 				var f *state.Failure
 				state.RecordFailure(&f, "ingest", err, now, archiveTimeout)
-				if p.outage(state.OutageArchive(reportsCursor)) != nil {
-					f.Outage = state.OutageArchive(reportsCursor)
-				}
+				f.Outage, f.Cause = p.reportOutage(err), p.outageOf(err)
 				if c.Retry == nil {
 					c.Retry = map[string]*state.Failure{}
 				}
@@ -208,6 +204,18 @@ func (p *Pipeline) ingest(ctx context.Context) {
 	}
 	p.infof("Reports scan finished: used %d of %d message slots; %d reports await retry.",
 		p.Cfg.Archive.MaxMessages-budget, p.Cfg.Archive.MaxMessages, len(c.Retry))
+}
+
+// reportOutage tells the outage that a report waits for after an error,
+// if any.  Reports wait without a deadline then.
+func (p *Pipeline) reportOutage(err error) string {
+	if kind := p.outageOf(err); kind == state.OutagePatchwork && p.outage(kind) != nil {
+		return kind
+	}
+	if kind := state.OutageArchive(reportsCursor); p.outage(kind) != nil {
+		return kind
+	}
+	return ""
 }
 
 func monthOfKey(key string) string {
@@ -309,8 +317,10 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	p.infof("Patch %d (%s): posting %s check %s linking to the archived report %s",
 		patchID, name, chk.State, chk.Context, msgURL)
 	if err := p.pw().CreateCheck(ctx, patchID, chk); err != nil {
+		// Refused tokens and checks wait for the outage they start.
 		if code := httpx.StatusCode(err); code >= 400 && code < 500 &&
-			code != http.StatusTooManyRequests {
+			code != http.StatusTooManyRequests && code != http.StatusUnauthorized &&
+			!checksRefused(err) {
 			p.noteCheck(patchID, "check-rejected",
 				fmt.Sprintf("Check %s from %s rejected: %v", chk.Context, msgURL,
 					err))

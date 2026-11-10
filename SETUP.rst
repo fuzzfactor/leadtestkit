@@ -346,6 +346,14 @@ continues by itself once it works again.  It recognizes:
   works again.
 - **An archive that cannot be read for a day**: final Patchwork checks,
   or rechecks from the dev list, wait until it can be read again.
+- **Patchwork unavailable for two hours, or refusing the token**
+  (``LEADTEST_PW_TOKEN``): new series, recheck requests and checks wait,
+  while patches already applied are still tested and reported by
+  email.  Whenever Patchwork is unavailable, the rest of the polling
+  cycle skips it, and the next cycle tries again.
+- **Patchwork refusing checks**: the user of the token is not a
+  maintainer of the project.  Checks wait until Patchwork accepts one
+  again.
 
 The maintainers in ``alerts.to`` get an email when the bot notices a
 problem, once a day while it lasts and when it is over.  The bot runs

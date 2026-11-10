@@ -421,10 +421,11 @@ pages:
 alerts:
   # Maintainers of the bot who get an email when something the bot
   # needs stops working: workflows on the test repository, the GitHub
-  # App, or an archive (see SETUP.rst).  They get one when it is noticed, once
-  # a day while it lasts and when it is over.  The bot run that sends
-  # an alert fails; when email itself does not work, that failing run
-  # is the only alert.  Alerts use the smtp settings and are sent in
-  # mode.email test too, not only to mode.allowed_recipients, but not
-  # with mode.email off.  Empty: no alert emails.
+  # App, Patchwork or an archive (see SETUP.rst).  They get one when it
+  # is noticed, once a day while it lasts and when it is over.  The bot
+  # run that sends an alert fails; when email itself does not work,
+  # that failing run is the only alert.  Alerts use the smtp settings
+  # and are sent in mode.email test too, not only to
+  # mode.allowed_recipients, but not with mode.email off.  Empty: no
+  # alert emails.
   to: []

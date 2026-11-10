@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"leadtestkit/internal/ghapp"
+	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/mail"
 	"leadtestkit/internal/state"
 )
@@ -479,5 +480,126 @@ func TestBriefServerErrorsKeepTheDeadline(t *testing.T) {
 	e.advance(2 * time.Hour)
 	if !e.p.recordFailure(&f, "report email", errTransient, 2*time.Hour) {
 		t.Fatalf("never gave up: %+v", f)
+	}
+}
+
+func TestOutageOfPatchwork(t *testing.T) {
+	e := outageEnv(t)
+	start := state.FormatTime(e.now)
+	e.pw.addSeries(80, 1, "lorem", e.now)
+	e.pw.errs["series"] = errTransient
+	e.step()
+	s := e.series(80)
+	if s.Failure == nil || s.Failure.Cause != state.OutagePatchwork ||
+		s.Failure.Outage != "" || e.p.Store.Meta.PatchworkFailing != start {
+		t.Fatalf("failure = %+v, failing since %q", s.Failure,
+			e.p.Store.Meta.PatchworkFailing)
+	}
+
+	// Two hours without answers are an outage since the first failure.
+	e.pw.errs["*"] = errTransient
+	e.advance(time.Hour)
+	e.reload()
+	e.step()
+	if e.p.outage(state.OutagePatchwork) != nil {
+		t.Fatal("outage after an hour")
+	}
+	e.advance(61 * time.Minute)
+	e.reload()
+	e.step()
+	o := e.p.outage(state.OutagePatchwork)
+	if o == nil || o.Since != start || o.Checks {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+	if alerts := e.alerts.subjects(); len(alerts) != 1 ||
+		alerts[0] != "LeadTestKit: Patchwork is unavailable" {
+		t.Fatalf("alerts = %q", alerts)
+	}
+	s = e.series(80)
+	if s.Failure.Outage != state.OutagePatchwork {
+		t.Fatalf("the earlier failure does not wait for the outage: %+v", s.Failure)
+	}
+
+	// The series waits past its retry deadline, without being asked for.
+	calls := e.pw.calls["series"]
+	for i := 0; i < 3; i++ {
+		e.advance(24 * time.Hour)
+		e.reload()
+		e.step()
+	}
+	if s = e.series(80); s.Status != state.SeriesNew || e.pw.calls["series"] != calls {
+		t.Fatalf("series = %+v, %d requests", s, e.pw.calls["series"]-calls)
+	}
+
+	delete(e.pw.errs, "*")
+	delete(e.pw.errs, "series")
+	e.reload()
+	e.step()
+	if s = e.series(80); s.Status != state.SeriesTesting ||
+		e.p.outage(state.OutagePatchwork) != nil || e.p.Store.Meta.PatchworkFailing != "" {
+		t.Fatalf("series = %+v, outages %+v", s, e.p.Store.Meta.Outages)
+	}
+	if alerts := e.alerts.subjects(); alerts[len(alerts)-1] !=
+		"LeadTestKit: Patchwork is available again" {
+		t.Fatalf("alerts = %q", alerts)
+	}
+}
+
+func TestPatchworkRefusingTheToken(t *testing.T) {
+	e := outageEnv(t)
+	e.pw.errs["*"] = &httpx.StatusError{Code: 401,
+		URL: "https://pw.example.org/api/1.2/events/", Body: "Invalid token."}
+	e.step()
+	o := e.p.outage(state.OutagePatchwork)
+	if o == nil || !strings.Contains(o.Reason, "Invalid token") {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+}
+
+func TestPatchworkRefusingChecks(t *testing.T) {
+	e := outageEnv(t)
+	e.cfg.Mode.Push = "off"
+	e.step()
+	e.reload()
+	e.pw.addSeries(90, 1, "lorem", e.now)
+	u := e.reports.add(e.now, 1, "|FAILURE| pw9001 x",
+		reportBody("lab-robot: Perf test", "FAILURE", 9001), "<b@lab>")
+	e.pw.errs["create-check"] = &httpx.StatusError{Code: 403,
+		URL:  "https://pw.example.org/api/1.2/patches/9001/checks/",
+		Body: "You do not have permission to perform this action."}
+	e.step()
+	o := e.p.outage(state.OutagePatchwork)
+	if o == nil || !o.Checks {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+	if alerts := e.alerts.subjects(); len(alerts) != 1 ||
+		alerts[0] != "LeadTestKit: Patchwork refuses the checks of the bot" {
+		t.Fatalf("alerts = %q", alerts)
+	}
+	f := e.p.Store.Cursor(reportsCursor).Retry[u]
+	if f == nil || f.Outage != state.OutagePatchwork {
+		t.Fatalf("report failure = %+v", f)
+	}
+
+	// Patchwork answering other requests does not end it.
+	e.advance(time.Hour)
+	e.reload()
+	e.step()
+	if again := e.p.outage(state.OutagePatchwork); again == nil ||
+		again.Since != o.Since || len(e.alerts.sent) != 1 {
+		t.Fatalf("reads ended the outage: %+v, alerts %q", again, e.alerts.subjects())
+	}
+
+	delete(e.pw.errs, "create-check")
+	e.advance(time.Hour)
+	e.reload()
+	e.step()
+	if len(e.pw.posted) != 1 || e.p.outage(state.OutagePatchwork) != nil ||
+		len(e.p.Store.Cursor(reportsCursor).Retry) != 0 {
+		t.Fatalf("posted = %+v, outages %+v", e.pw.posted, e.p.Store.Meta.Outages)
+	}
+	if alerts := e.alerts.subjects(); alerts[len(alerts)-1] !=
+		"LeadTestKit: Patchwork accepts the checks of the bot again" {
+		t.Fatalf("alerts = %q", alerts)
 	}
 }

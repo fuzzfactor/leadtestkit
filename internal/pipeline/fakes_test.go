@@ -37,6 +37,8 @@ type fakePW struct {
 	posted   []postedCheck
 	fail     map[string]int
 	calls    map[string]int
+	// errs fails an operation, or all with "*", until it is removed.
+	errs map[string]error
 }
 
 type postedCheck struct {
@@ -49,11 +51,18 @@ func newFakePW() *fakePW {
 		series: map[int]*pw.Series{}, patches: map[int]*pw.PatchDetail{},
 		covers: map[int]*pw.CoverDetail{}, comments: map[int][]pw.Comment{},
 		checks: map[int][]pw.Check{}, fail: map[string]int{}, calls: map[string]int{},
+		errs: map[string]error{},
 	}
 }
 
 func (f *fakePW) maybeFail(op string) error {
 	f.calls[op]++
+	if err := f.errs[op]; err != nil {
+		return err
+	}
+	if err := f.errs["*"]; err != nil {
+		return err
+	}
 	if f.fail[op] > 0 {
 		f.fail[op]--
 		return errTransient

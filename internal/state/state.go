@@ -66,6 +66,9 @@ type Meta struct {
 	// Outages holds the services that do not work, by kind of outage,
 	// like OutageRuns, while it lasts.
 	Outages map[string]*Outage `json:"outages,omitempty"`
+	// PatchworkFailing is since when Patchwork does not answer, before
+	// that counts as an outage.
+	PatchworkFailing string `json:"patchwork_failing,omitempty"`
 }
 
 // Outage records that a service the bot needs does not work, so that
@@ -81,6 +84,9 @@ type Outage struct {
 	// AlertFailing is since when alerts cannot be sent because of the
 	// SMTP server.
 	AlertFailing string `json:"alert_failing,omitempty"`
+	// Checks is set on an outage of Patchwork that only refuses checks;
+	// it ends when a check is accepted.
+	Checks bool `json:"checks,omitempty"`
 }
 
 const (
@@ -94,6 +100,9 @@ const (
 	OutageGitHub = "github"
 	// OutageEmail: the SMTP server cannot be used.
 	OutageEmail = "email"
+	// OutagePatchwork: Patchwork does not answer, refuses the token or
+	// refuses checks.
+	OutagePatchwork = "patchwork"
 )
 
 // OutageArchive is the kind of outage of the archive with this cursor.
@@ -250,6 +259,9 @@ type Failure struct {
 	// Outage is the kind of outage the failure waits for, without a
 	// deadline.  The waiting does not count once it ends.
 	Outage string `json:"outage,omitempty"`
+	// Cause is the kind of outage the last error points at, even before
+	// that outage started; the failure waits for it once it does.
+	Cause string `json:"cause,omitempty"`
 }
 
 const (

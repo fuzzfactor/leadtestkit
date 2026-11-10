@@ -113,9 +113,12 @@ type Pipeline struct {
 	workflowNamesStep int
 	// reported lists the outages reported in this bot run.
 	reported map[string]bool
-	// pwDown is the error that showed Patchwork not working in this
+	// pwDown is the error that showed Patchwork unavailable in this
 	// polling cycle; see pwGate.
-	pwDown        error
+	pwDown error
+	// checksDown is the error of a check that Patchwork refused in
+	// this polling cycle.
+	checksDown    error
 	pwSkipLogged  map[string]bool
 	safetyNetDone bool
 	syncDone      bool
@@ -232,7 +235,7 @@ func (p *Pipeline) checkpoint(ctx context.Context, stage string) {
 
 func (p *Pipeline) Step(ctx context.Context, final bool) {
 	p.steps++
-	p.pwDown, p.pwSkipLogged = nil, nil
+	p.pwDown, p.checksDown, p.pwSkipLogged = nil, nil, nil
 	started := time.Now()
 	p.infof("Starting polling cycle %d: %s.", p.steps, p.queueSummary())
 	stages := []struct {

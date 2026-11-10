@@ -136,7 +136,7 @@ func (p *Pipeline) pendingCheck(ctx context.Context, s *state.Series,
 		Context:     report.Context(p.label(r)),
 		Description: p.description(r, state.ResultPending),
 	}
-	if p.Cfg.Mode.PostChecks() && p.pwSkipped("posting pending checks") {
+	if p.Cfg.Mode.PostChecks() && p.checksSkipped("posting pending checks") {
 		return
 	}
 	if !p.Cfg.Mode.PostChecks() {

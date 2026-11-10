@@ -66,7 +66,7 @@ type outageText struct {
 	fixed, after string
 }
 
-func (p *Pipeline) describe(kind string) outageText {
+func (p *Pipeline) describe(kind string, o *state.Outage) outageText {
 	repo := p.Cfg.TestRepo.Repo
 	switch kind {
 	case state.OutageRuns, state.OutageDispatch:
@@ -94,6 +94,30 @@ func (p *Pipeline) describe(kind string) outageText {
 				"of the bot repository belong to it.",
 			fixed: "GitHub accepts the GitHub App of the bot again",
 			after: "The bot continues where it stopped.",
+		}
+	case state.OutagePatchwork:
+		project := p.Cfg.Patchwork.Project
+		if o != nil && o.Checks {
+			return outageText{
+				what: "Patchwork refuses the checks of the bot",
+				effect: "Checks wait and are posted once it accepts them again;\n" +
+					"nothing is lost.  Testing and emails continue.",
+				explain: "The Patchwork user of the LEADTEST_PW_TOKEN secret\n" +
+					"must be a maintainer of the " + project + " project.",
+				fixed: "Patchwork accepts the checks of the bot again",
+				after: "The checks that waited are posted now.",
+			}
+		}
+		return outageText{
+			what: "Patchwork is unavailable",
+			effect: "New series, recheck requests and checks wait until it\n" +
+				"is available again; nothing is lost.  Patches already\n" +
+				"applied are tested and their reports emailed meanwhile.",
+			explain: "Patchwork may be down; it is unreachable for hours at\n" +
+				"times.  If it refuses the token (HTTP 401), check the\n" +
+				"LEADTEST_PW_TOKEN secret.",
+			fixed: "Patchwork is available again",
+			after: "The bot continues with what waited.",
 		}
 	case state.OutageEmail:
 		return outageText{
@@ -127,12 +151,16 @@ func (p *Pipeline) startOutage(kind, reason string) {
 }
 
 func (p *Pipeline) startOutageAt(kind, reason string, since time.Time) {
+	p.startOutageWith(kind, &state.Outage{Reason: reason}, since)
+}
+
+func (p *Pipeline) startOutageWith(kind string, o *state.Outage, since time.Time) {
 	// Refused dispatches and pushes without runs are one problem.
 	workflows := kind == state.OutageRuns || kind == state.OutageDispatch
 	if p.outage(kind) != nil || workflows && p.workflowsDown() {
 		return
 	}
-	o := &state.Outage{Since: state.FormatTime(since), Reason: reason}
+	o.Since = state.FormatTime(since)
 	if kind == state.OutageRuns || kind == state.OutageDispatch {
 		o.NextProbe = state.FormatTime(p.now().Add(outageProbeInterval))
 	}
@@ -140,9 +168,10 @@ func (p *Pipeline) startOutageAt(kind, reason string, since time.Time) {
 		p.Store.Meta.Outages = map[string]*state.Outage{}
 	}
 	p.Store.Meta.Outages[kind] = o
+	p.waitFor(kind)
 	p.markReported(kind)
-	t := p.describe(kind)
-	p.errorf("%s: %s. %s", t.what, reason, oneLine(t.effect))
+	t := p.describe(kind, o)
+	p.errorf("%s: %s. %s", t.what, o.Reason, oneLine(t.effect))
 	p.alert(kind, o, t.what)
 }
 
@@ -153,7 +182,7 @@ func (p *Pipeline) endOutage(kind, how string) {
 	}
 	delete(p.Store.Meta.Outages, kind)
 	p.retryNow(kind)
-	t := p.describe(kind)
+	t := p.describe(kind, o)
 	p.infof("Outage over, %s: %s. It lasted since %s. %s", t.fixed, how, o.Since,
 		oneLine(t.after))
 	extra := ""
@@ -162,30 +191,49 @@ func (p *Pipeline) endOutage(kind, how string) {
 	}
 	p.sendAlert(nil, t.fixed, fmt.Sprintf("%s:\n\n  %s\n\nThis did not work from %s "+
 		"to %s.\n%s%s\n\n%s", upper(t.fixed), how, o.Since, state.FormatTime(p.now()),
-		t.after, extra, p.alertLinks()))
+		t.after, extra, p.alertLinks(kind)))
 }
 
 // retryNow makes everything that waited for an outage be retried now,
 // with a fresh retry deadline: the time waited for it does not count.
 func (p *Pipeline) retryNow(kind string) {
 	now := state.FormatTime(p.now())
-	due := func(f *state.Failure) {
-		if f != nil && f.Outage != "" && sameOutage(f.Outage, kind) {
+	p.eachFailure(func(f *state.Failure) {
+		if f.Outage != "" && sameOutage(f.Outage, kind) {
 			f.First, f.Next, f.Attempts, f.Outage = now, now, 0, ""
+		}
+	})
+}
+
+// waitFor makes the failures whose errors point at an outage that just
+// started wait for it; they may have failed before it started.
+func (p *Pipeline) waitFor(kind string) {
+	p.eachFailure(func(f *state.Failure) {
+		if f.Outage == "" && f.Cause != "" && sameOutage(f.Cause, kind) {
+			f.Outage = kind
+		}
+	})
+}
+
+func (p *Pipeline) eachFailure(fn func(f *state.Failure)) {
+	do := func(f *state.Failure) {
+		if f != nil {
+			fn(f)
 		}
 	}
 	for _, s := range p.Store.Queue {
-		due(s.Failure)
+		do(s.Failure)
 		for _, pt := range s.Patches {
-			due(pt.Failure)
+			do(pt.Failure)
 			for _, r := range pt.Runs {
-				due(r.Failure)
+				do(r.Failure)
+				do(r.CheckFailure)
 			}
 		}
 	}
 	for _, c := range p.Store.Meta.Archives {
 		for _, f := range c.Retry {
-			due(f)
+			do(f)
 		}
 	}
 }
@@ -209,6 +257,10 @@ func (p *Pipeline) serviceUsed(kind string) bool {
 		return p.archiveUsed(reportsCursor)
 	case state.OutageArchive(devCursor):
 		return p.archiveUsed(devCursor)
+	case state.OutagePatchwork:
+		// Patchwork is always read, but checks may no longer be posted.
+		o := p.outage(kind)
+		return o == nil || !o.Checks || p.Cfg.Mode.PostChecks()
 	}
 	return true
 }
@@ -240,7 +292,7 @@ func (p *Pipeline) outageCycle(ctx context.Context) {
 		if o == nil {
 			continue
 		}
-		t := p.describe(kind)
+		t := p.describe(kind, o)
 		if !p.serviceUsed(kind) {
 			delete(p.Store.Meta.Outages, kind)
 			p.retryNow(kind)
@@ -278,7 +330,7 @@ func (p *Pipeline) markReported(kind string) {
 }
 
 func (p *Pipeline) alert(kind string, o *state.Outage, subject string) {
-	t := p.describe(kind)
+	t := p.describe(kind, o)
 	if kind == state.OutageEmail {
 		// The failing bot run is the alert, for maintainers who want
 		// alerts.
@@ -293,12 +345,16 @@ func (p *Pipeline) alert(kind string, o *state.Outage, subject string) {
 		extra = fmt.Sprintf("  Patches waiting to be tested: %d.", p.waitingPatches())
 	}
 	p.sendAlert(o, subject, fmt.Sprintf("Since %s, %s:\n\n  %s\n\n%s\n\n%s%s\n\n%s",
-		o.Since, t.what, o.Reason, t.explain, t.effect, extra, p.alertLinks()))
+		o.Since, t.what, o.Reason, t.explain, t.effect, extra, p.alertLinks(kind)))
 }
 
-func (p *Pipeline) alertLinks() string {
+func (p *Pipeline) alertLinks(kind string) string {
 	links := fmt.Sprintf("Workflow runs: https://%s/%s/actions\n", p.Cfg.TestRepo.GitHost,
 		p.Cfg.TestRepo.Repo)
+	if kind == state.OutagePatchwork {
+		links = fmt.Sprintf("Patchwork: %s/project/%s/list/\n", p.Cfg.PatchworkWebURL(),
+			p.Cfg.Patchwork.Project)
+	}
 	if p.RunURL != "" {
 		links += "Bot run: " + p.RunURL + "\n"
 	}
@@ -356,6 +412,8 @@ func (p *Pipeline) outageOf(err error) string {
 		return state.OutageGitHub
 	case mail.IsServerError(err):
 		return state.OutageEmail
+	case isPWError(err) && (pwUnavailable(err) || checksRefused(err)):
+		return state.OutagePatchwork
 	}
 	return ""
 }
@@ -377,17 +435,25 @@ func (p *Pipeline) githubUnauthorized(err error) bool {
 func (p *Pipeline) recordFailure(f **state.Failure, op string, err error,
 	deadline time.Duration) bool {
 	now := p.now()
-	kind := p.outageOf(err)
+	cause := p.outageOf(err)
+	kind := cause
+	// Patchwork starts its outage itself, see pwFailed; until then its
+	// failures count as usual.
+	if kind == state.OutagePatchwork && p.outage(kind) == nil {
+		kind = ""
+	}
 	if kind == "" {
 		if *f != nil && (*f).Outage != "" {
 			// The time waited for the outage does not count.
 			(*f).First, (*f).Attempts, (*f).Outage = state.FormatTime(now), 0, ""
 		}
 		done := state.RecordFailure(f, op, err, now, deadline)
+		(*f).Cause = cause
 		p.logFailure(*f, done)
 		return done
 	}
 	state.RecordFailure(f, op, err, now, 0)
+	(*f).Cause = cause
 	if next := now.Add(outageProbeInterval); state.ParseTime((*f).Next).After(next) {
 		(*f).Next = state.FormatTime(next)
 	}

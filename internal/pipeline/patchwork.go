@@ -7,17 +7,42 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"leadtestkit/internal/httpx"
 	"leadtestkit/internal/pw"
+	"leadtestkit/internal/state"
 )
 
-// Every Patchwork request is retried for minutes before it fails, so
-// once Patchwork does not answer, the rest of its work waits for the
-// next polling cycle instead of failing request by request.
+// Every Patchwork request is retried before it fails, so once Patchwork
+// does not answer, the rest of its work waits for the next polling
+// cycle instead of failing request by request.  The first request of
+// every cycle checks whether it is available again.
 
-// pwUnavailable reports whether an error says that Patchwork does not
-// work at all, rather than that one request is wrong.
+// pwOutageAfter is how long Patchwork may not answer before it counts
+// as an outage; it is known to be unreachable for a while at times.
+const pwOutageAfter = 2 * time.Hour
+
+// pwError is an error of a Patchwork request.
+type pwError struct{ err error }
+
+func (e *pwError) Error() string { return e.err.Error() }
+func (e *pwError) Unwrap() error { return e.err }
+
+func isPWError(err error) bool {
+	var e *pwError
+	return errors.As(err, &e)
+}
+
+// checksRefused reports Patchwork refusing to create a check, which it
+// does when the user of the token is not a maintainer of the project.
+func checksRefused(err error) bool {
+	var se *httpx.StatusError
+	return errors.As(err, &se) && se.Code == http.StatusForbidden && !se.RateLimited
+}
+
+// pwUnavailable reports whether an error says that Patchwork is
+// unavailable, rather than that one request is wrong.
 func pwUnavailable(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) {
@@ -38,15 +63,29 @@ func pwUnavailable(err error) bool {
 type pwSkipError struct{ err error }
 
 func (e *pwSkipError) Error() string {
-	return "not asked: Patchwork failed earlier in this polling cycle: " + e.err.Error()
+	return "not asked: Patchwork was unavailable earlier in this polling cycle: " +
+		e.err.Error()
 }
 
 func (e *pwSkipError) Unwrap() error { return e.err }
 
-// pwSkipped reports whether Patchwork failed in this polling cycle, and
-// logs once per cycle what waits for the next one.
+// pwSkipped reports whether Patchwork was unavailable in this polling
+// cycle, and logs once per cycle what waits for the next one.
 func (p *Pipeline) pwSkipped(what string) bool {
-	if p.pwDown == nil {
+	return p.pwSkip(what, p.pwDown, "Patchwork was unavailable in this one")
+}
+
+// checksSkipped is pwSkipped for work that posts checks, which also
+// waits once Patchwork refused a check in this cycle.
+func (p *Pipeline) checksSkipped(what string) bool {
+	if p.pwSkipped(what) {
+		return true
+	}
+	return p.pwSkip(what, p.checksDown, "Patchwork refused a check in this one")
+}
+
+func (p *Pipeline) pwSkip(what string, err error, why string) bool {
+	if err == nil {
 		return false
 	}
 	if !p.pwSkipLogged[what] {
@@ -54,14 +93,51 @@ func (p *Pipeline) pwSkipped(what string) bool {
 			p.pwSkipLogged = map[string]bool{}
 		}
 		p.pwSkipLogged[what] = true
-		p.infof("Not %s until the next polling cycle: Patchwork failed in this one: %v",
-			what, p.pwDown)
+		p.infof("Not %s until the next polling cycle: %s: %v", what, why, err)
 	}
 	return true
 }
 
+// pwWorked records a request that Patchwork answered.
+func (p *Pipeline) pwWorked(check bool) {
+	p.Store.Meta.PatchworkFailing = ""
+	o := p.outage(state.OutagePatchwork)
+	switch {
+	case o == nil:
+	case check:
+		p.endOutage(state.OutagePatchwork, "it accepted a check")
+	case !o.Checks:
+		p.endOutage(state.OutagePatchwork, "it answered a request")
+	}
+}
+
+// pwFailed records a request that failed because Patchwork does not
+// work.  A refused token does not get better by waiting.
+func (p *Pipeline) pwFailed(err error) {
+	now := p.now()
+	meta := p.Store.Meta
+	if meta.PatchworkFailing == "" {
+		meta.PatchworkFailing = state.FormatTime(now)
+	}
+	since := state.ParseTime(meta.PatchworkFailing)
+	if httpx.StatusCode(err) == http.StatusUnauthorized {
+		since = now
+	} else if now.Sub(since) < pwOutageAfter {
+		p.infof("Patchwork has not answered since %s; that counts as an outage after %s.",
+			meta.PatchworkFailing, pwOutageAfter)
+		return
+	}
+	if o := p.outage(state.OutagePatchwork); o != nil && o.Checks {
+		// Refused checks were the visible part of a wider problem.
+		o.Checks, o.Reason = false, err.Error()
+		p.errorf("%s: %s", p.describe(state.OutagePatchwork, o).what, o.Reason)
+		return
+	}
+	p.startOutageWith(state.OutagePatchwork, &state.Outage{Reason: err.Error()}, since)
+}
+
 // pw is the Patchwork client as the stages use it.  Once a request
-// fails because Patchwork does not work, the others of the polling
+// fails because Patchwork is unavailable, the others of the polling
 // cycle fail at once.
 func (p *Pipeline) pw() pwGate { return pwGate{p} }
 
@@ -77,10 +153,16 @@ func (g pwGate) skip() error {
 }
 
 func (g pwGate) note(err error) error {
+	if err == nil {
+		g.p.pwWorked(false)
+		return nil
+	}
+	err = &pwError{err}
 	if g.p.pwDown == nil && pwUnavailable(err) {
 		g.p.pwDown = err
-		g.p.warnf("Patchwork does not work; its other requests wait until the next "+
+		g.p.warnf("Patchwork is unavailable; its other requests wait until the next "+
 			"polling cycle: %v", err)
+		g.p.pwFailed(err)
 	}
 	return err
 }
@@ -151,7 +233,28 @@ func (g pwGate) CreateCheck(ctx context.Context, patchID int, chk pw.NewCheck) e
 	if err := g.skip(); err != nil {
 		return err
 	}
-	return g.note(g.p.PW.CreateCheck(ctx, patchID, chk))
+	if g.p.checksDown != nil {
+		return &pwSkipError{g.p.checksDown}
+	}
+	err := g.p.PW.CreateCheck(ctx, patchID, chk)
+	if err == nil {
+		g.p.pwWorked(true)
+		return nil
+	}
+	if !checksRefused(err) {
+		return g.note(err)
+	}
+	err = &pwError{err}
+	g.p.checksDown = err
+	g.p.warnf("Patchwork refuses checks; the other checks wait until the next polling "+
+		"cycle: %v", err)
+	// The request was answered, so Patchwork is available otherwise.
+	g.p.Store.Meta.PatchworkFailing = ""
+	if g.p.outage(state.OutagePatchwork) == nil {
+		g.p.startOutageWith(state.OutagePatchwork,
+			&state.Outage{Reason: err.Error(), Checks: true}, g.p.now())
+	}
+	return err
 }
 
 func (g pwGate) FindPatchesByMsgID(ctx context.Context, msgid string) ([]pw.Patch, error) {
