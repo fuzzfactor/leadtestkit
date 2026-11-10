@@ -57,6 +57,22 @@ func TestRefSHA(t *testing.T) {
 	}
 }
 
+func TestRun(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/ipsum/lorem/actions/runs/42" {
+			w.WriteHeader(404)
+			return
+		}
+		w.Write([]byte(`{"id":42,"run_attempt":2,"status":"completed",` +
+			`"conclusion":"success","display_title":"leadtest lorem"}`))
+	})
+	r, err := c.Run(context.Background(), 42)
+	if err != nil || r.ID != 42 || r.RunAttempt != 2 || r.Conclusion != "success" ||
+		r.DisplayTitle != "leadtest lorem" {
+		t.Errorf("run = %+v, err = %v", r, err)
+	}
+}
+
 func TestCheckRunsAndAnnotations(t *testing.T) {
 	var srv *httptest.Server
 	c, srv := testClient(t, func(w http.ResponseWriter, r *http.Request) {

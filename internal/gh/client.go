@@ -221,6 +221,13 @@ func (c *Client) DispatchRuns(ctx context.Context, branch string,
 	}, 10)
 }
 
+// Run returns a workflow run with its latest attempt.
+func (c *Client) Run(ctx context.Context, id int64) (WorkflowRun, error) {
+	var r WorkflowRun
+	_, err := c.getJSON(ctx, c.repoURL(fmt.Sprintf("/actions/runs/%d", id)), &r)
+	return r, err
+}
+
 // RunsSince returns the newest runs created since a time, of any event
 // and branch; at most one page.
 func (c *Client) RunsSince(ctx context.Context, since time.Time) ([]WorkflowRun, error) {

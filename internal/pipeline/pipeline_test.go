@@ -1228,7 +1228,7 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 		Name:         "leadtest 300-30001-leadtest-checkpatch-1",
 		DisplayTitle: "leadtest 300-30001-leadtest-checkpatch-1", Status: "completed",
 		Conclusion: "failure",
-		RunAttempt: 1}}
+		RunAttempt: 1, CreatedAt: e.now}}
 	e.gh.finishRun(e.gh.startRuns("series_300", "sha-30001", "Build")[0], "success")
 	e.step()
 	// perf.yml never starts and is reported as a warning.
@@ -1260,6 +1260,16 @@ func TestRecheckCustomWorkflows(t *testing.T) {
 	}
 	if r := runByFile(pt, "leadtest-perf.yml"); r.Status != "requested" || r.Result != "" {
 		t.Errorf("perf run = %+v", r)
+	}
+
+	// The rerun is an attempt of a run created long before the recheck.
+	e.gh.dispatched[0].RunAttempt = 2
+	e.gh.dispatched[0].Conclusion = "success"
+	e.advance(time.Minute)
+	e.step()
+	if r := runByFile(pt, "leadtest-checkpatch.yml"); r.Attempt != 2 ||
+		r.Result != state.ResultSuccess {
+		t.Errorf("checkpatch run = %+v", r)
 	}
 }
 

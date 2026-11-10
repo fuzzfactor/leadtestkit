@@ -146,11 +146,23 @@ func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *
 			continue
 		}
 		wr, ok := runs[r.CorrelationID]
-		if !ok {
+		switch {
+		case ok:
+		case r.Status == "completed":
 			// dispatchedRuns does not look for finished runs.
-			if r.Status == "completed" {
+			continue
+		case r.ID != 0:
+			// A rerun is an attempt of a run that may have been created
+			// before the runs that dispatchedRuns looks for.
+			p.infof("%s: %s run %d is not among the recently created runs; "+
+				"reading it by its ID.", patchName(pt), r.Workflow, r.ID)
+			var err error
+			if wr, err = p.GH.Run(ctx, r.ID); err != nil {
+				p.warnf("%s: cannot read %s run %d; trying again in the next "+
+					"cycle: %v", patchName(pt), r.Workflow, r.ID, err)
 				continue
 			}
+		default:
 			p.infof("%s: waiting for dispatched workflow %s (request %s) to appear.",
 				patchName(pt), r.File, r.CorrelationID)
 			continue

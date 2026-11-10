@@ -300,9 +300,36 @@ func (f *fakeGH) RunsForSHA(ctx context.Context, sha string) ([]gh.WorkflowRun, 
 	return f.runs[sha], nil
 }
 
+// DispatchRuns filters by creation time like GitHub, but returns runs
+// without one, which tests that do not care about it leave out.
 func (f *fakeGH) DispatchRuns(ctx context.Context, branch string,
 	since time.Time) ([]gh.WorkflowRun, error) {
-	return f.dispatched, nil
+	var out []gh.WorkflowRun
+	for _, r := range f.dispatched {
+		if r.CreatedAt.IsZero() || !r.CreatedAt.Before(since) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeGH) Run(ctx context.Context, id int64) (gh.WorkflowRun, error) {
+	if err := f.maybeFail("run"); err != nil {
+		return gh.WorkflowRun{}, err
+	}
+	for _, r := range f.dispatched {
+		if r.ID == id {
+			return r, nil
+		}
+	}
+	for _, runs := range f.runs {
+		for _, r := range runs {
+			if r.ID == id {
+				return r, nil
+			}
+		}
+	}
+	return gh.WorkflowRun{}, &httpx.StatusError{Code: http.StatusNotFound}
 }
 
 func (f *fakeGH) RunsSince(ctx context.Context, since time.Time) ([]gh.WorkflowRun, error) {
