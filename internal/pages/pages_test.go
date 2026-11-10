@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +71,11 @@ func TestRender(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
 			t.Error(err)
 		}
+	}
+	page, _ := os.ReadFile(filepath.Join(out, "index.html"))
+	if !regexp.MustCompile(`href="style\.css\?v=[0-9a-f]{8}"`).Match(page) ||
+		!regexp.MustCompile(`src="app\.js\?v=[0-9a-f]{8}"`).Match(page) {
+		t.Errorf("assets are not versioned:\n%s", page)
 	}
 	var idx Index
 	b, _ := os.ReadFile(filepath.Join(out, "data", "index.json"))

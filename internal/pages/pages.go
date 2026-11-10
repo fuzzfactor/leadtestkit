@@ -6,7 +6,10 @@
 package pages
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -159,7 +162,31 @@ func writeJSON(path string, v any) error {
 	return os.WriteFile(path, b, 0o644)
 }
 
+// assets are the files that index.html loads.  Their links carry a hash
+// of their contents, so that browsers that cached an older version, for
+// up to 10 minutes on GitHub Pages, do not use it with a newer page.
+var assets = []string{"style.css", "app.js"}
+
 func copySite(out string) error {
+	page, err := site.ReadFile("site/index.html")
+	if err != nil {
+		return err
+	}
+	for _, name := range assets {
+		b, err := site.ReadFile("site/" + name)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(b)
+		v := name + "?v=" + hex.EncodeToString(sum[:4])
+		page = bytes.ReplaceAll(page, []byte(`"`+name+`"`), []byte(`"`+v+`"`))
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(out, "index.html"), page, 0o644); err != nil {
+		return err
+	}
 	return fs.WalkDir(site, "site", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -168,6 +195,9 @@ func copySite(out string) error {
 		dst := filepath.Join(out, rel)
 		if d.IsDir() {
 			return os.MkdirAll(dst, 0o755)
+		}
+		if rel == "index.html" {
+			return nil
 		}
 		b, err := site.ReadFile(path)
 		if err != nil {
