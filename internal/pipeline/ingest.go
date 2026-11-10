@@ -211,7 +211,7 @@ func (p *Pipeline) ingest(ctx context.Context) {
 // reportOutage tells the outage that a report waits for after an error,
 // if any.  Reports wait without a deadline then.
 func (p *Pipeline) reportOutage(err error) string {
-	if kind := p.outageOf(err); kind == state.OutagePatchwork && p.outage(kind) != nil {
+	if kind := p.waitsFor(p.outageOf(err)); kind == state.OutagePatchwork {
 		return kind
 	}
 	if kind := state.OutageArchive(reportsCursor); p.outage(kind) != nil {
@@ -322,7 +322,7 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 		// Refused tokens and checks wait for the outage they start.
 		if code := httpx.StatusCode(err); code >= 400 && code < 500 &&
 			code != http.StatusTooManyRequests && code != http.StatusUnauthorized &&
-			!checksRefused(err) {
+			!isCheckRefusal(err) {
 			p.noteCheck(patchID, "check-rejected",
 				fmt.Sprintf("Check %s from %s rejected: %v", chk.Context, msgURL,
 					err))
@@ -358,8 +358,12 @@ func (p *Pipeline) ourPatch(ctx context.Context, id int) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	return p.inProject(d), d.Name, nil
+}
+
+func (p *Pipeline) inProject(d *pw.PatchDetail) bool {
 	proj := p.Cfg.Patchwork.Project
 	return strings.EqualFold(d.Project.LinkName, proj) ||
 		strings.EqualFold(d.Project.Name, proj) ||
-		strings.EqualFold(d.Project.ListID, proj), d.Name, nil
+		strings.EqualFold(d.Project.ListID, proj)
 }

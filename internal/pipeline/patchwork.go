@@ -23,8 +23,12 @@ import (
 // as an outage; it is known to be unreachable for a while at times.
 const pwOutageAfter = 2 * time.Hour
 
-// pwError is an error of a Patchwork request.
-type pwError struct{ err error }
+// pwError is an error of a Patchwork request.  check is set when
+// Patchwork refuses checks for the project, not only for one patch.
+type pwError struct {
+	err   error
+	check bool
+}
 
 func (e *pwError) Error() string { return e.err.Error() }
 func (e *pwError) Unwrap() error { return e.err }
@@ -34,8 +38,14 @@ func isPWError(err error) bool {
 	return errors.As(err, &e)
 }
 
+func isCheckRefusal(err error) bool {
+	var e *pwError
+	return errors.As(err, &e) && e.check
+}
+
 // checksRefused reports Patchwork refusing to create a check, which it
-// does when the user of the token is not a maintainer of the project.
+// does when the user of the token is not a maintainer of the project of
+// the patch.
 func checksRefused(err error) bool {
 	var se *httpx.StatusError
 	return errors.As(err, &se) && se.Code == http.StatusForbidden && !se.RateLimited
@@ -130,8 +140,12 @@ func (p *Pipeline) pwFailed(err error) {
 	if o := p.outage(state.OutagePatchwork); o != nil && o.Checks {
 		// Refused checks were the visible part of a wider problem.
 		o.Checks, o.Reason = false, err.Error()
+		o.Since = state.FormatTime(since)
 		p.outageStarted(state.OutagePatchwork, o)
-		p.errorf("%s: %s", p.describe(state.OutagePatchwork, o).what, o.Reason)
+		p.waitFor(state.OutagePatchwork)
+		t := p.describe(state.OutagePatchwork, o)
+		p.errorf("%s: %s. %s", t.what, o.Reason, oneLine(t.effect))
+		p.alert(state.OutagePatchwork, o, t.what)
 		return
 	}
 	p.startOutageWith(state.OutagePatchwork, &state.Outage{Reason: err.Error()}, since)
@@ -163,7 +177,7 @@ func (g pwGate) note(ctx context.Context, err error) error {
 		// Patchwork.
 		return err
 	}
-	err = &pwError{err}
+	err = &pwError{err: err}
 	if g.p.pwDown == nil && pwUnavailable(err) {
 		g.p.pwDown = err
 		g.p.warnf("Patchwork is unavailable; its other requests wait until the next "+
@@ -250,7 +264,17 @@ func (g pwGate) CreateCheck(ctx context.Context, patchID int, chk pw.NewCheck) e
 	if !checksRefused(err) || ctx.Err() != nil {
 		return g.note(ctx, err)
 	}
-	err = &pwError{err}
+	// A patch that moved to another project is refused on its own.
+	d, gerr := g.GetPatch(ctx, patchID)
+	if gerr != nil {
+		return gerr
+	}
+	if !g.p.inProject(d) {
+		g.p.infof("Patchwork refuses a check for patch %d, which is in the %s project "+
+			"now.", patchID, d.Project.LinkName)
+		return &pwError{err: err}
+	}
+	err = &pwError{err: err, check: true}
 	g.p.checksDown = err
 	g.p.warnf("Patchwork refuses checks; the other checks wait until the next polling "+
 		"cycle: %v", err)

@@ -212,7 +212,7 @@ func (p *Pipeline) retryNow(kind string) {
 // started wait for it; they may have failed before it started.
 func (p *Pipeline) waitFor(kind string) {
 	p.eachFailure(func(f *state.Failure) {
-		if f.Outage == "" && f.Cause != "" && sameOutage(f.Cause, kind) {
+		if f.Outage == "" && f.Cause != "" && p.waitsFor(f.Cause) == kind {
 			f.Outage = kind
 		}
 	})
@@ -420,15 +420,44 @@ func (p *Pipeline) emailSent(err error) {
 	}
 }
 
-// outageOf tells which outage an error comes from, if any.
+// outageOf tells which outage an error comes from, if any: its cause.
+// Checks that Patchwork refuses have the cause ServicePatchworkChecks,
+// see waitsFor.
 func (p *Pipeline) outageOf(err error) string {
 	switch {
 	case ghapp.IsAuthError(err) || p.githubUnauthorized(err):
 		return state.OutageGitHub
 	case mail.IsServerError(err):
 		return state.OutageEmail
-	case isPWError(err) && (pwUnavailable(err) || checksRefused(err)):
+	case isCheckRefusal(err):
+		return state.ServicePatchworkChecks
+	case isPWError(err) && pwUnavailable(err):
 		return state.OutagePatchwork
+	}
+	return ""
+}
+
+// waitsFor tells the outage going on that a failure with a cause waits
+// for, if any.  While Patchwork only refuses checks, its other requests
+// work, so only refused checks wait then.
+func (p *Pipeline) waitsFor(cause string) string {
+	o := p.outage(state.OutagePatchwork)
+	switch cause {
+	case "":
+		return ""
+	case state.ServicePatchworkChecks:
+		if o != nil {
+			return state.OutagePatchwork
+		}
+		return ""
+	case state.OutagePatchwork:
+		if o != nil && !o.Checks {
+			return state.OutagePatchwork
+		}
+		return ""
+	}
+	if p.outage(cause) != nil {
+		return cause
 	}
 	return ""
 }
@@ -454,8 +483,8 @@ func (p *Pipeline) recordFailure(f **state.Failure, op string, err error,
 	kind := cause
 	// Patchwork starts its outage itself, see pwFailed; until then its
 	// failures count as usual.
-	if kind == state.OutagePatchwork && p.outage(kind) == nil {
-		kind = ""
+	if kind == state.OutagePatchwork || kind == state.ServicePatchworkChecks {
+		kind = p.waitsFor(cause)
 	}
 	if kind == "" {
 		if *f != nil && (*f).Outage != "" {

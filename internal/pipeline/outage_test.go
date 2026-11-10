@@ -662,3 +662,69 @@ func TestGitHubAvailability(t *testing.T) {
 		t.Fatalf("availability = %+v", e.p.Store.Availability)
 	}
 }
+
+// While Patchwork only refuses checks, other failures keep their
+// deadline; when it becomes unavailable altogether, the maintainers
+// hear about it and those failures wait too.
+func TestPatchworkChecksOutageWidens(t *testing.T) {
+	e := outageEnv(t)
+	e.cfg.Mode.Push = "off"
+	e.step()
+	e.reload()
+	e.pw.addSeries(90, 1, "lorem", e.now)
+	e.reports.add(e.now, 1, "|FAILURE| pw9001 x",
+		reportBody("lab-robot: Perf test", "FAILURE", 9001), "<b@lab>")
+	e.pw.errs["create-check"] = &httpx.StatusError{Code: 403,
+		URL: "https://pw.example.org/api/1.2/patches/9001/checks/"}
+	e.step()
+	if o := e.p.outage(state.OutagePatchwork); o == nil || !o.Checks {
+		t.Fatalf("outages = %+v", e.p.Store.Meta.Outages)
+	}
+
+	e.pw.addSeries(91, 1, "ipsum", e.now)
+	e.pw.errs["series"] = errTransient
+	e.advance(time.Minute)
+	e.reload()
+	e.step()
+	s := e.series(91)
+	if s.Failure == nil || s.Failure.Outage != "" ||
+		s.Failure.Cause != state.OutagePatchwork {
+		t.Fatalf("read failure = %+v", s.Failure)
+	}
+
+	e.pw.errs["*"] = errTransient
+	for i := 0; i < 3; i++ {
+		e.advance(time.Hour)
+		e.reload()
+		e.step()
+	}
+	o := e.p.outage(state.OutagePatchwork)
+	if o == nil || o.Checks || e.series(91).Failure.Outage != state.OutagePatchwork {
+		t.Fatalf("outage = %+v, failure %+v", o, e.series(91).Failure)
+	}
+	if alerts := e.alerts.subjects(); len(alerts) != 2 ||
+		alerts[1] != "LeadTestKit: Patchwork is unavailable" {
+		t.Fatalf("alerts = %q", alerts)
+	}
+}
+
+// A check refused for a patch of another project is rejected, as it
+// always will be, and Patchwork does not refuse checks in general.
+func TestCheckRefusedForAnotherProject(t *testing.T) {
+	e := outageEnv(t)
+	e.cfg.Mode.Push = "off"
+	e.step()
+	e.reload()
+	e.pw.addSeries(90, 1, "lorem", e.now)
+	e.reports.add(e.now, 1, "|FAILURE| pw9001 x",
+		reportBody("lab-robot: Perf test", "FAILURE", 9001), "<b@lab>")
+	e.pw.patches[9001].Project.LinkName = "other"
+	e.pw.errs["create-check"] = &httpx.StatusError{Code: 403,
+		URL: "https://pw.example.org/api/1.2/patches/9001/checks/"}
+	e.step()
+	if len(e.p.Store.Meta.Outages) != 0 ||
+		len(e.p.Store.Cursor(reportsCursor).Retry) != 0 {
+		t.Fatalf("outages = %+v, retry %+v", e.p.Store.Meta.Outages,
+			e.p.Store.Cursor(reportsCursor).Retry)
+	}
+}
