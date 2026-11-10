@@ -423,7 +423,7 @@ alerts:
   # needs stops working: workflows on the test repository, the GitHub
   # App, Patchwork or an archive (see SETUP.rst).  They get one when it
   # is noticed, once a day while it lasts and when it is over.  The bot
-  # run that sends an alert fails; when email itself does not work,
+  # run that sends an alert fails; when email itself cannot be sent,
   # that failing run is the only alert.  Alerts use the smtp settings
   # and are sent in mode.email test too, not only to
   # mode.allowed_recipients, but not with mode.email off.  Empty: no

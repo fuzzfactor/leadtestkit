@@ -466,7 +466,7 @@ function outageText(kind, o) {
     return ["The dev list archive could not be read for ", span(o.since), reason,
       "Recheck requests wait until it can be read."];
   default:
-    return [kind, " does not work for ", span(o.since), reason];
+    return [kind, " has been unavailable for ", span(o.since), reason];
   }
 }
 

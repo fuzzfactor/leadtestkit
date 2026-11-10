@@ -22,9 +22,10 @@ import (
 	"leadtestkit/internal/state"
 )
 
-// When a service the bot needs does not work, failures are not the
+// When a service the bot needs is unavailable, failures are not the
 // patches' fault: they wait without a retry deadline instead, the
-// maintainers get an alert, and everything continues once it works.
+// maintainers get an alert, and everything continues once it is
+// available again.
 // GitHub, for example, may disable Actions on a fork without telling
 // anyone: pushes start no runs, dispatches fail, and the settings still
 // say Actions are enabled until GitHub Support undoes it.
@@ -122,8 +123,8 @@ func (p *Pipeline) describe(kind string, o *state.Outage) outageText {
 	case state.OutageEmail:
 		return outageText{
 			what: "emails cannot be sent through " + p.Cfg.SMTP.Host,
-			effect: "Reports wait and are sent once it works again; nothing\n" +
-				"is lost.",
+			effect: "Reports wait and are sent once emails can be sent again;\n" +
+				"nothing is lost.",
 			explain: "Check the smtp settings and the LEADTEST_SMTP_USERNAME and\n" +
 				"LEADTEST_SMTP_PASSWORD secrets.",
 			fixed: "emails can be sent again through " + p.Cfg.SMTP.Host,
@@ -189,7 +190,7 @@ func (p *Pipeline) endOutage(kind, how string) {
 	if kind == state.OutageRuns || kind == state.OutageDispatch {
 		extra = fmt.Sprintf("  Patches waiting to be tested: %d.", p.waitingPatches())
 	}
-	p.sendAlert(nil, t.fixed, fmt.Sprintf("%s:\n\n  %s\n\nThis did not work from %s "+
+	p.sendAlert(nil, t.fixed, fmt.Sprintf("%s:\n\n  %s\n\nThe outage lasted from %s "+
 		"to %s.\n%s%s\n\n%s", upper(t.fixed), how, o.Since, state.FormatTime(p.now()),
 		t.after, extra, p.alertLinks(kind)))
 }
@@ -386,7 +387,7 @@ func (p *Pipeline) sendAlert(o *state.Outage, subject, body string) {
 		p.warnf("Cannot send the alert %q; trying again in the next cycle: %v",
 			subject, err)
 		// Without reports to send, alerts failing for an hour tell
-		// that email does not work.
+		// that email cannot be sent.
 		if o != nil && mail.IsServerError(err) {
 			if o.AlertFailing == "" {
 				o.AlertFailing = state.FormatTime(now)

@@ -426,7 +426,7 @@ func TestDispatchesWaitDuringOutageOfRuns(t *testing.T) {
 	}
 }
 
-// Without reports to send, failing alerts tell that email does not work.
+// Without reports to send, failing alerts tell that email cannot be sent.
 func TestFailingAlertsStartAnEmailOutage(t *testing.T) {
 	e := outageEnv(t)
 	e.alerts.err = &mail.ServerError{Err: errors.New("smtp dial: connection refused")}

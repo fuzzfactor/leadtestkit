@@ -250,7 +250,7 @@ The state is plain JSON on the ``state`` branch:
 - ``queue.json``: series that are not finished;
 - ``history/YYYY-MM.json``: finished series;
 - ``meta.json``: event and archive cursors, and ``outages`` while
-  something the bot needs does not work (see below).
+  a service the bot needs is unavailable (see below).
 
 Finished series and patch records are retained indefinitely.  History
 lookups are also unlimited by default (``limits.history_window: 0``).
@@ -322,11 +322,12 @@ For git command details and timings, pass ``--debug`` to
 When something stops working
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When a service the bot needs does not work, the failures are not the
+When a service the bot needs is unavailable, the failures are not the
 patches' fault.  The bot then keeps the patches waiting instead of
 giving up on them after ``limits.retry_deadline``, reports the problem
 in the job summary of every run and at the top of the pages, and
-continues by itself once it works again.  It recognizes:
+continues by itself once the service is available again.  It
+recognizes:
 
 - **Workflows that do not run on the test repository.**  GitHub sometimes
   disables Actions on forks: pushes then start no workflows and
@@ -342,8 +343,8 @@ continues by itself once it works again.  It recognizes:
   credentials are wrong.  Nothing is pushed or monitored until GitHub
   accepts it again, which the bot checks in every cycle.
 - **Email that cannot be sent for an hour**: the SMTP server cannot be
-  reached or refuses the login.  Reports wait and are sent once it
-  works again.
+  reached or refuses the login.  Reports wait and are sent once email
+  can be sent again.
 - **An archive that cannot be read for a day**: final Patchwork checks,
   or rechecks from the dev list, wait until it can be read again.
 - **Patchwork unavailable for two hours, or refusing the token**
@@ -358,7 +359,7 @@ continues by itself once it works again.  It recognizes:
 The maintainers in ``alerts.to`` get an email when the bot notices a
 problem, once a day while it lasts and when it is over.  The bot runs
 that send these emails fail, which makes them easy to find.  When email
-itself does not work for an hour, these runs fail without sending
+itself cannot be sent for an hour, these runs fail without sending
 anything.  Without ``alerts.to``, only the job summaries and the pages
 show the problems.  Outages of a service that gets turned off, like
 email or reading an archive, are forgotten.

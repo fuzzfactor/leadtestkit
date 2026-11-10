@@ -40,7 +40,7 @@ type Index struct {
 	ArchiveURLFormat string `json:"archive_url_format,omitempty"`
 	PatchURLFormat   string `json:"patch_archive_url_format,omitempty"`
 	ListTag          string `json:"list_tag,omitempty"`
-	// Outages are the services that do not work, by kind.
+	// Outages are the services that are unavailable, by kind.
 	Outages map[string]*state.Outage `json:"outages,omitempty"`
 	// StaleAfter is the age in seconds after which the data is stale.
 	StaleAfter int64   `json:"stale_after,omitempty"`
