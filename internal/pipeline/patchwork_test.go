@@ -93,3 +93,28 @@ func TestPatchworkTimeouts(t *testing.T) {
 		t.Fatalf("a timeout did not count: %v", err)
 	}
 }
+
+// Patchwork failing partway through the reports leaves the rest for the
+// next cycle.
+func TestPatchworkFailureDuringIngest(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Mode.Push = "off"
+	e.step()
+	e.reload()
+	e.pw.addSeries(90, 1, "lorem", e.now)
+	e.reports.add(e.now, 1, "|FAILURE| pw9001 x",
+		reportBody("lab-robot: Perf test", "FAILURE", 9001), "<b@lab>")
+	e.reports.add(e.now, 2, "|SUCCESS| pw9001 x",
+		reportBody("lab-robot: Lint", "SUCCESS", 9001), "<c@lab>")
+	e.pw.errs["checks"] = errTransient
+	e.step()
+	if e.p.reportsScanned || len(e.reports.fetched) != 1 {
+		t.Fatalf("scanned = %v, fetched %v", e.p.reportsScanned, e.reports.fetched)
+	}
+	delete(e.pw.errs, "checks")
+	e.advance(10 * time.Minute)
+	e.step()
+	if len(e.pw.posted) != 2 {
+		t.Fatalf("posted = %+v", e.pw.posted)
+	}
+}

@@ -180,7 +180,9 @@ func (p *Pipeline) ingest(ctx context.Context) {
 				return
 			}
 			if p.checksSkipped("reading archived reports") {
+				// The rest is read in the next cycle, not the next run.
 				c.LastMonth = monthOfKey(mm.key)
+				p.reportsScanned = false
 				return
 			}
 			budget--
