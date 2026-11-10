@@ -147,7 +147,7 @@ func (p *Pipeline) discover(ctx context.Context) {
 	}
 	var fromEvents seen
 	events := 0
-	cursor, err := p.PW.WalkEvents(ctx, opts, func(ev pw.Event) error {
+	cursor, err := p.pw().WalkEvents(ctx, opts, func(ev pw.Event) error {
 		events++
 		if pl, ok := ev.Payload.(*pw.SeriesCompletedPayload); ok {
 			p.track(pl.Series.ID, pl.Series.Name, known, &fromEvents)
@@ -170,9 +170,12 @@ func (p *Pipeline) discover(ctx context.Context) {
 		p.infof("Not repeating the safety scan: already ran in this invocation.")
 		return
 	}
+	if p.pwSkipped("running the safety scan of the newest series") {
+		return
+	}
 	p.infof("Safety scan: checking only the newest %d series for missing events.",
 		safetyNetPageSize)
-	page, err := p.PW.GetSeriesPage(ctx, p.PW.BuildSeriesURL(pw.SeriesListParams{
+	page, err := p.pw().GetSeriesPage(ctx, p.pw().BuildSeriesURL(pw.SeriesListParams{
 		Project: p.Cfg.Patchwork.Project, Order: "-id", PerPage: safetyNetPageSize,
 	}))
 	if err != nil {
@@ -235,8 +238,11 @@ func (p *Pipeline) qualify(ctx context.Context) {
 				seriesName(s), state.FormatTime(c.Add(incompleteRecheck)))
 			continue
 		}
+		if p.pwSkipped("checking new series") {
+			return
+		}
 		p.infof("Series %d: fetching details to check eligibility.", s.ID)
-		ps, err := p.PW.GetSeries(ctx, s.ID)
+		ps, err := p.pw().GetSeries(ctx, s.ID)
 		if err != nil {
 			if p.fail(&s.Failure, "fetch series", err) {
 				p.finishSeries(s, state.SeriesError,

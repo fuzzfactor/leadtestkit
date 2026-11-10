@@ -136,6 +136,9 @@ func (p *Pipeline) pendingCheck(ctx context.Context, s *state.Series,
 		Context:     report.Context(p.label(r)),
 		Description: p.description(r, state.ResultPending),
 	}
+	if p.Cfg.Mode.PostChecks() && p.pwSkipped("posting pending checks") {
+		return
+	}
 	if !p.Cfg.Mode.PostChecks() {
 		p.infof("%s: would post pending check %s, checks mode is %s, linking to %s",
 			patchName(pt), chk.Context, p.Cfg.Mode.Checks, chk.TargetURL)
@@ -146,7 +149,7 @@ func (p *Pipeline) pendingCheck(ctx context.Context, s *state.Series,
 	}
 	p.infof("%s: posting pending check %s linking to %s",
 		patchName(pt), chk.Context, chk.TargetURL)
-	if err := p.PW.CreateCheck(ctx, pt.ID, chk); err != nil {
+	if err := p.pw().CreateCheck(ctx, pt.ID, chk); err != nil {
 		p.warnf("%s: pending check %s failed: %v", patchName(pt), chk.Context, err)
 		if p.fail(&r.CheckFailure, "pending check", err) {
 			r.Pending.Check = state.StepFailed
@@ -290,7 +293,7 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 		PatchID:     pt.ID,
 		PatchName:   pt.Name,
 		PatchMsgID:  pt.MsgID,
-		PatchURL:    p.PW.PatchWebURL(pt.ID),
+		PatchURL:    p.pw().PatchWebURL(pt.ID),
 		BuildURL:    buildURL,
 		Extra:       extra,
 		From:        p.Cfg.Report.From,

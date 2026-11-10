@@ -109,6 +109,9 @@ func (p *Pipeline) ingest(ctx context.Context) {
 		p.infof("Not rescanning reports: the archive was already read in this invocation.")
 		return
 	}
+	if p.pwSkipped("reading archived reports") {
+		return
+	}
 	p.infof("Scanning the reports archive; at most %d messages will be processed this cycle.",
 		p.Cfg.Archive.MaxMessages)
 	c := p.Store.Cursor(reportsCursor)
@@ -135,6 +138,9 @@ func (p *Pipeline) ingest(ctx context.Context) {
 		if !f.Due(now) {
 			p.infof("Waiting until %s to retry reading the report %s", f.Next, u)
 			continue
+		}
+		if p.pwSkipped("reading archived reports") {
+			return
 		}
 		budget--
 		p.infof("Retrying the report %s", u)
@@ -172,6 +178,10 @@ func (p *Pipeline) ingest(ctx context.Context) {
 				}
 				p.infof("Stopping ingestion in %s: %s. The remaining messages "+
 					"are read later.", mm.key, why)
+				c.LastMonth = monthOfKey(mm.key)
+				return
+			}
+			if p.pwSkipped("reading archived reports") {
 				c.LastMonth = monthOfKey(mm.key)
 				return
 			}
@@ -246,7 +256,7 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	patchID := parsed.PatchID
 	if patchID == 0 {
-		found, err := p.PW.FindPatchesByMsgID(ctx, parsed.PatchMsgID)
+		found, err := p.pw().FindPatchesByMsgID(ctx, parsed.PatchMsgID)
 		if err != nil {
 			return err
 		}
@@ -269,7 +279,7 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 			msgURL, patchID, name)
 		return errSkip
 	}
-	checks, err := p.PW.GetPatchChecks(ctx, patchID)
+	checks, err := p.pw().GetPatchChecks(ctx, patchID)
 	if err != nil {
 		return err
 	}
@@ -298,7 +308,7 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 	}
 	p.infof("Patch %d (%s): posting %s check %s linking to the archived report %s",
 		patchID, name, chk.State, chk.Context, msgURL)
-	if err := p.PW.CreateCheck(ctx, patchID, chk); err != nil {
+	if err := p.pw().CreateCheck(ctx, patchID, chk); err != nil {
 		if code := httpx.StatusCode(err); code >= 400 && code < 500 &&
 			code != http.StatusTooManyRequests {
 			p.noteCheck(patchID, "check-rejected",
@@ -329,7 +339,7 @@ func (p *Pipeline) ourPatch(ctx context.Context, id int) (bool, string, error) {
 	if _, pt := state.FindPatch(recent, id); pt != nil {
 		return true, pt.Name, nil
 	}
-	d, err := p.PW.GetPatch(ctx, id)
+	d, err := p.pw().GetPatch(ctx, id)
 	if httpx.IsNotFound(err) {
 		return false, "", nil
 	}

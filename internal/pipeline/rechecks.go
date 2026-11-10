@@ -101,8 +101,11 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 		if !t.patch.CommentsPending {
 			continue
 		}
+		if p.pwSkipped("fetching comments") {
+			return
+		}
 		p.infof("%s: fetching comments after activity was detected.", patchName(t.patch))
-		comments, err := p.PW.GetPatchComments(ctx, id)
+		comments, err := p.pw().GetPatchComments(ctx, id)
 		if err != nil {
 			p.warnf("%s: cannot fetch comments: %v", patchName(t.patch), err)
 			continue
@@ -157,13 +160,16 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 }
 
 func (p *Pipeline) commentsFromEvents(ctx context.Context, patches map[int]tracked) {
+	if p.pwSkipped("reading comment events") {
+		return
+	}
 	opts := pw.WalkOptions{Category: commentEvents, Cursor: p.Store.Meta.Events[commentEvents]}
 	if opts.Cursor == 0 {
 		opts.Cutoff = p.now().Add(-24 * time.Hour)
 		opts.MaxPages = 3
 	}
 	p.infof("Reading comment events after saved event %d.", opts.Cursor)
-	cursor, err := p.PW.WalkEvents(ctx, opts, func(ev pw.Event) error {
+	cursor, err := p.pw().WalkEvents(ctx, opts, func(ev pw.Event) error {
 		if pl, ok := ev.Payload.(*pw.PatchCommentCreatedPayload); ok {
 			if t, ok := patches[pl.Patch.ID]; ok {
 				p.infof("Comment event %d: marking patch %d for a comment scan.",

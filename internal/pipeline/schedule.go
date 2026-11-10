@@ -146,6 +146,9 @@ func (p *Pipeline) schedule(ctx context.Context) {
 		}
 		s := bySeries[id]
 		if s.Status == state.SeriesQueued || s.Status == state.SeriesWaiting {
+			if p.pwSkipped("preparing series") {
+				continue
+			}
 			p.prepare(ctx, s)
 		}
 		if s.Status != state.SeriesTesting {
@@ -310,7 +313,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	for i, pt := range patches {
 		p.infof("%s: fetching patch %d of %d and building its email for git am.",
 			patchName(pt), i+1, len(patches))
-		d, err := p.PW.GetPatch(ctx, pt.ID)
+		d, err := p.pw().GetPatch(ctx, pt.ID)
 		if err != nil {
 			retry("fetch patch", err)
 			return
@@ -570,7 +573,7 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 	data []patchData) (*state.Base, bool, error) {
 	var text []string
 	if s.CoverID > 0 {
-		cover, err := p.PW.GetCover(ctx, s.CoverID)
+		cover, err := p.pw().GetCover(ctx, s.CoverID)
 		if err != nil {
 			return nil, false, err
 		}
@@ -584,7 +587,7 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 		for _, m := range dependsRe.FindAllStringSubmatch(t, -1) {
 			id, _ := strconv.Atoi(m[2])
 			if strings.EqualFold(m[1], "patch") {
-				d, err := p.PW.GetPatch(ctx, id)
+				d, err := p.pw().GetPatch(ctx, id)
 				if err != nil {
 					return nil, false, err
 				}
