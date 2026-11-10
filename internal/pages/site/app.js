@@ -11,7 +11,10 @@ const CHECK_INTERVAL = 5 * 60 * 1000;
 let current = { tab: "queue", series: [], page: 0 };
 // Downloaded series lists by data path, kept until Refresh.
 const cache = new Map();
+// Expanded series by ID, and shown panels by key, kept when the data is
+// loaded again.
 const open = new Set();
+const shown = new Set();
 
 function el(tag, attrs, ...children) {
   const e = document.createElement(tag);
@@ -188,14 +191,17 @@ function links(items) {
 
 // toggle returns a small button and the panel it shows and hides, so
 // that details take no space until asked for.
-function toggle(text, panel) {
+function toggle(text, panel, key) {
   if (!panel) return [null, null];
-  panel.hidden = true;
-  const b = el("button", { class: "toggle", type: "button" }, text);
+  panel.hidden = !shown.has(key);
+  const b = el("button", { class: panel.hidden ? "toggle" : "toggle on", type: "button" },
+    text);
   b.onclick = e => {
     e.stopPropagation();
     panel.hidden = !panel.hidden;
     b.classList.toggle("on", !panel.hidden);
+    if (panel.hidden) shown.delete(key);
+    else shown.add(key);
   };
   return [b, panel];
 }
@@ -209,12 +215,13 @@ function stamp(ts) {
     pad(d.getHours()) + ":" + pad(d.getMinutes()));
 }
 
-function decisions(list) {
+function decisions(list, key) {
   if (!list || !list.length) return [null, null];
   const rows = list.map(d => el("li", {},
     stamp(d.time), " ", el("strong", {}, d.action.replace(/-/g, " ")), ": ", d.detail, " ",
     links([[d.workflow_url, "workflow run"], [d.run_url, "bot run logs"]])));
-  return toggle("history (" + list.length + ")", el("ol", { class: "decisions" }, rows));
+  return toggle("history (" + list.length + ")", el("ol", { class: "decisions" }, rows),
+    key);
 }
 
 // seriesState says where the bot is with a series and whether its
@@ -276,7 +283,7 @@ function renderPatch(s, p, shown, ver) {
       "aria-label": runLabel(r) + times + ": " + st }, runLabel(r) + times));
   });
   const mail = archiveLink(p.msgid, index.patch_archive_url_format);
-  const [historyButton, history] = decisions(p.decisions);
+  const [historyButton, history] = decisions(p.decisions, "patch " + p.id);
   const state = patchState(s, p);
   return el("div", { class: "patch" },
     el("div", { class: "row" },
@@ -328,7 +335,7 @@ function renderSeries(s) {
     info.push("base: " + (s.base.branch || "") + (s.base.why ? " (" + s.base.why + ")" : ""));
   }
   if (s.hold) info.push("on hold");
-  const [historyButton, history] = decisions(s.decisions);
+  const [historyButton, history] = decisions(s.decisions, "series " + s.id);
   const box = el("div", { class: open.has(s.id) ? "series open" : "series" }, head,
     el("div", { class: "body" },
       el("div", { class: "info" }, info.map((t, i) => [i ? " · " : "", t]),
