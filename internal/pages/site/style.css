@@ -28,6 +28,7 @@ nav button { border: 1px solid var(--line); background: var(--row); color: var(-
   padding: 4px 10px; border-radius: 6px; cursor: pointer; }
 nav button.active { border-color: var(--pending); font-weight: 600; }
 #controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+#controls[hidden] { display: none; }
 #controls input { flex: 1; min-width: 200px; padding: 4px 8px; }
 #controls input, #controls select, #pager button { background: var(--bg); color: var(--fg);
   border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
@@ -100,3 +101,22 @@ a:hover .badge { background: color-mix(in srgb, currentColor 20%, transparent); 
 .toggle.on { color: var(--fg); border-color: var(--muted); }
 .decisions { margin: 2px 0 6px; padding-left: 24px; font-size: 12px; }
 .decisions li { margin: 2px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wide { overflow-x: auto; }
+.avail { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+.avail th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; }
+.avail th, .avail td { padding: 4px 8px; border-bottom: 1px solid var(--line);
+  white-space: nowrap; }
+.avail .num { text-align: right; font-variant-numeric: tabular-nums; }
+.avail .up { color: var(--success); }
+.avail .down { color: var(--fail); }
+.avail .reason { white-space: normal; overflow-wrap: anywhere; }
+.avail .timeline { width: 40%; min-width: 200px; }
+/* A gridline every week of the 30 days, counted back from now. */
+.bar { position: relative; height: 14px; border-radius: 3px; background-color: var(--row);
+  background-image: repeating-linear-gradient(to left, transparent 0,
+    transparent calc(700% / 30 - 1px), var(--line) calc(700% / 30 - 1px),
+    var(--line) calc(700% / 30)); }
+.bar span { position: absolute; top: 0; bottom: 0; min-width: 2px; }
+.bar .short { background: color-mix(in srgb, var(--fail) 40%, transparent); }
+.bar .outage { background: var(--fail); }
+.periods td { vertical-align: top; }

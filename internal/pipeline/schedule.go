@@ -166,7 +166,7 @@ func (p *Pipeline) schedule(ctx context.Context) {
 }
 
 func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
-	runs, err := p.GH.ActiveRuns(ctx)
+	runs, err := p.gh().ActiveRuns(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -180,7 +180,7 @@ func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 			continue
 		}
 		seen[r.ID] = true
-		jobs, err := p.GH.Jobs(ctx, r.ID)
+		jobs, err := p.gh().Jobs(ctx, r.ID)
 		if err != nil {
 			return 0, err
 		}
@@ -237,7 +237,7 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 	branch := p.branchName(s)
 	p.infof("%s: checking branch %s before pushing commit %s.",
 		patchName(pt), branch, short(pt.SHA))
-	cur, err := p.GH.RefSHA(ctx, "heads/"+branch)
+	cur, err := p.gh().RefSHA(ctx, "heads/"+branch)
 	if err != nil {
 		pushFailed(err)
 		return
@@ -265,7 +265,7 @@ func (p *Pipeline) push(ctx context.Context, s *state.Series, pt *state.Patch) {
 	}
 	p.infof("%s: updating branch %s to %s to trigger push workflows.",
 		patchName(pt), branch, short(pt.SHA))
-	if err := p.GH.SetBranch(ctx, branch, pt.SHA); err != nil {
+	if err := p.gh().SetBranch(ctx, branch, pt.SHA); err != nil {
 		pushFailed(err)
 		return
 	}
@@ -817,7 +817,7 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 		p.infof("%s: dispatching %s from %s for commit %s (request %s).",
 			patchName(pt), r.File, p.Cfg.TestRepo.ToolsBranch,
 			short(pt.SHA), r.CorrelationID)
-		if err := p.GH.Dispatch(ctx, r.File, p.Cfg.TestRepo.ToolsBranch,
+		if err := p.gh().Dispatch(ctx, r.File, p.Cfg.TestRepo.ToolsBranch,
 			inputs); err != nil && actionsDisabled(err) {
 			// Retried with the outage checks, without a deadline.
 			state.RecordFailure(&r.Failure, "dispatch", err, p.now(), 0)
@@ -866,7 +866,7 @@ func (p *Pipeline) sendDispatches(ctx context.Context, s *state.Series, pt *stat
 }
 
 func (p *Pipeline) dispatchedTitles(ctx context.Context, s *state.Series) (map[string]bool, error) {
-	runs, err := p.GH.DispatchRuns(ctx, p.Cfg.TestRepo.ToolsBranch,
+	runs, err := p.gh().DispatchRuns(ctx, p.Cfg.TestRepo.ToolsBranch,
 		state.ParseTime(s.Discovered).Add(-time.Hour))
 	if err != nil {
 		return nil, err
@@ -901,7 +901,7 @@ func (p *Pipeline) customWorkflows(ctx context.Context) ([]string, error) {
 	if p.customLoaded {
 		return p.customFiles, nil
 	}
-	files, err := p.GH.WorkflowFiles(ctx, p.Cfg.TestRepo.ToolsBranch)
+	files, err := p.gh().WorkflowFiles(ctx, p.Cfg.TestRepo.ToolsBranch)
 	if err != nil {
 		return nil, err
 	}
@@ -918,7 +918,7 @@ func (p *Pipeline) customWorkflows(ctx context.Context) ([]string, error) {
 			}
 			continue
 		}
-		data, err := p.GH.File(ctx, ".github/workflows/"+f, p.Cfg.TestRepo.ToolsBranch)
+		data, err := p.gh().File(ctx, ".github/workflows/"+f, p.Cfg.TestRepo.ToolsBranch)
 		if err != nil {
 			return nil, err
 		}

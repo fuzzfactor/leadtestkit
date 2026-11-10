@@ -213,7 +213,7 @@ func (p *Pipeline) gc(ctx context.Context) {
 	}
 	for _, pr := range prefixes {
 		prefix := pr.prefix
-		refs, err := p.GH.MatchingRefs(ctx, prefix)
+		refs, err := p.gh().MatchingRefs(ctx, prefix)
 		if err != nil {
 			p.warnf("Cannot list refs under %s for cleanup: %v", prefix, err)
 			return
@@ -235,7 +235,7 @@ func (p *Pipeline) gc(ctx context.Context) {
 				return
 			}
 			p.infof("Deleting old ref %s.", name)
-			if err := p.GH.DeleteRef(ctx, name); err != nil {
+			if err := p.gh().DeleteRef(ctx, name); err != nil {
 				p.warnf("Could not delete old ref %s: %v", name, err)
 				continue
 			}

@@ -42,7 +42,7 @@ func (p *Pipeline) monitor(ctx context.Context) {
 
 func (p *Pipeline) monitorPatch(ctx context.Context, s *state.Series, pt *state.Patch,
 	dispatched map[string]gh.WorkflowRun) {
-	runs, err := p.GH.RunsForSHA(ctx, pt.SHA)
+	runs, err := p.gh().RunsForSHA(ctx, pt.SHA)
 	if err != nil {
 		p.warnf("%s: cannot list workflow runs: %v", patchName(pt), err)
 		done := p.recordFailure(&pt.Failure, "monitor", err, monitorDeadline)
@@ -81,7 +81,7 @@ func (p *Pipeline) dispatchedRuns(ctx context.Context) map[string]gh.WorkflowRun
 	}
 	p.infof("Looking for dispatched runs on %s since %s.",
 		p.Cfg.TestRepo.ToolsBranch, state.FormatTime(since.Add(-time.Hour)))
-	runs, err := p.GH.DispatchRuns(ctx, p.Cfg.TestRepo.ToolsBranch, since.Add(-time.Hour))
+	runs, err := p.gh().DispatchRuns(ctx, p.Cfg.TestRepo.ToolsBranch, since.Add(-time.Hour))
 	if err != nil {
 		p.warnf("Cannot list dispatched workflow runs: %v", err)
 		return nil
@@ -157,7 +157,7 @@ func (p *Pipeline) updateDispatchRuns(ctx context.Context, s *state.Series, pt *
 			p.infof("%s: %s run %d is not among the recently created runs; "+
 				"reading it by its ID.", patchName(pt), r.Workflow, r.ID)
 			var err error
-			if wr, err = p.GH.Run(ctx, r.ID); err != nil {
+			if wr, err = p.gh().Run(ctx, r.ID); err != nil {
 				p.warnf("%s: cannot read %s run %d; trying again in the next "+
 					"cycle: %v", patchName(pt), r.Workflow, r.ID, err)
 				continue
@@ -440,7 +440,7 @@ func (p *Pipeline) recordJobs(ctx context.Context, pt *state.Patch) {
 		if r.ID == 0 {
 			continue
 		}
-		jobs, err := p.GH.Jobs(ctx, r.ID)
+		jobs, err := p.gh().Jobs(ctx, r.ID)
 		if err != nil {
 			p.warnf("%s: cannot count jobs in run %d; keeping the old job estimate: %v",
 				patchName(pt), r.ID, err)

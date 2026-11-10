@@ -56,6 +56,7 @@ func TestRender(t *testing.T) {
 	st.Add(&state.Series{ID: 2, Status: state.SeriesQueued, Patches: []*state.Patch{}})
 	st.Meta.Outages = map[string]*state.Outage{state.OutageRuns: {
 		Since: state.FormatTime(now), Reason: "no workflow run started"}}
+	st.Availability.Unavailable(state.ServicePatchwork, "lorem", now)
 	if err := st.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func TestRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"index.html", "app.js", "style.css", "data/queue.json",
-		"data/history/2026-03.json"} {
+		"data/history/2026-03.json", "data/availability.json"} {
 		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
 			t.Error(err)
 		}
@@ -81,6 +82,12 @@ func TestRender(t *testing.T) {
 		idx.StaleAfter != 7200 || !idx.RunFailed ||
 		idx.PatchworkWeb != "https://pw.example.org" {
 		t.Errorf("index = %+v", idx)
+	}
+	var avail state.Availability
+	b, _ = os.ReadFile(filepath.Join(out, "data", "availability.json"))
+	if err := json.Unmarshal(b, &avail); err != nil ||
+		avail.Failing[state.ServicePatchwork].Reason != "lorem" {
+		t.Errorf("availability = %s, %v", b, err)
 	}
 	b, err = os.ReadFile(filepath.Join(out, "data", "history", "2026-03.json"))
 	if err != nil {

@@ -66,9 +66,6 @@ type Meta struct {
 	// Outages holds the services that are unavailable, by kind of
 	// outage, like OutageRuns, while it lasts.
 	Outages map[string]*Outage `json:"outages,omitempty"`
-	// PatchworkFailing is since when Patchwork is unavailable, before
-	// that counts as an outage.
-	PatchworkFailing string `json:"patchwork_failing,omitempty"`
 }
 
 // Outage records that a service the bot needs is unavailable, so that

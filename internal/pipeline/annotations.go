@@ -78,7 +78,7 @@ func (p *Pipeline) successResult(ctx context.Context, pt *state.Patch, r *state.
 
 func (p *Pipeline) warningAnnotations(ctx context.Context, suiteID int64,
 	title string) ([]string, error) {
-	runs, err := p.GH.CheckRuns(ctx, suiteID)
+	runs, err := p.gh().CheckRuns(ctx, suiteID)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func (p *Pipeline) warningAnnotations(ctx context.Context, suiteID int64,
 		if cr.Output.AnnotationsCount == 0 {
 			continue
 		}
-		notes, err := p.GH.Annotations(ctx, cr.ID)
+		notes, err := p.gh().Annotations(ctx, cr.ID)
 		if err != nil {
 			return nil, err
 		}

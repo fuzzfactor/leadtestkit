@@ -14,7 +14,7 @@ import (
 func (p *Pipeline) workflowName(ctx context.Context, file string) string {
 	if p.workflowNames == nil && p.workflowNamesStep != p.steps {
 		p.workflowNamesStep = p.steps
-		list, err := p.GH.Workflows(ctx)
+		list, err := p.gh().Workflows(ctx)
 		if err != nil {
 			p.warnf("Cannot list the workflows of the test repository to name "+
 				"dispatched runs; trying again in the next cycle: %v", err)

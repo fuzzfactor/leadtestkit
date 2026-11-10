@@ -100,7 +100,10 @@ func (p *Pipeline) pwSkip(what string, err error, why string) bool {
 
 // pwWorked records a request that Patchwork answered.
 func (p *Pipeline) pwWorked(check bool) {
-	p.Store.Meta.PatchworkFailing = ""
+	p.available(state.ServicePatchwork)
+	if check {
+		p.available(state.ServicePatchworkChecks)
+	}
 	o := p.outage(state.OutagePatchwork)
 	switch {
 	case o == nil:
@@ -111,25 +114,23 @@ func (p *Pipeline) pwWorked(check bool) {
 	}
 }
 
-// pwFailed records a request that failed because Patchwork does not
-// work.  A refused token does not get better by waiting.
+// pwFailed records a request that failed because Patchwork is
+// unavailable.  A refused token does not get better by waiting.
 func (p *Pipeline) pwFailed(err error) {
 	now := p.now()
-	meta := p.Store.Meta
-	if meta.PatchworkFailing == "" {
-		meta.PatchworkFailing = state.FormatTime(now)
-	}
-	since := state.ParseTime(meta.PatchworkFailing)
+	per := p.unavailable(state.ServicePatchwork, err)
+	since := state.ParseTime(per.Since)
 	if httpx.StatusCode(err) == http.StatusUnauthorized {
 		since = now
 	} else if now.Sub(since) < pwOutageAfter {
-		p.infof("Patchwork has not answered since %s; that counts as an outage after %s.",
-			meta.PatchworkFailing, pwOutageAfter)
+		p.infof("Patchwork is unavailable since %s; that counts as an outage after %s.",
+			per.Since, pwOutageAfter)
 		return
 	}
 	if o := p.outage(state.OutagePatchwork); o != nil && o.Checks {
 		// Refused checks were the visible part of a wider problem.
 		o.Checks, o.Reason = false, err.Error()
+		p.outageStarted(state.OutagePatchwork, o)
 		p.errorf("%s: %s", p.describe(state.OutagePatchwork, o).what, o.Reason)
 		return
 	}
@@ -249,7 +250,8 @@ func (g pwGate) CreateCheck(ctx context.Context, patchID int, chk pw.NewCheck) e
 	g.p.warnf("Patchwork refuses checks; the other checks wait until the next polling "+
 		"cycle: %v", err)
 	// The request was answered, so Patchwork is available otherwise.
-	g.p.Store.Meta.PatchworkFailing = ""
+	g.p.available(state.ServicePatchwork)
+	g.p.unavailable(state.ServicePatchworkChecks, err)
 	if g.p.outage(state.OutagePatchwork) == nil {
 		g.p.startOutageWith(state.OutagePatchwork,
 			&state.Outage{Reason: err.Error(), Checks: true}, g.p.now())

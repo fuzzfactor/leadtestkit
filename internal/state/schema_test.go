@@ -45,6 +45,7 @@ func TestSchemaFields(t *testing.T) {
 	var got []string
 	fields(reflect.TypeOf(Meta{}), "meta", &got)
 	fields(reflect.TypeOf(queueFile{}), "series", &got)
+	fields(reflect.TypeOf(Availability{}), "availability", &got)
 	sort.Strings(got)
 	text := strings.Join(got, "\n") + "\n"
 	path := filepath.Join("testdata", fmt.Sprintf("schema-%d.txt", SchemaVersion))

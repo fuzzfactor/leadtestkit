@@ -308,7 +308,9 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 	p.infof("%s: sending the %s report for %s (%s) to %s; Cc: %s. Email mode: %s.",
 		patchName(pt), kind, label, result, p.Cfg.Report.To,
 		strings.Join(cc, ", "), p.Cfg.Mode.Email)
-	if err := p.Mail.Send(ctx, e); err != nil {
+	err = p.Mail.Send(ctx, e)
+	p.emailSent(err)
+	if err != nil {
 		return "", err
 	}
 	p.endOutage(state.OutageEmail, "a report was sent")
@@ -337,7 +339,7 @@ var logTimestampRe = regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?
 
 func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error) {
 	p.infof("Fetching failed-job details and log excerpts for GitHub run %d.", runID)
-	jobs, err := p.GH.Jobs(ctx, runID)
+	jobs, err := p.gh().Jobs(ctx, runID)
 	if err != nil {
 		return "", err
 	}
@@ -377,7 +379,7 @@ func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error)
 			break
 		}
 		p.infof("Fetching log tail for failed job %d (%s) in run %d.", j.ID, j.Name, runID)
-		log, err := p.GH.JobLog(ctx, j.ID)
+		log, err := p.gh().JobLog(ctx, j.ID)
 		if err != nil {
 			return "", err
 		}

@@ -169,6 +169,7 @@ func (p *Pipeline) startOutageWith(kind string, o *state.Outage, since time.Time
 		p.Store.Meta.Outages = map[string]*state.Outage{}
 	}
 	p.Store.Meta.Outages[kind] = o
+	p.outageStarted(kind, o)
 	p.waitFor(kind)
 	p.markReported(kind)
 	t := p.describe(kind, o)
@@ -183,6 +184,7 @@ func (p *Pipeline) endOutage(kind, how string) {
 	}
 	delete(p.Store.Meta.Outages, kind)
 	p.retryNow(kind)
+	p.available(outageService(kind, o))
 	t := p.describe(kind, o)
 	p.infof("Outage over, %s: %s. It lasted since %s. %s", t.fixed, how, o.Since,
 		oneLine(t.after))
@@ -297,12 +299,13 @@ func (p *Pipeline) outageCycle(ctx context.Context) {
 		if !p.serviceUsed(kind) {
 			delete(p.Store.Meta.Outages, kind)
 			p.retryNow(kind)
+			p.available(outageService(kind, o))
 			p.infof("Forgetting that %s: it is no longer used.", t.what)
 			continue
 		}
 		if kind == state.OutageGitHub {
 			tools := "heads/" + p.Cfg.TestRepo.ToolsBranch
-			if _, err := p.GH.RefSHA(ctx, tools); err == nil {
+			if _, err := p.gh().RefSHA(ctx, tools); err == nil {
 				p.endOutage(kind, "it answered a request")
 				continue
 			} else {
@@ -382,6 +385,7 @@ func (p *Pipeline) sendAlert(o *state.Outage, subject, body string) {
 	})
 	if err == nil {
 		err = p.Alerts.Send(context.Background(), e)
+		p.emailSent(err)
 	}
 	if err != nil {
 		p.warnf("Cannot send the alert %q; trying again in the next cycle: %v",
@@ -404,6 +408,16 @@ func (p *Pipeline) sendAlert(o *state.Outage, subject, body string) {
 	p.Stats.Alerts = append(p.Stats.Alerts, subject)
 	p.infof("Sent the alert %q to %s.", subject, strings.Join(p.Cfg.Alerts.To, ", "))
 	p.endOutage(state.OutageEmail, "an alert was sent")
+}
+
+// emailSent records the availability of email after sending one.
+func (p *Pipeline) emailSent(err error) {
+	switch {
+	case err == nil:
+		p.available(state.ServiceEmail)
+	case mail.IsServerError(err):
+		p.unavailable(state.ServiceEmail, err)
+	}
 }
 
 // outageOf tells which outage an error comes from, if any.
@@ -475,9 +489,11 @@ func (p *Pipeline) archiveRead(cursor string, c *state.ArchiveCursor, err error)
 	kind := state.OutageArchive(cursor)
 	if err == nil {
 		c.Failing = ""
+		p.available(kind)
 		p.endOutage(kind, "its index was read")
 		return
 	}
+	p.unavailable(kind, err)
 	now := p.now()
 	if c.Failing == "" {
 		c.Failing = state.FormatTime(now)
@@ -518,7 +534,7 @@ func dispatchAccepted(pt *state.Patch) bool {
 // repository since a time, which tells an outage from a patch whose
 // workflows did not start.
 func (p *Pipeline) ciIdle(ctx context.Context, since time.Time) (bool, error) {
-	runs, err := p.GH.RunsSince(ctx, since)
+	runs, err := p.gh().RunsSince(ctx, since)
 	return len(runs) == 0, err
 }
 
@@ -570,7 +586,7 @@ func (p *Pipeline) resetStuck(ctx context.Context, s *state.Series) {
 		return
 	}
 	branch := p.branchName(s)
-	if err := p.GH.DeleteRef(ctx, "heads/"+branch); err != nil {
+	if err := p.gh().DeleteRef(ctx, "heads/"+branch); err != nil {
 		p.warnf("%s: cannot delete branch %s to push its patches again later; "+
 			"trying again in the next cycle: %v", seriesName(s), branch, err)
 		return

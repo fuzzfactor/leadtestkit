@@ -237,6 +237,7 @@ func (p *Pipeline) checkpoint(ctx context.Context, stage string) {
 func (p *Pipeline) Step(ctx context.Context, final bool) {
 	p.steps++
 	p.pwDown, p.checksDown, p.pwSkipLogged = nil, nil, nil
+	p.Store.Availability.Prune(p.now().Add(-availabilityKept))
 	started := time.Now()
 	p.infof("Starting polling cycle %d: %s.", p.steps, p.queueSummary())
 	stages := []struct {
@@ -390,14 +391,14 @@ func (p *Pipeline) logFailure(f *state.Failure, done bool) {
 func (p *Pipeline) rerun(ctx context.Context, runID int64) error {
 	p.infof("Requesting a rerun of GitHub run %d (%s jobs).", runID, p.Cfg.Workflows.RerunJobs)
 	if p.Cfg.Workflows.RerunJobs != "failed" {
-		return p.GH.Rerun(ctx, runID, false)
+		return p.gh().Rerun(ctx, runID, false)
 	}
-	err := p.GH.Rerun(ctx, runID, true)
+	err := p.gh().Rerun(ctx, runID, true)
 	if code := httpx.StatusCode(err); code == http.StatusForbidden ||
 		code == http.StatusUnprocessableEntity {
 		p.infof("Run %d: GitHub refused a failed-jobs rerun (%v); retrying the whole run.",
 			runID, err)
-		return p.GH.Rerun(ctx, runID, false)
+		return p.gh().Rerun(ctx, runID, false)
 	}
 	return err
 }

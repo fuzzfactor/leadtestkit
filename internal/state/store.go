@@ -28,9 +28,10 @@ type queueFile struct {
 
 // Store is the bot state kept as JSON files in a git checkout.
 type Store struct {
-	Dir   string
-	Meta  *Meta
-	Queue []*Series
+	Dir          string
+	Meta         *Meta
+	Queue        []*Series
+	Availability *Availability
 
 	history map[string][]*Series
 	dirty   map[string]bool
@@ -57,6 +58,15 @@ func Load(dir string) (*Store, error) {
 	}
 	if s.Meta.Archives == nil {
 		s.Meta.Archives = map[string]*ArchiveCursor{}
+	}
+	s.Availability = newAvailability()
+	if _, err := readState(filepath.Join(dir, AvailabilityFile), kindAvailability,
+		s.Availability); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	s.Availability.Schema = SchemaVersion
+	if s.Availability.Failing == nil {
+		s.Availability.Failing = map[string]*Period{}
 	}
 	var q queueFile
 	if _, err := readState(filepath.Join(dir, QueueFile), kindSeries, &q); err != nil &&
@@ -153,6 +163,12 @@ func (s *Store) Save() error {
 		s.Queue = []*Series{}
 	}
 	if err := writeJSON(filepath.Join(s.Dir, MetaFile), s.Meta); err != nil {
+		return err
+	}
+	if s.Availability.Periods == nil {
+		s.Availability.Periods = []*Period{}
+	}
+	if err := writeJSON(filepath.Join(s.Dir, AvailabilityFile), s.Availability); err != nil {
 		return err
 	}
 	if err := writeJSON(filepath.Join(s.Dir, QueueFile),

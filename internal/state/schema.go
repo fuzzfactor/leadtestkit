@@ -20,8 +20,9 @@ import (
 const SchemaVersion = 11
 
 const (
-	kindMeta   = "meta"
-	kindSeries = "series"
+	kindMeta         = "meta"
+	kindSeries       = "series"
+	kindAvailability = "availability"
 )
 
 // migrations[v] upgrades a file from schema v to v+1, working on the

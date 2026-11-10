@@ -328,7 +328,7 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 			patchName(pt), p.label(r), r.ID)
 		var err error
 		if explicit[r] && r.Result == state.ResultSuccess {
-			err = p.GH.Rerun(ctx, r.ID, false)
+			err = p.gh().Rerun(ctx, r.ID, false)
 		} else {
 			err = p.rerun(ctx, r.ID)
 		}

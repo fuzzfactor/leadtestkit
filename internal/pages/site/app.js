@@ -144,6 +144,7 @@ function tick() {
     t.textContent = t.dataset.age === "span" ? text.replace(/ ago$/, "") : text;
   }
   if (index) showProblems();
+  if (current.tab === "availability") renderAvailability();
 }
 
 function when(ts) {
@@ -376,6 +377,8 @@ async function selectTab(tab, keepPage) {
   if (!keepPage) current.page = 0;
   location.hash = tab;
   markActive();
+  document.getElementById("controls").hidden = tab === "availability";
+  if (tab === "availability") return showAvailability();
   const path = tab === "queue" ? "data/queue.json" : "data/history/" + tab + ".json";
   if (!cache.has(path)) {
     document.getElementById("list").replaceChildren(el("p", { class: "muted" }, "Loading..."));
@@ -418,6 +421,7 @@ async function loadIndex() {
   };
   add("queue", "In progress (" + index.queue + ")");
   for (const m of index.months) add(m.month, m.month + " (" + m.series + ")");
+  add("availability", "Availability");
   markActive();
 }
 
@@ -471,7 +475,121 @@ function outageText(kind, o) {
 }
 
 function knownTab(tab) {
-  return tab === "queue" || index.months.some(m => m.month === tab);
+  return tab === "queue" || tab === "availability" ||
+    index.months.some(m => m.month === tab);
+}
+
+const SERVICES = {
+  "patchwork": "Patchwork",
+  "patchwork-checks": "Patchwork checks",
+  "github": "GitHub",
+  "workflows": "Workflows",
+  "email": "Email",
+  "reports-archive": "Reports archive",
+  "dev-archive": "Dev list archive",
+};
+// Always shown; the others only once they were unavailable.
+const MAIN_SERVICES = ["patchwork", "github", "workflows", "email"];
+const WINDOWS = [["Last hour", 3600], ["Last 24 hours", 86400],
+  ["Last 7 days", 7 * 86400], ["Last 30 days", 30 * 86400]];
+const TIMELINE_DAYS = 30;
+
+// duration shows seconds like "2d 3h", "3h 5m" or "12m".
+function duration(s) {
+  if (s < 60) return s > 0 ? "<1m" : "0";
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600),
+    m = Math.floor(s % 3600 / 60);
+  if (d) return d + "d" + (h ? " " + h + "h" : "");
+  if (h) return h + "h" + (m ? " " + m + "m" : "");
+  return m + "m";
+}
+
+// periods lists the periods of unavailability, the ongoing ones last,
+// with times in seconds; an ongoing one lasts until now.
+function periods(data) {
+  const now = Date.now() / 1000;
+  return (data.periods || []).concat(Object.values(data.failing || {})).map(p => ({
+    ...p, from: Date.parse(p.since) / 1000,
+    to: p.until ? Date.parse(p.until) / 1000 : now,
+  }));
+}
+
+function downtime(list, service, seconds) {
+  const now = Date.now() / 1000, start = now - seconds;
+  return list.filter(p => p.service === service).reduce((sum, p) =>
+    sum + Math.max(0, Math.min(p.to, now) - Math.max(p.from, start)), 0);
+}
+
+async function showAvailability() {
+  const path = "data/availability.json";
+  if (!cache.has(path)) {
+    document.getElementById("list").replaceChildren(el("p", { class: "muted" }, "Loading..."));
+    try {
+      cache.set(path, await getJSON(path));
+    } catch (e) {
+      if (current.tab === "availability") {
+        document.getElementById("list").replaceChildren(
+          el("p", { class: "error" }, e.message));
+      }
+      return;
+    }
+  }
+  if (current.tab === "availability") renderAvailability();
+}
+
+function renderAvailability() {
+  const data = cache.get("data/availability.json");
+  document.getElementById("pager").replaceChildren();
+  if (!data) return;
+  const list = periods(data);
+  const services = MAIN_SERVICES.concat(Object.keys(SERVICES).filter(s =>
+    !MAIN_SERVICES.includes(s) && list.some(p => p.service === s)));
+  const now = Date.now() / 1000, start = now - TIMELINE_DAYS * 86400;
+  const summary = el("table", { class: "avail" },
+    el("tr", {}, el("th", {}, "Service"), el("th", {}, "Now"),
+      WINDOWS.map(([name]) => el("th", {}, name)), el("th", {}, TIMELINE_DAYS + " days")),
+    services.map(service => {
+      const failing = (data.failing || {})[service];
+      return el("tr", {},
+        el("td", {}, SERVICES[service] || service),
+        el("td", { class: failing ? "down" : "up" },
+          failing ? ["unavailable for ", span(failing.since)] : "available"),
+        WINDOWS.map(([, seconds]) => {
+          const down = downtime(list, service, seconds);
+          return el("td", { class: down ? "num down" : "num muted",
+            title: (100 - 100 * down / seconds).toFixed(2) + "% available" },
+          duration(down));
+        }),
+        el("td", { class: "timeline" }, el("div", { class: "bar" },
+          list.filter(p => p.service === service && p.to > start).map(p => {
+            const from = Math.max(p.from, start);
+            return el("span", { class: p.outage ? "outage" : "short",
+              style: "left: " + (100 * (from - start) / (now - start)) + "%; width: " +
+                (100 * (p.to - from) / (now - start)) + "%",
+              title: periodText(p) });
+          }))));
+    }));
+  const rows = list.slice().sort((a, b) => b.from - a.from).map(p => el("tr", {},
+    el("td", {}, SERVICES[p.service] || p.service),
+    el("td", {}, stamp(p.since)),
+    el("td", {}, p.until ? stamp(p.until) : "ongoing"),
+    el("td", { class: "num" }, duration(p.to - p.from)),
+    el("td", {}, p.outage ? "outage" : ""),
+    el("td", { class: "reason" }, p.reason)));
+  document.getElementById("list").replaceChildren(el("div", { class: "wide" }, summary),
+    el("p", { class: "muted" }, "Times are as the bot saw them: from the first request ",
+      "that failed to the first that worked, as precise as its polling cycles.  Periods ",
+      "that became outages are shown darker.  The bot keeps them for 90 days."),
+    rows.length ? el("div", { class: "wide" }, el("table", { class: "avail periods" },
+      el("tr", {}, ["Service", "From", "To", "Duration", "", "Reason"].map(h =>
+        el("th", {}, h))), rows)) : el("p", { class: "muted" }, "No unavailability recorded."));
+}
+
+function periodText(p) {
+  return (SERVICES[p.service] || p.service) + (p.outage ? " outage" : " unavailable") +
+    ", " + new Date(p.since).toLocaleString() + " to " +
+    (p.until ? new Date(p.until).toLocaleString() : "now") + " (" +
+    duration(p.to - p.from) + "): " + p.reason;
 }
 
 async function refresh() {

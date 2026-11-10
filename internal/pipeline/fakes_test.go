@@ -802,6 +802,13 @@ func (e *env) reload() {
 	}
 }
 
+func (e *env) failingSince(service string) string {
+	if per := e.p.Store.Availability.Failing[service]; per != nil {
+		return per.Since
+	}
+	return ""
+}
+
 func (e *env) step() {
 	e.p.Step(context.Background(), false)
 }

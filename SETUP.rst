@@ -250,7 +250,9 @@ The state is plain JSON on the ``state`` branch:
 - ``queue.json``: series that are not finished;
 - ``history/YYYY-MM.json``: finished series;
 - ``meta.json``: event and archive cursors, and ``outages`` while
-  a service the bot needs is unavailable (see below).
+  a service the bot needs is unavailable (see below);
+- ``availability.json``: when the services the bot uses were
+  unavailable, for the last 90 days.
 
 Finished series and patch records are retained indefinitely.  History
 lookups are also unlimited by default (``limits.history_window: 0``).
@@ -363,6 +365,13 @@ itself cannot be sent for an hour, these runs fail without sending
 anything.  Without ``alerts.to``, only the job summaries and the pages
 show the problems.  Outages of a service that gets turned off, like
 email or reading an archive, are forgotten.
+
+The *Availability* tab of the pages shows when Patchwork, GitHub, the
+workflows, email and the archives were unavailable, also briefly
+without becoming an outage: for how long in the last hour, day, week
+and month, on a timeline of the last 30 days, and every period of the
+last 90 days with its reason.  The bot only notices while it runs, so
+the times are as precise as its polling cycles.
 
 The bot cannot notice that it does not run itself, for example when
 GitHub disables Actions on the bot repository.  The pages warn when

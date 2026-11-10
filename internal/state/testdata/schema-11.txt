@@ -1,3 +1,14 @@
+availability.failing{}.outage bool
+availability.failing{}.reason string
+availability.failing{}.service string
+availability.failing{}.since string
+availability.failing{}.until string
+availability.periods[].outage bool
+availability.periods[].reason string
+availability.periods[].service string
+availability.periods[].since string
+availability.periods[].until string
+availability.schema int
 meta.archives{}.failing string
 meta.archives{}.last_month string
 meta.archives{}.months{} int
@@ -19,7 +30,6 @@ meta.outages{}.checks bool
 meta.outages{}.next_probe string
 meta.outages{}.reason string
 meta.outages{}.since string
-meta.patchwork_failing string
 meta.schema int
 meta.stats.jobs_per_patch float64
 meta.tools_synced string

@@ -491,9 +491,9 @@ func TestOutageOfPatchwork(t *testing.T) {
 	e.step()
 	s := e.series(80)
 	if s.Failure == nil || s.Failure.Cause != state.OutagePatchwork ||
-		s.Failure.Outage != "" || e.p.Store.Meta.PatchworkFailing != start {
+		s.Failure.Outage != "" || e.failingSince(state.ServicePatchwork) != start {
 		t.Fatalf("failure = %+v, failing since %q", s.Failure,
-			e.p.Store.Meta.PatchworkFailing)
+			e.failingSince(state.ServicePatchwork))
 	}
 
 	// Two hours without answers are an outage since the first failure.
@@ -536,7 +536,8 @@ func TestOutageOfPatchwork(t *testing.T) {
 	e.reload()
 	e.step()
 	if s = e.series(80); s.Status != state.SeriesTesting ||
-		e.p.outage(state.OutagePatchwork) != nil || e.p.Store.Meta.PatchworkFailing != "" {
+		e.p.outage(state.OutagePatchwork) != nil ||
+		e.failingSince(state.ServicePatchwork) != "" {
 		t.Fatalf("series = %+v, outages %+v", s, e.p.Store.Meta.Outages)
 	}
 	if alerts := e.alerts.subjects(); alerts[len(alerts)-1] !=
@@ -601,5 +602,63 @@ func TestPatchworkRefusingChecks(t *testing.T) {
 	if alerts := e.alerts.subjects(); alerts[len(alerts)-1] !=
 		"LeadTestKit: Patchwork accepts the checks of the bot again" {
 		t.Fatalf("alerts = %q", alerts)
+	}
+}
+
+// Short failures are recorded too, and outages mark their period.
+func TestAvailabilityRecorded(t *testing.T) {
+	e := outageEnv(t)
+	start := state.FormatTime(e.now)
+	e.pw.errs["*"] = errTransient
+	e.step()
+	e.advance(10 * time.Minute)
+	delete(e.pw.errs, "*")
+	e.reload()
+	e.step()
+	a := e.p.Store.Availability
+	if len(a.Periods) != 1 || a.Periods[0].Service != state.ServicePatchwork ||
+		a.Periods[0].Since != start || a.Periods[0].Until != state.FormatTime(e.now) ||
+		a.Periods[0].Outage || len(a.Failing) != 0 {
+		t.Fatalf("availability = %+v", a)
+	}
+
+	// Email server errors, and the outage they become.
+	down := &mail.ServerError{Err: errors.New("connection refused")}
+	e.mail.err, e.alerts.err = down, down
+	e.pw.addSeries(80, 1, "lorem", e.now)
+	e.cfg.Report.ApplySuccess = true
+	for i := 0; i < 5; i++ {
+		e.advance(20 * time.Minute)
+		e.reload()
+		e.step()
+	}
+	if per := e.p.Store.Availability.Failing[state.ServiceEmail]; per == nil || !per.Outage {
+		t.Fatalf("email = %+v, outages %+v", per, e.p.Store.Meta.Outages)
+	}
+	e.mail.err, e.alerts.err = nil, nil
+	e.reload()
+	e.step()
+	a = e.p.Store.Availability
+	if last := a.Periods[len(a.Periods)-1]; last.Service != state.ServiceEmail ||
+		!last.Outage || a.Failing[state.ServiceEmail] != nil {
+		t.Fatalf("availability = %+v", a)
+	}
+}
+
+func TestGitHubAvailability(t *testing.T) {
+	e := outageEnv(t)
+	e.pw.addSeries(80, 1, "lorem", e.now)
+	e.gh.fail["set-branch"] = 10
+	e.step()
+	per := e.p.Store.Availability.Failing[state.ServiceGitHub]
+	if per == nil || !strings.Contains(per.Reason, "503") {
+		t.Fatalf("availability = %+v", e.p.Store.Availability)
+	}
+	e.gh.fail["set-branch"] = 0
+	e.advance(time.Hour)
+	e.reload()
+	e.step()
+	if e.p.Store.Availability.Failing[state.ServiceGitHub] != nil {
+		t.Fatalf("availability = %+v", e.p.Store.Availability)
 	}
 }

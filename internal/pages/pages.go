@@ -94,6 +94,10 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, run 
 		Queue:  len(st.Queue),
 		Months: []Month{},
 	}
+	if err := writeJSON(filepath.Join(data, "availability.json"),
+		st.Availability); err != nil {
+		return err
+	}
 	queue := upgradeLinks(st.Queue)
 	if err := writeJSON(filepath.Join(data, "queue.json"),
 		seriesFile{Schema: state.SchemaVersion, Series: queue}); err != nil {
