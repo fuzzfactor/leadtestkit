@@ -24,6 +24,11 @@ import (
 
 const perPage = "1024"
 
+// attempts is one more than the default: Patchwork often answers 502
+// for a while, and once a request fails, the others of the polling
+// cycle wait for the next one, so a longer wait only costs once.
+const attempts = 5
+
 var ErrInvalidPage = errors.New("invalid page")
 
 type Options struct {
@@ -71,6 +76,7 @@ func New(opts Options) (*Client, error) {
 		}
 		hc = httpx.New(httpx.Options{
 			Name:          "patchwork",
+			Attempts:      attempts,
 			MinDelay:      opts.MinDelay,
 			BotTiers:      true,
 			Header:        http.Header{"Accept": {"application/json"}},
