@@ -5,6 +5,9 @@
 
 const PAGE_SIZE = 50;
 let index = null;
+// indexChecked is when index.json was last downloaded; see checkForUpdate.
+let indexChecked = 0;
+const CHECK_INTERVAL = 5 * 60 * 1000;
 let current = { tab: "queue", series: [], page: 0 };
 // Downloaded series lists by data path, kept until Refresh.
 const cache = new Map();
@@ -145,6 +148,21 @@ function tick() {
   }
   if (index) showProblems();
   if (current.tab === "availability") renderAvailability();
+  if (index && Date.now() - indexChecked >= CHECK_INTERVAL) checkForUpdate();
+}
+
+// checkForUpdate reloads the data when the bot published newer data, so
+// that a page left open does not show old problems, or warn that the
+// bot stopped when only the page was not refreshed.
+async function checkForUpdate() {
+  if (document.getElementById("refresh").disabled) return;
+  indexChecked = Date.now();
+  try {
+    const latest = await getJSON("data/index.json");
+    if (latest.generated !== index.generated) await refresh();
+  } catch (e) {
+    // The next check tries again; the stale warning tells if it lasts.
+  }
 }
 
 function when(ts) {
@@ -439,6 +457,7 @@ async function selectTab(tab, keepPage) {
 
 async function loadIndex() {
   index = await getJSON("data/index.json");
+  indexChecked = Date.now();
   document.title = index.title;
   document.getElementById("title").textContent = index.title;
   const mode = index.mode;
@@ -542,12 +561,13 @@ function duration(s) {
 }
 
 // periods lists the periods of unavailability, the ongoing ones last,
-// with times in seconds; an ongoing one lasts until now.
+// with times in seconds.  An ongoing one lasts until the data was
+// generated, the last time the bot looked.
 function periods(data) {
-  const now = Date.now() / 1000;
+  const seen = Math.min(Date.parse(index.generated), Date.now()) / 1000;
   return (data.periods || []).concat(Object.values(data.failing || {})).map(p => ({
     ...p, from: Date.parse(p.since) / 1000,
-    to: p.until ? Date.parse(p.until) / 1000 : now,
+    to: p.until ? Date.parse(p.until) / 1000 : Math.max(seen, Date.parse(p.since) / 1000),
   }));
 }
 
@@ -625,7 +645,7 @@ function renderAvailability() {
 function periodText(p) {
   return (SERVICES[p.service] || p.service) + (p.outage ? " outage" : " unavailable") +
     ", " + new Date(p.since).toLocaleString() + " to " +
-    (p.until ? new Date(p.until).toLocaleString() : "now") + " (" +
+    (p.until ? new Date(p.until).toLocaleString() : "now, as of the last update") + " (" +
     duration(p.to - p.from) + "): " + p.reason;
 }
 
