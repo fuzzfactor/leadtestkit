@@ -80,6 +80,7 @@ func TestRender(t *testing.T) {
 		idx.Months[0].Patches != 1 || idx.ListTag != "lorem-dev" ||
 		idx.Outages[state.OutageRuns].Reason != "no workflow run started" ||
 		idx.StaleAfter != 7200 || !idx.RunFailed ||
+		fmt.Sprint(idx.Unavailable) != "[patchwork]" ||
 		idx.PatchworkWeb != "https://pw.example.org" {
 		t.Errorf("index = %+v", idx)
 	}

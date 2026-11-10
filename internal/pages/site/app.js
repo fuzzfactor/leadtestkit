@@ -370,6 +370,43 @@ function markActive() {
   for (const b of document.querySelectorAll("nav button")) {
     b.classList.toggle("active", b.dataset.tab === current.tab);
   }
+  document.getElementById("show-availability").classList.toggle("active",
+    current.tab === "availability");
+}
+
+// alertIcon is an exclamation mark in an outlined circle for an outage,
+// tinted like the badges, or in an outlined triangle otherwise.
+function alertIcon(kind) {
+  const svg = (tag, attrs) => {
+    const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+  };
+  const icon = svg("svg", { class: "alert " + kind, viewBox: "0 0 16 16",
+    "aria-hidden": "true" });
+  if (kind === "outage") {
+    icon.append(svg("circle", { cx: 8, cy: 8, r: 6.8, class: "frame" }),
+      svg("path", { d: "M8 4.6v4.2", class: "mark" }),
+      svg("circle", { cx: 8, cy: 11.3, r: 0.95, class: "dot" }));
+  } else {
+    icon.append(svg("path", { d: "M8 1.9L14.9 14H1.1Z", class: "frame" }),
+      svg("path", { d: "M8 6.2v3.6", class: "mark" }),
+      svg("circle", { cx: 8, cy: 11.9, r: 0.9, class: "dot" }));
+  }
+  return icon;
+}
+
+// availabilityButton marks the button when a service is unavailable:
+// red during an outage, yellow otherwise.
+function availabilityButton() {
+  const outages = Object.keys(index.outages || {}).length;
+  const down = (index.unavailable || []).map(s => SERVICES[s] || s);
+  const kind = outages ? "outage" : down.length ? "short" : "";
+  document.getElementById("show-availability").replaceChildren(
+    kind ? alertIcon(kind) : null, "Availability");
+  document.getElementById("show-availability").title = down.length
+    ? "Unavailable now: " + down.join(", ") + (outages ? " (outage)" : "")
+    : "When the services the bot uses were unavailable";
 }
 
 async function selectTab(tab, keepPage) {
@@ -421,7 +458,7 @@ async function loadIndex() {
   };
   add("queue", "In progress (" + index.queue + ")");
   for (const m of index.months) add(m.month, m.month + " (" + m.series + ")");
-  add("availability", "Availability");
+  availabilityButton();
   markActive();
 }
 
@@ -610,6 +647,7 @@ async function refresh() {
 async function main() {
   await loadIndex();
   document.getElementById("refresh").onclick = refresh;
+  document.getElementById("show-availability").onclick = () => selectTab("availability");
   document.getElementById("filter").oninput = () => { current.page = 0; render(); };
   document.getElementById("status").onchange = () => { current.page = 0; render(); };
   setInterval(tick, 30000);

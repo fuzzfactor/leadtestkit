@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"leadtestkit/internal/config"
@@ -42,6 +43,9 @@ type Index struct {
 	ListTag          string `json:"list_tag,omitempty"`
 	// Outages are the services that are unavailable, by kind.
 	Outages map[string]*state.Outage `json:"outages,omitempty"`
+	// Unavailable lists the services that are unavailable now, also
+	// without an outage, see state.Availability.
+	Unavailable []string `json:"unavailable,omitempty"`
 	// StaleAfter is the age in seconds after which the data is stale.
 	StaleAfter int64   `json:"stale_after,omitempty"`
 	Mode       Mode    `json:"mode"`
@@ -98,6 +102,10 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, run 
 		st.Availability); err != nil {
 		return err
 	}
+	for service := range st.Availability.Failing {
+		idx.Unavailable = append(idx.Unavailable, service)
+	}
+	sort.Strings(idx.Unavailable)
 	queue := upgradeLinks(st.Queue)
 	if err := writeJSON(filepath.Join(data, "queue.json"),
 		seriesFile{Schema: state.SchemaVersion, Series: queue}); err != nil {
