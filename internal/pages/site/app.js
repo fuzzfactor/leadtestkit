@@ -545,7 +545,7 @@ const SERVICES = {
   "reports-archive": "Reports archive",
   "dev-archive": "Dev list archive",
 };
-// Always shown; the others only once they were unavailable.
+// Shown with data from before the index listed the services in use.
 const MAIN_SERVICES = ["patchwork", "github", "workflows", "email"];
 const WINDOWS = [["Last hour", 3600], ["Last 24 hours", 86400],
   ["Last 7 days", 7 * 86400], ["Last 30 days", 30 * 86400]];
@@ -600,8 +600,10 @@ function renderAvailability() {
   document.getElementById("pager").replaceChildren();
   if (!data) return;
   const list = periods(data);
-  const services = MAIN_SERVICES.concat(Object.keys(SERVICES).filter(s =>
-    !MAIN_SERVICES.includes(s) && list.some(p => p.service === s)));
+  // The services in use, and those that are not but were unavailable.
+  const used = index.services || MAIN_SERVICES;
+  const services = used.concat(Object.keys(SERVICES).filter(s =>
+    !used.includes(s) && list.some(p => p.service === s)));
   const now = Date.now() / 1000, start = now - TIMELINE_DAYS * 86400;
   const summary = el("table", { class: "avail" },
     el("tr", {}, el("th", {}, "Service"), el("th", {}, "Now"),

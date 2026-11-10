@@ -160,3 +160,25 @@ func TestRenderUpgradesPatchworkLinks(t *testing.T) {
 		t.Error("rendering changed the saved state")
 	}
 }
+
+func TestServices(t *testing.T) {
+	cfg, err := config.Parse([]byte(cfgYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(services(cfg)); got != "[patchwork github workflows]" {
+		t.Errorf("minimal: %s", got)
+	}
+	data, err := os.ReadFile("../../examples/ovs.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = config.Parse(data); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Mode.Checks = "post"
+	if got := fmt.Sprint(services(cfg)); got != "[patchwork patchwork-checks github "+
+		"workflows email reports-archive dev-archive]" {
+		t.Errorf("ovs: %s", got)
+	}
+}

@@ -49,6 +49,9 @@ type Index struct {
 	// Unavailable lists the services that are unavailable now, also
 	// without an outage, see state.Availability.
 	Unavailable []string `json:"unavailable,omitempty"`
+	// Services lists the services that the bot uses, for the
+	// availability page.
+	Services []string `json:"services"`
 	// StaleAfter is the age in seconds after which the data is stale.
 	StaleAfter int64   `json:"stale_after,omitempty"`
 	Mode       Mode    `json:"mode"`
@@ -105,6 +108,7 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, run 
 		st.Availability); err != nil {
 		return err
 	}
+	idx.Services = services(cfg)
 	for service := range st.Availability.Failing {
 		idx.Unavailable = append(idx.Unavailable, service)
 	}
@@ -134,6 +138,26 @@ func Render(st *state.Store, cfg *config.Config, out string, now time.Time, run 
 		}
 	}
 	return writeJSON(filepath.Join(data, "index.json"), idx)
+}
+
+// services lists the services that the bot uses with this
+// configuration, as named in state.Availability.
+func services(cfg *config.Config) []string {
+	list := []string{state.ServicePatchwork}
+	if cfg.Mode.PostChecks() {
+		list = append(list, state.ServicePatchworkChecks)
+	}
+	list = append(list, state.ServiceGitHub, state.ServiceWorkflows)
+	if !cfg.Mode.EmailOff() {
+		list = append(list, state.ServiceEmail)
+	}
+	if cfg.Archive.Ingest && cfg.Archive.ReportsURL != "" {
+		list = append(list, state.OutageArchive("reports"))
+	}
+	if cfg.Rechecks.Enabled && !cfg.UseCommentEvents() && cfg.Archive.DevURL != "" {
+		list = append(list, state.OutageArchive("dev"))
+	}
+	return list
 }
 
 // upgradeLinks returns the series with https:// Patchwork links, copying
