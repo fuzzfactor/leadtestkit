@@ -125,10 +125,30 @@ function counts(c) {
       c[k] ? String(c[k]) : "-")));
 }
 
+// ago shows how long ago something happened, like "3h ago", and span
+// how long something has lasted, like "3h".  tick keeps both current.
+function ago(ts, cls) {
+  return el("time", { class: cls, datetime: ts, "data-age": "ago",
+    title: new Date(ts).toLocaleString() + " (" + ts + ")" }, age(ts));
+}
+
+function span(ts) {
+  return el("time", { datetime: ts, "data-age": "span",
+    title: new Date(ts).toLocaleString() + " (" + ts + ")" },
+  age(ts).replace(/ ago$/, ""));
+}
+
+function tick() {
+  for (const t of document.querySelectorAll("time[data-age]")) {
+    const text = age(t.getAttribute("datetime"));
+    t.textContent = t.dataset.age === "span" ? text.replace(/ ago$/, "") : text;
+  }
+  if (index) showProblems();
+}
+
 function when(ts) {
   if (!ts) return el("span", { class: "muted when" });
-  return el("time", { class: "muted when", datetime: ts,
-    title: new Date(ts).toLocaleString() + " (" + ts + ")" }, age(ts));
+  return ago(ts, "muted when");
 }
 
 function archiveLink(msgid, format) {
@@ -374,11 +394,26 @@ async function loadIndex() {
   document.getElementById("title").textContent = index.title;
   const mode = index.mode;
   document.getElementById("meta").replaceChildren(
-    "Updated " + age(index.generated) + " · ",
+    "Updated ", ago(index.generated), " · ",
     link(index.patchwork_web + "/project/" + index.project + "/list/", "patchwork"), " · ",
     link("https://" + index.git_host + "/" + index.test_repo, index.test_repo),
     ...(index.run_url ? [" · ", link(index.run_url, "last run")] : []),
     " · push " + mode.push + ", checks " + mode.checks + ", email " + mode.email);
+  showProblems();
+  const tabs = document.getElementById("tabs");
+  tabs.replaceChildren();
+  const add = (tab, text) => {
+    const b = el("button", { onclick: () => selectTab(tab) }, text);
+    b.dataset.tab = tab;
+    tabs.append(b);
+  };
+  add("queue", "In progress (" + index.queue + ")");
+  for (const m of index.months) add(m.month, m.month + " (" + m.series + ")");
+  markActive();
+}
+
+// showProblems shows outages and whether the bot seems to have stopped.
+function showProblems() {
   const problems = Object.entries(index.outages || {}).sort().map(([kind, o]) =>
     el("div", {}, outageText(kind, o)));
   if (index.run_failed) {
@@ -393,21 +428,6 @@ async function loadIndex() {
   const outage = document.getElementById("outage");
   outage.hidden = !problems.length;
   outage.replaceChildren(...problems);
-  const tabs = document.getElementById("tabs");
-  tabs.replaceChildren();
-  const add = (tab, text) => {
-    const b = el("button", { onclick: () => selectTab(tab) }, text);
-    b.dataset.tab = tab;
-    tabs.append(b);
-  };
-  add("queue", "In progress (" + index.queue + ")");
-  for (const m of index.months) add(m.month, m.month + " (" + m.series + ")");
-  markActive();
-}
-
-// span shows how long ago something started, like "3h".
-function span(ts) {
-  return el("time", { datetime: ts, title: ts }, age(ts).replace(/ ago$/, ""));
 }
 
 function outageText(kind, o) {
@@ -458,6 +478,10 @@ async function main() {
   document.getElementById("refresh").onclick = refresh;
   document.getElementById("filter").oninput = () => { current.page = 0; render(); };
   document.getElementById("status").onchange = () => { current.page = 0; render(); };
+  setInterval(tick, 30000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) tick();
+  });
   const wanted = location.hash.slice(1);
   await selectTab(knownTab(wanted) ? wanted : "queue");
 }
