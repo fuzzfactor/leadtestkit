@@ -585,7 +585,12 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 	depID := 0
 	for _, t := range text {
 		for _, m := range dependsRe.FindAllStringSubmatch(t, -1) {
-			id, _ := strconv.Atoi(m[2])
+			id, err := strconv.Atoi(m[2])
+			if err != nil || id <= 0 {
+				p.infof("%s: ignoring %q: not a valid ID.", seriesName(s),
+					strings.TrimSpace(m[0]))
+				continue
+			}
 			if strings.EqualFold(m[1], "patch") {
 				d, err := p.pw().GetPatch(ctx, id)
 				if err != nil {

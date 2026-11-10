@@ -729,6 +729,17 @@ func TestDependencyWaits(t *testing.T) {
 	}
 }
 
+func TestDependencyWithInvalidID(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(121, 1, "lorem", e.now)
+	e.pw.patches[12101].Content = "Depends-on: patch-99999999999999999999\n"
+	e.step()
+	if s := e.series(121); s.Status != state.SeriesTesting || s.DependsOn != 0 ||
+		e.pw.calls["patch"] != 1 {
+		t.Fatalf("series = %+v, %d patch requests", s, e.pw.calls["patch"])
+	}
+}
+
 func TestManualFlags(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Mode.Push = "off"
