@@ -58,3 +58,17 @@ func TestPWUnavailable(t *testing.T) {
 		}
 	}
 }
+
+// Requested rechecks only need GitHub, so they do not wait for
+// Patchwork.
+func TestRecheckWithoutPatchwork(t *testing.T) {
+	e := newEnv(t, "")
+	_, failed := testedPatch(t, e, 240)
+	pt := e.series(240).Patches[0]
+	pt.Recheck, pt.CommentsPending = true, true
+	e.pw.errs["*"] = errTransient
+	e.step()
+	if fmt.Sprint(e.gh.reruns) != fmt.Sprint([]int64{failed}) || !pt.CommentsPending {
+		t.Fatalf("reruns = %v, patch = %+v", e.gh.reruns, pt)
+	}
+}

@@ -101,8 +101,9 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 		if !t.patch.CommentsPending {
 			continue
 		}
+		// Requested rechecks still restart workflows below.
 		if p.pwSkipped("fetching comments") {
-			return
+			break
 		}
 		p.infof("%s: fetching comments after activity was detected.", patchName(t.patch))
 		comments, err := p.pw().GetPatchComments(ctx, id)
