@@ -557,9 +557,9 @@ const MAIN_SERVICES = ["patchwork", "github", "workflows", "email"];
 const WINDOWS = [["Last hour", 3600], ["Last 24 hours", 86400],
   ["Last 7 days", 7 * 86400], ["Last 30 days", 30 * 86400]];
 const TIMELINE_DAYS = 30;
-// The periods table shows the latest ones until asked for all.
-const PERIODS_SHOWN = 50;
-let allPeriods = false;
+// The periods table shows a page of them at a time, newest first.
+const PERIODS_PAGE = 50;
+let periodsPage = 0;
 
 // duration shows seconds like "2d 3h", "3h 5m" or "12m".
 function duration(s) {
@@ -633,25 +633,33 @@ function renderAvailability() {
           timeline(list, service, data))));
     }));
   const sorted = list.slice().sort((a, b) => b.from - a.from);
-  const rows = sorted.slice(0, allPeriods ? sorted.length : PERIODS_SHOWN).map(p => el("tr", {},
+  const pages = Math.max(1, Math.ceil(sorted.length / PERIODS_PAGE));
+  periodsPage = Math.min(periodsPage, pages - 1);
+  const shown = sorted.slice(periodsPage * PERIODS_PAGE, (periodsPage + 1) * PERIODS_PAGE);
+  const rows = shown.map(p => el("tr", {},
     el("td", {}, SERVICES[p.service] || p.service),
     el("td", {}, stamp(p.since)),
     el("td", {}, p.until ? stamp(p.until) : "ongoing"),
     el("td", { class: "num" }, duration(p.to - p.from)),
     el("td", {}, p.outage ? "outage" : ""),
     el("td", { class: "reason" }, p.reason)));
-  const more = sorted.length > rows.length ? el("button", { class: "toggle", type: "button",
-    onclick: () => { allPeriods = true; renderAvailability(); } },
-  "show all " + sorted.length) : null;
+  const turn = d => () => { periodsPage += d; renderAvailability(); };
+  // Above and below the table, which is long.
+  const pager = () => pages > 1 ? el("div", { class: "pager" },
+    el("button", { onclick: turn(-1), disabled: periodsPage === 0 }, "‹"),
+    " " + (periodsPage + 1) + " / " + pages + " ",
+    el("button", { onclick: turn(1), disabled: periodsPage >= pages - 1 }, "›"),
+    el("span", { class: "muted" }, " " + sorted.length + " periods")) : null;
   document.getElementById("list").replaceChildren(el("div", { class: "wide" }, summary),
     el("p", { class: "muted" }, "The bar is green for the time recorded.  Marks show ",
       "the hours in which the service was unavailable, the higher the longer, red for an ",
       "outage.  Times are as the bot saw them: from ",
       "the first request that failed to the first that worked, as precise as its ",
       "polling cycles.  The bot keeps them for 90 days."),
-    rows.length ? el("div", { class: "wide" }, el("table", { class: "avail periods" },
-      el("tr", {}, ["Service", "From", "To", "Duration", "", "Reason"].map(h =>
-        el("th", {}, h))), rows), more) :
+    rows.length ? el("div", { class: "wide" }, pager(),
+      el("table", { class: "avail periods" },
+        el("tr", {}, ["Service", "From", "To", "Duration", "", "Reason"].map(h =>
+          el("th", {}, h))), rows), pager()) :
       el("p", { class: "muted" }, "No unavailability recorded."));
 }
 

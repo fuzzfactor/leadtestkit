@@ -43,7 +43,8 @@ nav button.active { border-color: var(--pending); font-weight: 600; }
 #controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
 #controls[hidden] { display: none; }
 #controls input { flex: 1; min-width: 200px; padding: 4px 8px; }
-#controls input, #controls select, #pager button { background: var(--bg); color: var(--fg);
+#controls input, #controls select, #pager button, .pager button {
+  background: var(--bg); color: var(--fg);
   border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .series { border: 1px solid var(--line); border-radius: 6px; margin: 6px 0; }
 .series > .head { display: flex; gap: 8px; align-items: baseline; padding: 4px 10px;
@@ -131,3 +132,4 @@ a:hover .badge { background: color-mix(in srgb, currentColor 20%, transparent); 
 .days .short { background: var(--warning-area); }
 .days .outage { background: var(--fail); }
 .periods td { vertical-align: top; }
+.pager { margin: 6px 0; font-size: 13px; }
