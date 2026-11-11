@@ -557,6 +557,9 @@ const MAIN_SERVICES = ["patchwork", "github", "workflows", "email"];
 const WINDOWS = [["Last hour", 3600], ["Last 24 hours", 86400],
   ["Last 7 days", 7 * 86400], ["Last 30 days", 30 * 86400]];
 const TIMELINE_DAYS = 30;
+// The periods table shows the latest ones until asked for all.
+const PERIODS_SHOWN = 50;
+let allPeriods = false;
 
 // duration shows seconds like "2d 3h", "3h 5m" or "12m".
 function duration(s) {
@@ -611,7 +614,6 @@ function renderAvailability() {
   const used = index.services || MAIN_SERVICES;
   const services = used.concat(Object.keys(SERVICES).filter(s =>
     !used.includes(s) && list.some(p => p.service === s)));
-  const now = Date.now() / 1000, start = now - TIMELINE_DAYS * 86400;
   const summary = el("table", { class: "avail" },
     el("tr", {}, el("th", {}, "Service"), el("th", {}, "Now"),
       WINDOWS.map(([name]) => el("th", {}, name)), el("th", {}, TIMELINE_DAYS + " days")),
@@ -627,36 +629,71 @@ function renderAvailability() {
             title: (100 - 100 * down / seconds).toFixed(2) + "% available" },
           duration(down));
         }),
-        el("td", { class: "timeline" }, el("div", { class: "bar" },
-          list.filter(p => p.service === service && p.to > start).map(p => {
-            const from = Math.max(p.from, start);
-            return el("span", { class: p.outage ? "outage" : "short",
-              style: "left: " + (100 * (from - start) / (now - start)) + "%; width: " +
-                (100 * (p.to - from) / (now - start)) + "%",
-              title: periodText(p) });
-          }))));
+        el("td", { class: "timeline" }, el("div", { class: "days" },
+          timeline(list, service, data))));
     }));
-  const rows = list.slice().sort((a, b) => b.from - a.from).map(p => el("tr", {},
+  const sorted = list.slice().sort((a, b) => b.from - a.from);
+  const rows = sorted.slice(0, allPeriods ? sorted.length : PERIODS_SHOWN).map(p => el("tr", {},
     el("td", {}, SERVICES[p.service] || p.service),
     el("td", {}, stamp(p.since)),
     el("td", {}, p.until ? stamp(p.until) : "ongoing"),
     el("td", { class: "num" }, duration(p.to - p.from)),
     el("td", {}, p.outage ? "outage" : ""),
     el("td", { class: "reason" }, p.reason)));
+  const more = sorted.length > rows.length ? el("button", { class: "toggle", type: "button",
+    onclick: () => { allPeriods = true; renderAvailability(); } },
+  "show all " + sorted.length) : null;
   document.getElementById("list").replaceChildren(el("div", { class: "wide" }, summary),
-    el("p", { class: "muted" }, "Times are as the bot saw them: from the first request ",
-      "that failed to the first that worked, as precise as its polling cycles.  Periods ",
-      "that became outages are shown darker.  The bot keeps them for 90 days."),
+    el("p", { class: "muted" }, "The bar is green for the time recorded.  Marks show ",
+      "the hours in which the service was unavailable, the higher the longer, red for an ",
+      "outage.  Times are as the bot saw them: from ",
+      "the first request that failed to the first that worked, as precise as its ",
+      "polling cycles.  The bot keeps them for 90 days."),
     rows.length ? el("div", { class: "wide" }, el("table", { class: "avail periods" },
       el("tr", {}, ["Service", "From", "To", "Duration", "", "Reason"].map(h =>
-        el("th", {}, h))), rows)) : el("p", { class: "muted" }, "No unavailability recorded."));
+        el("th", {}, h))), rows), more) :
+      el("p", { class: "muted" }, "No unavailability recorded."));
 }
 
-function periodText(p) {
-  return (SERVICES[p.service] || p.service) + (p.outage ? " outage" : " unavailable") +
-    ", " + new Date(p.since).toLocaleString() + " to " +
-    (p.until ? new Date(p.until).toLocaleString() : "now, as of the last update") + " (" +
-    duration(p.to - p.from) + "): " + p.reason;
+// timeline draws the last TIMELINE_DAYS days of a service until the data
+// was generated: a band for the time recorded, and a mark for every hour
+// in which the service was unavailable, as high as the part of the hour.
+function timeline(list, service, data) {
+  const seen = Math.min(Date.parse(index.generated), Date.now()) / 1000;
+  const first = new Date(seen * 1000);
+  first.setMinutes(0, 0, 0);
+  first.setHours(first.getHours() - (TIMELINE_DAYS * 24 - 1));
+  const start = first / 1000;
+  const recorded = Math.max(start, data.since ? Date.parse(data.since) / 1000 : start);
+  const pos = t => (100 * (t - start) / (seen - start)) + "%";
+  const out = [];
+  if (recorded < seen) {
+    out.push(el("span", { class: "recorded",
+      style: "left: " + pos(recorded) + "; right: 0",
+      title: "Recorded since " + new Date(recorded * 1000).toLocaleString() }));
+  }
+  const mine = list.filter(p => p.service === service && p.to > recorded);
+  for (let t = start; t < seen; t += 3600) {
+    const from = Math.max(t, recorded), to = Math.min(t + 3600, seen);
+    const hit = to > from ? mine.filter(p => p.to > from && p.from < to) : [];
+    if (!hit.length) continue;
+    const s = { from: t, to, periods: hit.length, outage: hit.some(p => p.outage),
+      down: hit.reduce((sum, p) => sum + Math.min(p.to, to) - Math.max(p.from, from), 0) };
+    s.share = s.down / (to - from);
+    // At least a fifth of the height, so that a few minutes show.
+    out.push(el("span", { class: s.outage ? "outage" : "short", title: sliceText(s),
+      style: "left: " + pos(t) + "; width: max(1px, " + pos(start + to - t) + "); height: " +
+        (20 + 80 * s.share) + "%" }));
+  }
+  return out;
+}
+
+function sliceText(s) {
+  const at = t => new Date(t * 1000).toLocaleString(undefined, { weekday: "short",
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return at(s.from) + " to " + at(s.to) + ": unavailable for " + duration(s.down) + " (" +
+    Math.round(100 * s.share) + "%) in " + s.periods +
+    (s.periods > 1 ? " periods" : " period") + (s.outage ? ", with an outage" : "");
 }
 
 async function refresh() {

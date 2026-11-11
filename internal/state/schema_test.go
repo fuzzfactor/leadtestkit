@@ -284,6 +284,25 @@ func TestVersionNineSplitsCheckFailures(t *testing.T) {
 	}
 }
 
+func TestVersionElevenStartsAvailability(t *testing.T) {
+	dir := t.TempDir()
+	doc := `{"schema":11,"failing":{"github":{"service":"github",` +
+		`"since":"2026-03-10T13:00:00Z","reason":"ipsum"}},"periods":[` +
+		`{"service":"patchwork","since":"2026-03-10T12:30:00Z",` +
+		`"until":"2026-03-10T12:33:00Z","reason":"lorem"}]}`
+	if err := os.WriteFile(filepath.Join(dir, AvailabilityFile), []byte(doc),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Availability.Since != "2026-03-10T12:30:00Z" {
+		t.Errorf("since = %q", s.Availability.Since)
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)

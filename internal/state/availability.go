@@ -24,6 +24,9 @@ const (
 // worked.  Short periods that never became an outage count too.
 type Availability struct {
 	Schema int `json:"schema"`
+	// Since is when the bot started to record availability; nothing is
+	// known before.
+	Since string `json:"since,omitempty"`
 	// Failing holds the periods that have not ended, by service.
 	Failing map[string]*Period `json:"failing"`
 	// Periods are the ended periods, oldest first.

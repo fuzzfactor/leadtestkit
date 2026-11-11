@@ -4,11 +4,14 @@
 :root {
   --fg: #1f2328; --muted: #656d76; --bg: #ffffff; --line: #d0d7de; --row: #f6f8fa;
   --success: #1a7f37; --fail: #cf222e; --warning: #9a6700; --pending: #0969da; --other: #6e7781;
+  /* --warning is dark enough for text; areas look cleaner brighter. */
+  --warning-area: #d4a72c;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --fg: #e6edf3; --muted: #8d96a0; --bg: #0d1117; --line: #30363d; --row: #161b22;
     --success: #3fb950; --fail: #f85149; --warning: #d29922; --pending: #58a6ff; --other: #8b949e;
+    --warning-area: var(--warning);
   }
 }
 body { font: 14px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg);
@@ -121,12 +124,10 @@ a:hover .badge { background: color-mix(in srgb, currentColor 20%, transparent); 
 .avail .down { color: var(--fail); }
 .avail .reason { white-space: normal; overflow-wrap: anywhere; }
 .avail .timeline { width: 40%; min-width: 200px; }
-/* A gridline every week of the 30 days, counted back from now. */
-.bar { position: relative; height: 14px; border-radius: 3px; background-color: var(--row);
-  background-image: repeating-linear-gradient(to left, transparent 0,
-    transparent calc(700% / 30 - 1px), var(--line) calc(700% / 30 - 1px),
-    var(--line) calc(700% / 30)); }
-.bar span { position: absolute; top: 0; bottom: 0; min-width: 2px; }
-.bar .short { background: color-mix(in srgb, var(--fail) 40%, transparent); }
-.bar .outage { background: var(--fail); }
+.days { position: relative; height: 16px; border-radius: 3px; overflow: hidden;
+  background: var(--row); }
+.days span { position: absolute; bottom: 0; }
+.days .recorded { top: 0; background: color-mix(in srgb, var(--success) 22%, transparent); }
+.days .short { background: var(--warning-area); }
+.days .outage { background: var(--fail); }
 .periods td { vertical-align: top; }

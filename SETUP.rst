@@ -366,12 +366,13 @@ anything.  Without ``alerts.to``, only the job summaries and the pages
 show the problems.  Outages of a service that gets turned off, like
 email or reading an archive, are forgotten.
 
-The *Availability* tab of the pages shows when Patchwork, GitHub, the
-workflows, email and the archives were unavailable, also briefly
+The *Availability* button of the pages shows when Patchwork, GitHub,
+the workflows, email and the archives were unavailable, also briefly
 without becoming an outage: for how long in the last hour, day, week
-and month, on a timeline of the last 30 days, and every period of the
-last 90 days with its reason.  The bot only notices while it runs, so
-the times are as precise as its polling cycles.
+and month, every hour of the last 30 days in which it was unavailable,
+and every period of the last 90 days with its reason.  The bot only
+notices while it runs, so the times are as precise as its polling
+cycles.
 
 The bot cannot notice that it does not run itself, for example when
 GitHub disables Actions on the bot repository.  The pages warn when

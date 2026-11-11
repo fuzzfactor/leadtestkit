@@ -238,6 +238,9 @@ func (p *Pipeline) Step(ctx context.Context, final bool) {
 	p.steps++
 	p.pwDown, p.checksDown, p.pwSkipLogged = nil, nil, nil
 	p.Store.Availability.Prune(p.now().Add(-availabilityKept))
+	if p.Store.Availability.Since == "" {
+		p.Store.Availability.Since = state.FormatTime(p.now())
+	}
 	started := time.Now()
 	p.infof("Starting polling cycle %d: %s.", p.steps, p.queueSummary())
 	stages := []struct {

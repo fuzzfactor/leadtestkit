@@ -17,7 +17,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 11
+const SchemaVersion = 12
 
 const (
 	kindMeta         = "meta"
@@ -29,11 +29,39 @@ const (
 // raw JSON before it is decoded.  Versions without an entry only added
 // fields and need no conversion.
 var migrations = map[int]func(kind string, doc map[string]any) error{
-	3: skipUnfinishedPatches,
-	4: dropUnpushedBranches,
-	5: linkRunDecisions,
-	7: keyOutages,
-	9: splitCheckFailures,
+	3:  skipUnfinishedPatches,
+	4:  dropUnpushedBranches,
+	5:  linkRunDecisions,
+	7:  keyOutages,
+	9:  splitCheckFailures,
+	11: startAvailability,
+}
+
+// startAvailability records when availability started to be recorded,
+// which schema 12 adds, as the start of the earliest period.
+func startAvailability(kind string, doc map[string]any) error {
+	if kind != kindAvailability {
+		return nil
+	}
+	since := ""
+	add := func(x any) {
+		p, _ := x.(map[string]any)
+		if s, _ := p["since"].(string); s != "" && (since == "" || s < since) {
+			since = s
+		}
+	}
+	periods, _ := doc["periods"].([]any)
+	for _, x := range periods {
+		add(x)
+	}
+	failing, _ := doc["failing"].(map[string]any)
+	for _, x := range failing {
+		add(x)
+	}
+	if since != "" {
+		doc["since"] = since
+	}
+	return nil
 }
 
 // splitCheckFailures moves the retry delays of pending checks, which
