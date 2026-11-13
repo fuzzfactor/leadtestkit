@@ -303,6 +303,28 @@ func TestVersionElevenStartsAvailability(t *testing.T) {
 	}
 }
 
+func TestVersionTwelveSkipsOldReplies(t *testing.T) {
+	dir := t.TempDir()
+	x := sampleSeries(1)
+	x.Patches[0].Runs = []*Run{{Kind: RunPush, ID: 1, Final: Report{Email: StepSent}},
+		{Kind: RunPush, ID: 2}}
+	b, err := json.Marshal(queueFile{Schema: 12, Series: []*Series{x}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, QueueFile), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := s.Queue[0].Patches[0].Runs
+	if runs[0].Reply.Email != StepSkipped || runs[1].Reply.Email != "" {
+		t.Errorf("replies = %+v, %+v", runs[0].Reply, runs[1].Reply)
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)

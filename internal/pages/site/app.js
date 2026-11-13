@@ -277,6 +277,7 @@ function renderPatch(s, p, shown, ver) {
         ? "GitHub conclusion: " + r.conclusion : null,
       r.details, r.failure && r.failure.last_error,
       r.check_failure && "Pending check: " + r.check_failure.last_error,
+      r.reply_failure && "Reply: " + r.reply_failure.last_error,
       report ? "Opens the report." : r.url ? "Opens the workflow run." : ""]
       .filter(Boolean).join("\n");
     return link(report || r.url, el("span", { class: "badge " + st, title,

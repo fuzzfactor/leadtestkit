@@ -89,6 +89,7 @@ report:
   # Required unless mode.email is off.  Reports list.  Emails are sent
   # from the address in the LEADTEST_SMTP_USERNAME secret, which must
   # be allowed to post to the list, with from_name as the name.
+  # Replies are signed with from_name too.
   to: lorem-build@lists.example.org
   from_name: LeadTestKit Robot
 
@@ -104,9 +105,23 @@ report:
   # pending), which becomes the Patchwork check description.
   build_prefix: github build
 
-  # Copy the series submitter on failure and warning reports, but not
-  # pending or success reports.  Only done when mode.email is live.
-  cc_submitter: true
+  reply_to_submitter:
+    # "on-failure": after a failure or warning report, reply to the
+    # patch email to tell its submitter, with a greeting, the details
+    # of the report and a sign-off.  "off": no replies.  The reply goes
+    # to whoever sent the email, not to an author named in a "From:"
+    # line of its body.  When a list rewrote From for DMARC and kept no
+    # original address, there is no reply.  When mode.email is test,
+    # replies go to report.to instead.
+    mode: on-failure
+
+    cc:
+      # Copy this address, like the development list, on the replies
+      # about the workflows: workflow names or files, and apply_label
+      # for the results of applying patches.  An empty list copies it
+      # on all replies.
+      address: ""
+      workflows: []
 
   # How to report that a workflow started: "check" posts a pending
   # check to Patchwork that links to the run (only logged unless

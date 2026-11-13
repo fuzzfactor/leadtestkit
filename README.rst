@@ -14,7 +14,8 @@ Every 15 minutes, a scheduled workflow runs ``leadtest``, which:
    example checkpatch) from its default branch;
 3. posts ``pending`` checks to Patchwork and sends pending and final
    reports to the reports list (``ovs-build``, ``test-report``) in the
-   format the existing tools understand;
+   format the existing tools understand, and replies to the patch
+   emails of failed tests to tell their submitters;
 4. reads the reports list archive and posts every report, including
    those of other labs, as Patchwork checks;
 5. reruns workflows on ``Recheck-request:`` comments;

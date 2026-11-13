@@ -124,16 +124,18 @@ func (f *fakeSMTP) serve(t *testing.T, ln net.Listener, cert tls.Certificate) {
 	}
 }
 
-func testEmail(t *testing.T, cc ...string) *report.Email {
+// testEmail is a report, also sent to the extra recipients.
+func testEmail(t *testing.T, extra ...string) *report.Email {
 	e, err := report.Compose(report.Input{
 		Style: "ovs", Label: "lorem-robot", Result: "success", Description: "lorem: passed",
 		PatchID: 1, PatchName: "[PATCH] ipsum", PatchURL: "https://pw.example.org/patch/1/",
-		From: "Robot <robot@example.org>", To: "lorem-build@lists.example.org", Cc: cc,
+		From: "Robot <robot@example.org>", To: "lorem-build@lists.example.org",
 		MessageID: "<leadtest.1@example.org>", Date: time.Now(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	e.Recipients = append(e.Recipients, extra...)
 	return e
 }
 
@@ -170,7 +172,7 @@ func TestSendStartTLS(t *testing.T) {
 
 func TestAllowlistRefusesOtherRecipients(t *testing.T) {
 	s := &SMTP{Host: "localhost", Port: 1, Allowed: []string{"lorem-build@lists.example.org"}}
-	err := s.Send(context.Background(), testEmail(t, "Real Human <human@example.org>"))
+	err := s.Send(context.Background(), testEmail(t, "human@example.org"))
 	if err == nil || !strings.Contains(err.Error(), "human@example.org") {
 		t.Fatalf("err = %v", err)
 	}
@@ -184,18 +186,18 @@ func TestServerErrors(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 	s := &SMTP{Host: "127.0.0.1", Port: port, Timeout: time.Second}
-	err = s.Send(context.Background(), testEmail(t, "lorem-build@lists.example.org"))
+	err = s.Send(context.Background(), testEmail(t))
 	if err == nil || !IsServerError(err) {
 		t.Errorf("an unreachable server: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err = s.Send(ctx, testEmail(t, "lorem-build@lists.example.org"))
+	err = s.Send(ctx, testEmail(t))
 	if err == nil || IsServerError(err) {
 		t.Errorf("a cancelled send: %v", err)
 	}
 	s.Allowed = []string{"lorem-build@lists.example.org"}
-	err = s.Send(context.Background(), testEmail(t, "Real Human <human@example.org>"))
+	err = s.Send(context.Background(), testEmail(t, "human@example.org"))
 	if err == nil || IsServerError(err) {
 		t.Errorf("a refused recipient: %v", err)
 	}

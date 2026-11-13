@@ -319,9 +319,9 @@ func (p *Pipeline) doRecheck(ctx context.Context, s *state.Series, pt *state.Pat
 	reset := func(r *state.Run) {
 		r.Status = "requested"
 		r.Result, r.Conclusion, r.Completed, r.Details = "", "", "", ""
-		r.Pending, r.Final = state.Report{}, state.Report{}
+		r.Pending, r.Final, r.Reply = state.Report{}, state.Report{}, state.Report{}
 		r.AutoReruns = 0
-		r.Failure, r.CheckFailure = nil, nil
+		r.Failure, r.CheckFailure, r.ReplyFailure = nil, nil, nil
 		r.Updated = state.FormatTime(now)
 	}
 	for _, r := range rerun {

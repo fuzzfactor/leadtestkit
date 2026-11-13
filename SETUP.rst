@@ -214,15 +214,16 @@ The example configurations start in test mode:
   mode:
     push: live         # push to the test repository
     checks: log        # only log the checks that would be posted
-    email: test        # mark reports and send only to allowed_recipients
+    email: test        # mark emails and send only to allowed_recipients
     allowed_recipients:
       - ovs-build@openvswitch.org
 
 Test reports have ``[leadtest-dryrun]`` in the subject, rename the
 ``Test-Label:`` and ``Test-Status:`` markers and write the patch link
-without a scheme, so other bots reading the list ignore them.  They
-never copy the patch author or anyone else, whatever the rest of the
-configuration says.
+without a scheme, so other bots reading the list ignore them.  The
+replies to submitters about failures go to ``report.to`` instead and
+say who they would go to.  Test emails never reach the patch author or
+anyone else, whatever the rest of the configuration says.
 
 On its first run the bot only records where Patchwork and the archives
 are; series and reports from before that are not processed.  To get

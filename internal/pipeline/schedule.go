@@ -336,6 +336,7 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 			p.finishSeries(s, state.SeriesSkipped, err.Error(), now)
 			return
 		}
+		learnPatch(pt, d)
 		data[i] = patchData{detail: d, mbox: mbox}
 	}
 	if terminal == len(patches) {

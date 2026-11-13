@@ -25,7 +25,13 @@ report:
   from_name: LeadTestKit Robot
   label: github-robot
   apply_label: apply-robot
-  cc_submitter: true
+  reply_to_submitter:
+    mode: on-failure
+    # Copy ovs-dev only on problems with applying the patch and with
+    # its style.
+    cc:
+      address: ovs-dev@openvswitch.org
+      workflows: [apply-robot, Checkpatch]
   pending: check
 
 archive:

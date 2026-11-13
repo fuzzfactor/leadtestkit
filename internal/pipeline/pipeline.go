@@ -347,7 +347,7 @@ func (p *Pipeline) applyManual(ctx context.Context) {
 				pt.Retry = false
 				pt.Failure = nil
 				for _, r := range pt.Runs {
-					r.Failure, r.CheckFailure = nil, nil
+					r.Failure, r.CheckFailure, r.ReplyFailure = nil, nil, nil
 				}
 			}
 		}

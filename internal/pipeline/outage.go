@@ -237,6 +237,7 @@ func (p *Pipeline) eachFailure(fn func(f *state.Failure)) {
 			for _, r := range pt.Runs {
 				do(r.Failure)
 				do(r.CheckFailure)
+				do(r.ReplyFailure)
 			}
 		}
 	}

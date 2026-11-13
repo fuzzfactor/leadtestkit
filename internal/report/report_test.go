@@ -25,7 +25,6 @@ func baseInput() Input {
 		Extra:       "Build Logs:\nline",
 		From:        "Robot <robot@example.org>",
 		To:          "lorem-build@lists.example.org",
-		Cc:          []string{"Lorem Ipsum <lorem@example.org>"},
 		MessageID:   "<leadtest.1.2052.x.final.1@example.org>",
 		Date:        date,
 	}
@@ -50,7 +49,6 @@ func TestComposeOVS(t *testing.T) {
 	for _, want := range []string{
 		"From: \"Robot\" <robot@example.org>",
 		"To: <lorem-build@lists.example.org>",
-		"Cc: \"Lorem Ipsum\" <lorem@example.org>",
 		"Subject: |fail| pw2052 [lorem-dev,v2,1/3] ipsum: Dolor sit.",
 		"In-Reply-To: <1@example.org>",
 		"References: <1@example.org>",
@@ -70,7 +68,7 @@ func TestComposeOVS(t *testing.T) {
 	if body != wantBody {
 		t.Errorf("body:\n%s\nwant:\n%s", body, wantBody)
 	}
-	if strings.Join(e.Recipients, ",") != "lorem-build@lists.example.org,lorem@example.org" {
+	if strings.Join(e.Recipients, ",") != "lorem-build@lists.example.org" {
 		t.Errorf("recipients = %v", e.Recipients)
 	}
 }

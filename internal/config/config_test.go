@@ -263,10 +263,11 @@ func TestSecrets(t *testing.T) {
 
 func TestRemovedOptions(t *testing.T) {
 	data := strings.Replace(minimal, "  from_name: Robot\n",
-		"  from: \"Robot <robot@example.org>\"\n", 1)
+		"  from: \"Robot <robot@example.org>\"\n  cc_submitter: true\n", 1)
 	_, err := Parse([]byte(data))
 	if err == nil || !strings.Contains(err.Error(), "report.from is replaced by "+
-		"report.from_name") {
+		"report.from_name") || !strings.Contains(err.Error(),
+		"report.cc_submitter is replaced by report.reply_to_submitter.mode") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -420,7 +421,8 @@ mode:
 	// An empty list in the reference is the same as no list.
 	norm := func(c *Config) {
 		for _, l := range []*[]string{&c.Workflows.Expected, &c.Workflows.CustomExclude,
-			&c.Workflows.CustomPerSeries, &c.Rechecks.Labels, &c.Alerts.To} {
+			&c.Workflows.CustomPerSeries, &c.Rechecks.Labels, &c.Alerts.To,
+			&c.Report.Reply.Cc.Workflows} {
 			if len(*l) == 0 {
 				*l = nil
 			}
@@ -437,5 +439,22 @@ mode:
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("reference values differ from the defaults:\n got: %+v\nwant: %+v",
 			got, want)
+	}
+}
+
+func TestReplyMode(t *testing.T) {
+	c, err := Parse([]byte(minimal))
+	if err != nil || !c.Report.Reply.OnFailure() {
+		t.Fatalf("default reply mode = %q, err = %v", c.Report.Reply.Mode, err)
+	}
+	data := strings.Replace(minimal, "  from_name: Robot\n",
+		"  from_name: Robot\n  reply_to_submitter:\n    mode: always\n", 1)
+	if _, err := Parse([]byte(data)); err == nil || !strings.Contains(err.Error(),
+		"report.reply_to_submitter.mode must be off or on-failure") {
+		t.Errorf("err = %v", err)
+	}
+	data = strings.Replace(data, "mode: always", "mode: off", 1)
+	if c, err := Parse([]byte(data)); err != nil || c.Report.Reply.OnFailure() {
+		t.Errorf("mode off: %+v, err = %v", c, err)
 	}
 }

@@ -117,8 +117,7 @@ type Report struct {
 	Label       string `yaml:"label"`
 	ApplyLabel  string `yaml:"apply_label"`
 	BuildPrefix string `yaml:"build_prefix"`
-	// CcSubmitter adds the series submitter on non-success reports.
-	CcSubmitter bool `yaml:"cc_submitter"`
+	Reply       Reply  `yaml:"reply_to_submitter"`
 	// Pending is how a started workflow is reported: "check", "email",
 	// "both" or "off".
 	Pending      string `yaml:"pending"`
@@ -127,6 +126,23 @@ type Report struct {
 	MaxLogJobs   int    `yaml:"max_log_jobs"`
 	// MessageIDDomain is the right-hand side of generated Message-IDs.
 	MessageIDDomain string `yaml:"message_id_domain"`
+}
+
+// Reply answers the patch email of the submitter on failure and warning
+// reports.
+type Reply struct {
+	// Mode is "off" or "on-failure", for failures and warnings.
+	Mode string  `yaml:"mode"`
+	Cc   ReplyCc `yaml:"cc"`
+}
+
+func (r Reply) OnFailure() bool { return r.Mode == "on-failure" }
+
+// ReplyCc is an address copied on the replies about Workflows, or all
+// replies if empty.
+type ReplyCc struct {
+	Address   string   `yaml:"address"`
+	Workflows []string `yaml:"workflows"`
 }
 
 type Archive struct {
@@ -310,7 +326,7 @@ func defaults() Config {
 			ApplyLabel:   "apply-robot",
 			FromName:     "LeadTestKit Robot",
 			BuildPrefix:  "github build",
-			CcSubmitter:  true,
+			Reply:        Reply{Mode: "on-failure"},
 			Pending:      "both",
 			ApplySuccess: true,
 			LogLines:     25,
@@ -359,6 +375,8 @@ var removedOptions = map[string]map[string]string{
 	"report": {
 		"from": "report.from is replaced by report.from_name: the address is " +
 			"the LEADTEST_SMTP_USERNAME secret",
+		"cc_submitter": "report.cc_submitter is replaced by " +
+			"report.reply_to_submitter.mode",
 	},
 }
 
@@ -585,6 +603,11 @@ func (c *Config) validate() error {
 	if c.Report.Label == "" || c.Report.ApplyLabel == "" {
 		add("report.label and report.apply_label must not be empty")
 	}
+	switch c.Report.Reply.Mode {
+	case "off", "on-failure":
+	default:
+		add("report.reply_to_submitter.mode must be off or on-failure")
+	}
 	switch c.Report.Pending {
 	case "check", "email", "both", "off":
 	default:
@@ -612,6 +635,11 @@ func (c *Config) validate() error {
 		}
 		if strings.TrimSpace(c.Report.FromName) == "" {
 			add("report.from_name must not be empty")
+		}
+		if c.Report.Reply.Cc.Address != "" {
+			if _, err := mail.ParseAddress(c.Report.Reply.Cc.Address); err != nil {
+				add("report.reply_to_submitter.cc.address: %v", err)
+			}
 		}
 		if c.SMTP.Host == "" {
 			add("smtp.host is required unless mode.email is off")

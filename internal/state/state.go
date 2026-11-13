@@ -189,9 +189,14 @@ type Patch struct {
 	Number int    `json:"number"`
 	Name   string `json:"name"`
 	MsgID  string `json:"msgid"`
-	Status string `json:"status"`
-	SHA    string `json:"sha,omitempty"`
-	Pushed string `json:"pushed,omitempty"`
+	// Subject and Sender are of the patch email, for replies to it.
+	// Sender has no email when a mailing list rewrote From and kept no
+	// original address.
+	Subject string  `json:"subject,omitempty"`
+	Sender  *Person `json:"sender,omitempty"`
+	Status  string  `json:"status"`
+	SHA     string  `json:"sha,omitempty"`
+	Pushed  string  `json:"pushed,omitempty"`
 
 	// CommentsSeen is the highest comment ID checked for rechecks;
 	// CommentsPending asks for the comments to be fetched.
@@ -233,12 +238,16 @@ type Run struct {
 	MinAttempt int `json:"min_attempt,omitempty"`
 	AutoReruns int `json:"auto_reruns,omitempty"`
 
-	Pending Report   `json:"pending"`
-	Final   Report   `json:"final"`
+	Pending Report `json:"pending"`
+	Final   Report `json:"final"`
+	// Reply is the reply to the patch email about a failure.
+	Reply   Report   `json:"reply"`
 	Failure *Failure `json:"failure,omitempty"`
 	// CheckFailure delays retries of the pending check.  It is kept
 	// apart from Failure so that the emails do not wait for it.
 	CheckFailure *Failure `json:"check_failure,omitempty"`
+	// ReplyFailure delays retries of the reply.
+	ReplyFailure *Failure `json:"reply_failure,omitempty"`
 }
 
 type Report struct {
@@ -370,10 +379,13 @@ func (p *Patch) RunByCorrelation(id string) *Run {
 	return nil
 }
 
-// Settled reports whether a run has a final result whose report is
-// fully handled.
+// Settled reports whether a run has a final result whose report and
+// reply are fully handled.
 func (r *Run) Settled() bool {
-	return r.Result != "" && r.Status == "completed" &&
-		(r.Final.Email == StepSent || r.Final.Email == StepSkipped ||
-			r.Final.Email == StepFailed)
+	return r.Result != "" && r.Status == "completed" && handled(r.Final.Email) &&
+		handled(r.Reply.Email)
+}
+
+func handled(step string) bool {
+	return step == StepSent || step == StepSkipped || step == StepFailed
 }

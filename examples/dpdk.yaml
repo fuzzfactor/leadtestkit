@@ -27,7 +27,8 @@ report:
   from_name: LeadTestKit Robot
   label: github-robot
   apply_label: apply-robot
-  cc_submitter: false
+  reply_to_submitter:
+    mode: off
   pending: email
 
 archive:

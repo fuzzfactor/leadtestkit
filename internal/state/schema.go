@@ -17,7 +17,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 12
+const SchemaVersion = 13
 
 const (
 	kindMeta         = "meta"
@@ -35,6 +35,32 @@ var migrations = map[int]func(kind string, doc map[string]any) error{
 	7:  keyOutages,
 	9:  splitCheckFailures,
 	11: startAvailability,
+	12: skipOldReplies,
+}
+
+// skipOldReplies marks the replies of runs whose final report was
+// handled before schema 13 as skipped, so that they are not sent late.
+func skipOldReplies(kind string, doc map[string]any) error {
+	if kind != kindSeries {
+		return nil
+	}
+	list, _ := doc["series"].([]any)
+	for _, x := range list {
+		s, _ := x.(map[string]any)
+		patches, _ := s["patches"].([]any)
+		for _, y := range patches {
+			p, _ := y.(map[string]any)
+			runs, _ := p["runs"].([]any)
+			for _, z := range runs {
+				r, _ := z.(map[string]any)
+				final, _ := r["final"].(map[string]any)
+				if e, _ := final["email"].(string); e != "" {
+					r["reply"] = map[string]any{"email": StepSkipped}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // startAvailability records when availability started to be recorded,

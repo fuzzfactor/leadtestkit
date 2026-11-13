@@ -84,7 +84,6 @@ type Input struct {
 
 	From      string
 	To        string
-	Cc        []string
 	MessageID string
 	Date      time.Time
 }
@@ -105,17 +104,6 @@ func Compose(in Input) (*Email, error) {
 		return nil, fmt.Errorf("to: %w", err)
 	}
 	recipients := []string{to.Address}
-	var cc []string
-	for _, c := range in.Cc {
-		a, err := mail.ParseAddress(c)
-		if err != nil {
-			continue
-		}
-		if !contains(recipients, a.Address) {
-			recipients = append(recipients, a.Address)
-			cc = append(cc, a.String())
-		}
-	}
 
 	status := Status(in.Style, in.Result)
 	tag := ""
@@ -132,9 +120,6 @@ func Compose(in Input) (*Email, error) {
 	header := func(k, v string) { fmt.Fprintf(&h, "%s: %s\r\n", k, v) }
 	header("From", from.String())
 	header("To", to.String())
-	if len(cc) > 0 {
-		header("Cc", strings.Join(cc, ", "))
-	}
 	header("Subject", mime.QEncoding.Encode("utf-8", subject))
 	header("Date", in.Date.Format(time.RFC1123Z))
 	header("Message-ID", in.MessageID)

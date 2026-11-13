@@ -5,6 +5,7 @@ package pipeline
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -69,15 +70,28 @@ func TestFullFlow(t *testing.T) {
 	e.advance(3 * time.Minute)
 	e.step()
 	subjects = e.mail.subjects()
-	if len(subjects) != 10 {
+	if len(subjects) != 11 {
 		t.Fatalf("subjects = %q", subjects)
 	}
-	last := string(e.mail.sent[len(e.mail.sent)-1].Data)
-	if !strings.Contains(last, "|fail| pw702") ||
-		!strings.Contains(last, "Cc: \"Lorem lorem\"") ||
+	last := string(e.mail.sent[len(e.mail.sent)-2].Data)
+	if !strings.Contains(last, "|fail| pw702") || strings.Contains(last, "Cc:") ||
 		!strings.Contains(last, "lorem-job: failed at step \"make check\"") ||
 		!strings.Contains(last, "\r\nipsum error\r\n") {
 		t.Errorf("failure report:\n%s", last)
+	}
+	reply := e.mail.sent[len(e.mail.sent)-1]
+	data := string(reply.Data)
+	if strings.Join(reply.Recipients, ",") != "lorem@example.org" ||
+		!strings.Contains(data, "To: \"Lorem lorem\" <lorem@example.org>\r\n") ||
+		strings.Contains(data, "Cc:") ||
+		!strings.Contains(data, "Subject: Re: [lorem-dev] [PATCH 2/2] lorem: Patch 2 of "+
+			"series 7\r\n") ||
+		!strings.Contains(data, "In-Reply-To: <702@example.org>\r\n") ||
+		!strings.Contains(data, "Greetings Lorem lorem, I am a robot") ||
+		!strings.Contains(data, "lorem-job: failed at step \"make check\"") ||
+		!strings.Contains(data, "\r\nipsum error\r\n") ||
+		!strings.HasSuffix(data, "Thanks,\r\nRobot\r\n") {
+		t.Errorf("reply:\n%s", data)
 	}
 	if e.series(7).Status != state.SeriesTesting {
 		t.Fatal("series finished before the grace period")
@@ -337,8 +351,9 @@ func TestNoRunsTimeout(t *testing.T) {
 		t.Fatalf("runs = %+v", pt.Runs)
 	}
 	subjects := e.mail.subjects()
-	if len(subjects) != 1 || !strings.HasPrefix(subjects[0], "|warning| pw5001") {
-		t.Errorf("subjects = %q", subjects)
+	if len(subjects) != 1 || !strings.HasPrefix(subjects[0], "|warning| pw5001") ||
+		pt.Runs[0].Reply.Email != state.StepSkipped {
+		t.Errorf("a workflow that did not run is no news for the submitter: %q", subjects)
 	}
 }
 
@@ -515,14 +530,15 @@ func TestPendingModes(t *testing.T) {
 	}
 }
 
-func TestTestModeNeverCcs(t *testing.T) {
+func TestTestModeRepliesToReportsList(t *testing.T) {
 	e := newEnv(t, "")
 	e.cfg.Mode.Email = "test"
 	e.cfg.Mode.AllowedRecipients = []string{"lorem-build@lists.example.org"}
+	e.cfg.Report.Reply.Cc.Address = "lorem-dev@lists.example.org"
 	e.pw.addSeries(80, 1, "lorem", e.now)
 	e.repo.failAt[80] = 0
 	e.step()
-	if len(e.mail.sent) != 1 {
+	if len(e.mail.sent) != 2 {
 		t.Fatalf("sent = %d", len(e.mail.sent))
 	}
 	m := e.mail.sent[0]
@@ -531,6 +547,95 @@ func TestTestModeNeverCcs(t *testing.T) {
 		!strings.Contains(data, "Subject: [leadtest-dryrun] |fail|") ||
 		strings.Contains(data, "Test-Label: ") {
 		t.Errorf("test mail:\n%s", data)
+	}
+	m = e.mail.sent[1]
+	data = string(m.Data)
+	if strings.Join(m.Recipients, ",") != "lorem-build@lists.example.org" ||
+		strings.Contains(data, "Cc:") ||
+		!strings.Contains(data, "Subject: [leadtest-dryrun] Re: [lorem-dev] [PATCH 1/1]") ||
+		!strings.Contains(data, "in live mode it goes to \"Lorem lorem\" "+
+			"<lorem@example.org>, lorem-dev@lists.example.org.") ||
+		!strings.Contains(data, "Unfortunately, your patch does not apply.") {
+		t.Errorf("test reply:\n%s", data)
+	}
+}
+
+func TestReplyCcWorkflows(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Report.ApplySuccess = false
+	e.cfg.Report.Reply.Cc.Address = "Lorem Dev <lorem-dev@lists.example.org>"
+	e.cfg.Report.Reply.Cc.Workflows = []string{"apply-robot", "checkpatch"}
+	e.pw.addSeries(81, 2, "lorem", e.now)
+	e.repo.failAt[81] = 1
+	e.step()
+	runs := e.gh.startRuns("series_81", "sha-8101", "Build", "Checkpatch")
+	e.advance(3 * time.Minute)
+	e.step()
+	e.gh.finishRun(runs[0], "failure")
+	e.gh.finishRun(runs[1], "failure")
+	e.advance(3 * time.Minute)
+	e.step()
+	cc := map[string]bool{}
+	for _, m := range e.mail.sent {
+		data := string(m.Data)
+		if !strings.Contains(data, "In-Reply-To") || !strings.Contains(data, "Bleep") {
+			continue
+		}
+		_, after, _ := strings.Cut(data, "Unfortunately, ")
+		what, _, _ := strings.Cut(after, ".")
+		cc[what] = strings.Contains(data, "Cc: \"Lorem Dev\" <lorem-dev@lists.example.org>")
+	}
+	want := map[string]bool{
+		"your patch does not apply":                  true,
+		`the test "github-robot: Build" failed`:      false,
+		`the test "github-robot: Checkpatch" failed`: true,
+	}
+	if !reflect.DeepEqual(cc, want) {
+		t.Errorf("replies copied on the list: %v", cc)
+	}
+}
+
+func TestReplyRetriedOnItsOwn(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(82, 1, "lorem", e.now)
+	e.repo.failAt[82] = 0
+	e.step()
+	r := e.series(82).Patches[0].Runs[0]
+	if r.Final.Email != state.StepSent || r.Reply.Email != state.StepSent {
+		t.Fatalf("run = %+v", r)
+	}
+
+	e = newEnv(t, "")
+	e.pw.addSeries(83, 1, "lorem", e.now)
+	e.repo.failAt[83] = 0
+	e.mail.failAfter = 1
+	e.step()
+	pt := e.series(83).Patches[0]
+	r = pt.Runs[0]
+	if r.Final.Email != state.StepSent || r.Reply.Email != "" || r.ReplyFailure == nil ||
+		r.Failure != nil || pt.Status == state.PatchDone {
+		t.Fatalf("a failed reply: run = %+v, patch %s", r, pt.Status)
+	}
+	e.advance(6 * time.Minute)
+	e.step()
+	pt = e.series(83).Patches[0]
+	if r := pt.Runs[0]; r.Reply.Email != state.StepSent || r.ReplyFailure != nil {
+		t.Errorf("the retried reply: run = %+v", r)
+	}
+	if n := len(e.mail.sent); n != 2 {
+		t.Errorf("sent = %d", n)
+	}
+}
+
+func TestReplyOff(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Report.Reply.Mode = "off"
+	e.pw.addSeries(84, 1, "lorem", e.now)
+	e.repo.failAt[84] = 0
+	e.step()
+	r := e.series(84).Patches[0].Runs[0]
+	if len(e.mail.sent) != 1 || r.Reply.Email != state.StepSkipped {
+		t.Errorf("sent = %d, run = %+v", len(e.mail.sent), r)
 	}
 }
 
@@ -1401,5 +1506,71 @@ func TestArchiveReadRetriedAfterFailure(t *testing.T) {
 	if n := e.reports.monthFetches; n != 3 ||
 		e.p.Store.Meta.Archives["reports"].LastMonth == "" {
 		t.Errorf("fetches = %d cursor = %+v", n, e.p.Store.Meta.Archives["reports"])
+	}
+}
+
+// The reply goes to the sender of the patch email, also when the list
+// rewrote its From and when it was sent on behalf of another author.
+func TestReplyUndoesFromRewrites(t *testing.T) {
+	e := newEnv(t, "")
+	e.pw.addSeries(85, 1, "lorem", e.now)
+	d := e.pw.patches[8501]
+	d.Headers["From"] = "Lorem lorem via lorem-dev <lorem-dev@lists.example.org>"
+	d.Headers["Reply-To"] = "lorem@example.org"
+	d.Content = "From: Sit Amet <sit@example.org>\n\n" + d.Content
+	e.repo.failAt[85] = 0
+	e.step()
+	if len(e.mail.sent) != 2 {
+		t.Fatalf("sent = %d", len(e.mail.sent))
+	}
+	reply := e.mail.sent[1]
+	data := string(reply.Data)
+	if strings.Join(reply.Recipients, ",") != "lorem@example.org" ||
+		!strings.Contains(data, "To: \"Lorem lorem\" <lorem@example.org>\r\n") ||
+		!strings.Contains(data, "Greetings Lorem lorem, I am") ||
+		strings.Contains(data, "sit@example.org") {
+		t.Errorf("reply:\n%s", data)
+	}
+
+	e = newEnv(t, "")
+	e.pw.addSeries(86, 1, "lorem", e.now)
+	e.pw.patches[8601].Headers["From"] = "Lorem lorem via lorem-dev " +
+		"<lorem-dev@lists.example.org>"
+	e.repo.failAt[86] = 0
+	e.step()
+	r := e.series(86).Patches[0].Runs[0]
+	if len(e.mail.sent) != 1 || r.Reply.Email != state.StepSkipped {
+		t.Errorf("a lost sender: sent = %d, run = %+v", len(e.mail.sent), r)
+	}
+}
+
+func TestReplyFetchesUnknownSender(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Report.ApplySuccess = false
+	e.pw.addSeries(87, 1, "lorem", e.now)
+	e.step()
+	runs := e.gh.startRuns("series_87", "sha-8701", "Build")
+	e.advance(3 * time.Minute)
+	e.step()
+	// Patches fetched before the sender was kept.
+	pt := e.series(87).Patches[0]
+	pt.Sender, pt.Subject = nil, ""
+	e.pw.fail["patch"] = 1
+	e.gh.finishRun(runs[0], "failure")
+	e.advance(3 * time.Minute)
+	e.step()
+	pt = e.series(87).Patches[0]
+	if r := pt.Run(state.RunPush, "Build"); r.Final.Email != state.StepSent ||
+		r.Reply.Email != "" || r.ReplyFailure == nil {
+		t.Fatalf("a failed fetch: run = %+v", r)
+	}
+	e.advance(6 * time.Minute)
+	e.step()
+	pt = e.series(87).Patches[0]
+	reply := string(e.mail.sent[len(e.mail.sent)-1].Data)
+	if r := pt.Run(state.RunPush, "Build"); r.Reply.Email != state.StepSent ||
+		pt.Sender == nil || !strings.Contains(reply,
+		"Subject: Re: [lorem-dev] [PATCH 1/1] lorem: Patch 1 of series 87\r\n") {
+		t.Errorf("run = %+v, reply:\n%s", r, reply)
 	}
 }

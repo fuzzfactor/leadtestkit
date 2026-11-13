@@ -49,10 +49,15 @@ func TestWarningAnnotationMakesWarning(t *testing.T) {
 		t.Errorf("annotations of jobs without any were read: %d calls",
 			e.gh.annotationCalls)
 	}
-	last := string(e.mail.sent[len(e.mail.sent)-1].Data)
+	last := string(e.mail.sent[len(e.mail.sent)-2].Data)
 	if !strings.Contains(last, "|warning| pw6001") ||
 		!strings.Contains(last, "WARNING: Line is 80 characters long") {
 		t.Errorf("report:\n%s", last)
+	}
+	reply := string(e.mail.sent[len(e.mail.sent)-1].Data)
+	if !strings.Contains(reply, `"github-robot: Checkpatch" passed with warnings`) ||
+		!strings.Contains(reply, "WARNING: Line is 80 characters long") {
+		t.Errorf("reply:\n%s", reply)
 	}
 	d := decision(t, e.series(60).Patches[0].Decisions, "workflow-warnings", "")
 	if !strings.HasPrefix(d.Detail, "Checkpatch run 1001, attempt 1 passed with 1 warning:\n"+

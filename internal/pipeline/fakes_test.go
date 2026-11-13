@@ -194,7 +194,8 @@ func (f *fakePW) addSeries(id, n int, submitter string, date time.Time) {
 		d := &pw.PatchDetail{
 			Headers: map[string]any{"From": s.Submitter.Name + " <" +
 				s.Submitter.Email + ">",
-				"Subject": name},
+				"Subject": fmt.Sprintf("[lorem-dev] [PATCH %d/%d] lorem: Patch %d "+
+					"of series %d", i, n, i, id)},
 			Content: "Lorem ipsum.\n\nSigned-off-by: x <x@example.org>\n",
 			Diff:    "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n",
 		}
@@ -667,6 +668,8 @@ func (f *fakeArchive) add(t time.Time, n int, subject, body, msgid string) strin
 type fakeMail struct {
 	sent []*report.Email
 	fail int
+	// failAfter sends this many emails and then fails the next one.
+	failAfter int
 	// err fails every email, like an SMTP server that cannot be used.
 	err error
 }
@@ -677,6 +680,10 @@ func (f *fakeMail) Send(ctx context.Context, e *report.Email) error {
 	}
 	if f.fail > 0 {
 		f.fail--
+		return errTransient
+	}
+	if f.failAfter > 0 && len(f.sent) == f.failAfter {
+		f.failAfter = 0
 		return errTransient
 	}
 	f.sent = append(f.sent, e)
