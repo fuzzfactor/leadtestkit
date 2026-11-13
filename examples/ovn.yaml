@@ -27,11 +27,12 @@ report:
   apply_label: apply-robot
   reply_to_submitter:
     mode: on-failure
-    # Copy ovs-dev only on problems with applying the patch and with
-    # its style.
+    # Copy ovs-dev only on apply and style problems.
     cc:
       address: ovs-dev@openvswitch.org
       workflows: [apply-robot, Checkpatch]
+    # Answers from submitters go to ovs-dev.
+    reply_to: ovs-dev@openvswitch.org
   pending: check
 
 archive:

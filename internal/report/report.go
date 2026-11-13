@@ -178,6 +178,10 @@ type Reply struct {
 	Result   string
 	BuildURL string
 	Extra    string
+	// ReplyTo is where answers go.
+	ReplyTo string
+	// Invite asks for answers, when a list gets them.
+	Invite bool
 	// Signature signs the reply off.
 	Signature string
 	// Intended are the recipients in live mode, mentioned in test mode.
@@ -196,6 +200,12 @@ func ComposeReply(in Reply) (*Email, error) {
 	to, err := mail.ParseAddress(in.To)
 	if err != nil {
 		return nil, fmt.Errorf("to: %w", err)
+	}
+	var replyTo *mail.Address
+	if in.ReplyTo != "" {
+		if replyTo, err = mail.ParseAddress(in.ReplyTo); err != nil {
+			return nil, fmt.Errorf("reply-to: %w", err)
+		}
 	}
 	recipients := []string{to.Address}
 	var cc *mail.Address
@@ -223,6 +233,9 @@ func ComposeReply(in Reply) (*Email, error) {
 	header("To", to.String())
 	if cc != nil {
 		header("Cc", cc.String())
+	}
+	if replyTo != nil {
+		header("Reply-To", replyTo.String())
 	}
 	header("Subject", mime.QEncoding.Encode("utf-8", subject))
 	header("Date", in.Date.Format(time.RFC1123Z))
@@ -265,7 +278,10 @@ func ComposeReply(in Reply) (*Email, error) {
 		b.WriteString(strings.TrimRight(in.Extra, "\n"))
 		b.WriteString("\n")
 	}
-	b.WriteString("\nIf you think this is a mistake, please reply to this email.\n\n")
+	if in.Invite {
+		b.WriteString("\nIf you think this is a mistake, please reply to this email.\n")
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "Thanks,\n%s\n", in.Signature)
 
 	data := h.String() + "\r\n" + crlf(limitLines(b.String()))

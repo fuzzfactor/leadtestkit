@@ -263,10 +263,9 @@ func hasLogs(r *state.Run) bool {
 		(r.Kind == state.RunPush || r.Kind == state.RunDispatch)
 }
 
-// reply answers the patch email after the final report of a failed run
-// or of one that passed with warnings, so that the submitter learns
-// about it.  extra are the details of the report when ok; they are
-// fetched again for retries.  Failures only delay its own retries.
+// reply tells the submitter about a failure or warning in a reply to
+// the patch email.  extra are the details of the report when ok, or
+// fetched again.  Failures only delay its own retries.
 func (p *Pipeline) reply(ctx context.Context, s *state.Series, pt *state.Patch,
 	r *state.Run, extra string, ok bool) {
 	if r.Reply.Email != "" || r.Final.Email == "" {
@@ -362,10 +361,16 @@ func (p *Pipeline) sendReply(ctx context.Context, s *state.Series, pt *state.Pat
 	if p.replyCc(r) {
 		cc = p.Cfg.Report.Reply.Cc.Address
 	}
+	replyTo := p.Cfg.Report.Reply.ReplyTo
+	// Without a list, answers would only reach the bot's mailbox.
+	invite := cc != "" || replyTo != ""
 	intended := joinAddresses(to, cc)
+	if replyTo != "" {
+		intended += ", with answers to " + replyTo
+	}
 	test := p.Cfg.Mode.TestEmail()
 	if test {
-		to, cc = p.Cfg.Report.To, ""
+		to, cc, replyTo = p.Cfg.Report.To, "", ""
 	}
 	subject := pt.Subject
 	if subject == "" {
@@ -385,6 +390,8 @@ func (p *Pipeline) sendReply(ctx context.Context, s *state.Series, pt *state.Pat
 		Result:     r.Result,
 		BuildURL:   p.buildURL(s, pt, r),
 		Extra:      extra,
+		ReplyTo:    replyTo,
+		Invite:     invite,
 		Signature:  p.Cfg.Report.FromName,
 		Intended:   intended,
 		MessageID:  id,

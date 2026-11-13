@@ -128,18 +128,20 @@ type Report struct {
 	MessageIDDomain string `yaml:"message_id_domain"`
 }
 
-// Reply answers the patch email of the submitter on failure and warning
-// reports.
+// Reply tells submitters about failures and warnings in a reply to
+// their patch email.
 type Reply struct {
-	// Mode is "off" or "on-failure", for failures and warnings.
+	// Mode is "off" or "on-failure".
 	Mode string  `yaml:"mode"`
 	Cc   ReplyCc `yaml:"cc"`
+	// ReplyTo is where submitters' answers go.
+	ReplyTo string `yaml:"reply_to"`
 }
 
 func (r Reply) OnFailure() bool { return r.Mode == "on-failure" }
 
-// ReplyCc is an address copied on the replies about Workflows, or all
-// replies if empty.
+// ReplyCc is copied on the replies about Workflows, or on all of them
+// if empty.
 type ReplyCc struct {
 	Address   string   `yaml:"address"`
 	Workflows []string `yaml:"workflows"`
@@ -639,6 +641,11 @@ func (c *Config) validate() error {
 		if c.Report.Reply.Cc.Address != "" {
 			if _, err := mail.ParseAddress(c.Report.Reply.Cc.Address); err != nil {
 				add("report.reply_to_submitter.cc.address: %v", err)
+			}
+		}
+		if c.Report.Reply.ReplyTo != "" {
+			if _, err := mail.ParseAddress(c.Report.Reply.ReplyTo); err != nil {
+				add("report.reply_to_submitter.reply_to: %v", err)
 			}
 		}
 		if c.SMTP.Host == "" {

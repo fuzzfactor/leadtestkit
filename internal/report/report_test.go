@@ -278,6 +278,8 @@ func baseReply() Reply {
 		Result:     "fail",
 		BuildURL:   "https://github.com/ipsum/lorem/actions/runs/1",
 		Extra:      "Failed jobs:\n  lorem: failed at step \"make\"",
+		ReplyTo:    "lorem-dev@lists.example.org",
+		Invite:     true,
 		Signature:  "Lorem Robot",
 		Intended:   "\"Lorem Ipsum\" <lorem@example.org>, lorem-dev@lists.example.org",
 		MessageID:  "<leadtest.1.2052.x.reply.1@example.org>",
@@ -295,6 +297,7 @@ func TestComposeReply(t *testing.T) {
 		"From: \"Lorem Robot\" <robot@example.org>",
 		"To: \"Lorem Ipsum\" <lorem@example.org>",
 		"Cc: <lorem-dev@lists.example.org>",
+		"Reply-To: <lorem-dev@lists.example.org>",
 		"Subject: Re: [lorem-dev] [PATCH v2 1/3] ipsum: Dolor sit.",
 		"In-Reply-To: <1@example.org>",
 		"References: <1@example.org>",
@@ -324,6 +327,7 @@ func TestComposeReply(t *testing.T) {
 func TestComposeReplyVariants(t *testing.T) {
 	in := baseReply()
 	in.Subject, in.Cc, in.Name, in.Apply = "RE: [PATCH] lorem", "", "", true
+	in.ReplyTo, in.Invite = "", false
 	e, err := ComposeReply(in)
 	if err != nil {
 		t.Fatal(err)
@@ -331,6 +335,8 @@ func TestComposeReplyVariants(t *testing.T) {
 	head, body := split(t, e)
 	if !strings.Contains(head, "Subject: RE: [PATCH] lorem\r\n") ||
 		strings.Contains(head, "Cc:") || len(e.Recipients) != 1 ||
+		strings.Contains(head, "\r\nReply-To:") ||
+		strings.Contains(body, "reply to this") ||
 		!strings.HasPrefix(body, "Bleep bloop.  Greetings, I am a robot") ||
 		!strings.Contains(body, "Unfortunately, your patch does not apply.") {
 		t.Errorf("reply:\n%s\n\n%s", head, body)

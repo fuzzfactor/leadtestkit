@@ -90,7 +90,8 @@ func TestFullFlow(t *testing.T) {
 		!strings.Contains(data, "Greetings Lorem lorem, I am a robot") ||
 		!strings.Contains(data, "lorem-job: failed at step \"make check\"") ||
 		!strings.Contains(data, "\r\nipsum error\r\n") ||
-		!strings.HasSuffix(data, "Thanks,\r\nRobot\r\n") {
+		!strings.HasSuffix(data, "Thanks,\r\nRobot\r\n") ||
+		strings.Contains(data, "\r\nReply-To:") || strings.Contains(data, "reply to this") {
 		t.Errorf("reply:\n%s", data)
 	}
 	if e.series(7).Status != state.SeriesTesting {
@@ -535,6 +536,7 @@ func TestTestModeRepliesToReportsList(t *testing.T) {
 	e.cfg.Mode.Email = "test"
 	e.cfg.Mode.AllowedRecipients = []string{"lorem-build@lists.example.org"}
 	e.cfg.Report.Reply.Cc.Address = "lorem-dev@lists.example.org"
+	e.cfg.Report.Reply.ReplyTo = "lorem-dev@lists.example.org"
 	e.pw.addSeries(80, 1, "lorem", e.now)
 	e.repo.failAt[80] = 0
 	e.step()
@@ -551,10 +553,12 @@ func TestTestModeRepliesToReportsList(t *testing.T) {
 	m = e.mail.sent[1]
 	data = string(m.Data)
 	if strings.Join(m.Recipients, ",") != "lorem-build@lists.example.org" ||
-		strings.Contains(data, "Cc:") ||
+		strings.Contains(data, "Cc:") || strings.Contains(data, "\r\nReply-To:") ||
 		!strings.Contains(data, "Subject: [leadtest-dryrun] Re: [lorem-dev] [PATCH 1/1]") ||
 		!strings.Contains(data, "in live mode it goes to \"Lorem lorem\" "+
-			"<lorem@example.org>, lorem-dev@lists.example.org.") ||
+			"<lorem@example.org>, lorem-dev@lists.example.org, with answers to "+
+			"lorem-dev@lists.example.org.") ||
+		!strings.Contains(data, "please reply to this email") ||
 		!strings.Contains(data, "Unfortunately, your patch does not apply.") {
 		t.Errorf("test reply:\n%s", data)
 	}
@@ -584,6 +588,11 @@ func TestReplyCcWorkflows(t *testing.T) {
 		_, after, _ := strings.Cut(data, "Unfortunately, ")
 		what, _, _ := strings.Cut(after, ".")
 		cc[what] = strings.Contains(data, "Cc: \"Lorem Dev\" <lorem-dev@lists.example.org>")
+		// Only replies that reach the list ask for answers.
+		if cc[what] != strings.Contains(data, "please reply to this email") {
+			t.Errorf("%s: the invitation to answer does not follow the Cc:\n%s",
+				what, data)
+		}
 	}
 	want := map[string]bool{
 		"your patch does not apply":                  true,
