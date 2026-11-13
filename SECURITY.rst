@@ -72,8 +72,8 @@ Installation token
   states and delegates.  Use a dedicated account for the bot.
 
 ``LEADTEST_SMTP_USERNAME`` and ``LEADTEST_SMTP_PASSWORD``
-  Allow sending email as the bot.  In test mode, reports only go to
-  ``mode.allowed_recipients``.
+  Allow sending email as the bot, from the address in the user name.
+  In test mode, emails only go to ``mode.allowed_recipients``.
 
 Scheduler credentials
   A fine-grained personal access token or a separate GitHub App, with

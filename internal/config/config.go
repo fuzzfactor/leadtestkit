@@ -109,9 +109,11 @@ type TestRepo struct {
 
 type Report struct {
 	// Style is "ovs" (patchwork state names) or "dpdk" (upper case).
-	Style       string `yaml:"style"`
-	To          string `yaml:"to"`
-	From        string `yaml:"from"`
+	Style string `yaml:"style"`
+	To    string `yaml:"to"`
+	// FromName is the name of the sender; its address is the SMTP user
+	// name.
+	FromName    string `yaml:"from_name"`
 	Label       string `yaml:"label"`
 	ApplyLabel  string `yaml:"apply_label"`
 	BuildPrefix string `yaml:"build_prefix"`
@@ -306,6 +308,7 @@ func defaults() Config {
 			Style:        "ovs",
 			Label:        "github-robot",
 			ApplyLabel:   "apply-robot",
+			FromName:     "LeadTestKit Robot",
 			BuildPrefix:  "github build",
 			CcSubmitter:  true,
 			Pending:      "both",
@@ -351,7 +354,41 @@ func defaults() Config {
 	}
 }
 
+// removedOptions are options that are gone, with what replaced them.
+var removedOptions = map[string]map[string]string{
+	"report": {
+		"from": "report.from is replaced by report.from_name: the address is " +
+			"the LEADTEST_SMTP_USERNAME secret",
+	},
+}
+
+func checkRemoved(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return nil
+	}
+	var errs []string
+	top := doc.Content[0]
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		removed := removedOptions[top.Content[i].Value]
+		sect := top.Content[i+1]
+		for j := 0; removed != nil && j+1 < len(sect.Content); j += 2 {
+			if msg, ok := removed[sect.Content[j].Value]; ok {
+				errs = append(errs, fmt.Sprintf("line %d: %s",
+					sect.Content[j].Line, msg))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("config: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
 func Parse(data []byte) (*Config, error) {
+	if err := checkRemoved(data); err != nil {
+		return nil, err
+	}
 	cfg := defaults()
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -413,13 +450,44 @@ func (c *Config) CheckSecrets() error {
 			missing = append(missing, "LEADTEST_APP_PRIVATE_KEY")
 		}
 	}
-	if !c.Mode.EmailOff() && c.Secrets.SMTPUsername != "" && c.Secrets.SMTPPassword == "" {
-		missing = append(missing, "LEADTEST_SMTP_PASSWORD")
+	if !c.Mode.EmailOff() {
+		if c.Secrets.SMTPUsername == "" {
+			missing = append(missing, "LEADTEST_SMTP_USERNAME")
+		}
+		if c.Secrets.SMTPPassword == "" {
+			missing = append(missing, "LEADTEST_SMTP_PASSWORD")
+		}
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing secrets: %s", strings.Join(missing, ", "))
 	}
+	if !c.Mode.EmailOff() {
+		if a, err := mail.ParseAddress(c.Secrets.SMTPUsername); err != nil ||
+			a.Name != "" || a.Address != c.Secrets.SMTPUsername {
+			return fmt.Errorf("LEADTEST_SMTP_USERNAME must be the email address of " +
+				"the bot, which sends as it")
+		}
+	}
 	return nil
+}
+
+// Sender is the From address of emails: report.from_name with the SMTP
+// user name as the address.
+func (c *Config) Sender() string {
+	return (&mail.Address{Name: c.Report.FromName, Address: c.Secrets.SMTPUsername}).String()
+}
+
+// MessageIDDomain is the right-hand side of generated Message-IDs:
+// report.message_id_domain, or the domain of the sender.
+func (c *Config) MessageIDDomain() string {
+	if c.Report.MessageIDDomain != "" {
+		return c.Report.MessageIDDomain
+	}
+	if i := strings.LastIndex(c.Secrets.SMTPUsername, "@"); i >= 0 &&
+		i < len(c.Secrets.SMTPUsername)-1 {
+		return c.Secrets.SMTPUsername[i+1:]
+	}
+	return "leadtestkit.invalid"
 }
 
 func (c *Config) PatchworkWebURL() string {
@@ -542,8 +610,8 @@ func (c *Config) validate() error {
 		if _, err := mail.ParseAddress(c.Report.To); err != nil {
 			add("report.to: %v", err)
 		}
-		if _, err := mail.ParseAddress(c.Report.From); err != nil {
-			add("report.from: %v", err)
+		if strings.TrimSpace(c.Report.FromName) == "" {
+			add("report.from_name must not be empty")
 		}
 		if c.SMTP.Host == "" {
 			add("smtp.host is required unless mode.email is off")
@@ -566,16 +634,6 @@ func (c *Config) validate() error {
 	for _, a := range c.Mode.AllowedRecipients {
 		if _, err := mail.ParseAddress(a); err != nil {
 			add("mode.allowed_recipients: %v", err)
-		}
-	}
-	if c.Report.MessageIDDomain == "" {
-		if a, err := mail.ParseAddress(c.Report.From); err == nil {
-			if i := strings.LastIndex(a.Address, "@"); i >= 0 {
-				c.Report.MessageIDDomain = a.Address[i+1:]
-			}
-		}
-		if c.Report.MessageIDDomain == "" {
-			c.Report.MessageIDDomain = "leadtestkit.invalid"
 		}
 	}
 

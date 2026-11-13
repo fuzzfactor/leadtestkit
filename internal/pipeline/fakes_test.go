@@ -706,7 +706,7 @@ test_repo:
   repo: ipsum/lorem
 report:
   to: lorem-build@lists.example.org
-  from: "Robot <robot@example.org>"
+  from_name: Robot
 archive:
   reports_url: https://lists.example.org/pipermail/lorem-build/
   dev_url: https://lists.example.org/pipermail/lorem-dev/
@@ -759,6 +759,7 @@ func newEnv(t *testing.T, extra string) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Secrets.SMTPUsername = "robot@example.org"
 	e := &env{
 		t:       t,
 		now:     time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),

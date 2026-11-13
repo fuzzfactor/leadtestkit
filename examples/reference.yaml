@@ -86,11 +86,11 @@ report:
   # PENDING, as expected by test-report@dpdk.org.
   style: ovs
 
-  # Required unless mode.email is off.  Reports list and sender.  The
-  # SMTP account must be allowed to send as this address and the
-  # address must be allowed to post to the list.
+  # Required unless mode.email is off.  Reports list.  Emails are sent
+  # from the address in the LEADTEST_SMTP_USERNAME secret, which must
+  # be allowed to post to the list, with from_name as the name.
   to: lorem-build@lists.example.org
-  from: "LeadTestKit Robot <robot@example.org>"
+  from_name: LeadTestKit Robot
 
   # Test-Label of workflow reports is "<label>: <workflow name>"; the
   # Patchwork check context is derived from it.  Keep the label used by
@@ -124,7 +124,7 @@ report:
   max_log_jobs: 5
 
   # Right-hand side of generated Message-IDs.  Empty means the domain
-  # of report.from.
+  # of the LEADTEST_SMTP_USERNAME address.
   message_id_domain: ""
 
 archive:

@@ -266,7 +266,7 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 		generation += fmt.Sprintf(".d%d", n)
 	}
 	label := p.label(r)
-	id := report.MessageID(p.Cfg.Report.MessageIDDomain, s.ID, pt.ID, label, generation,
+	id := report.MessageID(p.Cfg.MessageIDDomain(), s.ID, pt.ID, label, generation,
 		max(r.Attempt, 1))
 	if p.Cfg.Mode.EmailOff() {
 		p.notePatch(pt, "report-skipped", "%s email for %s (%s): email is off.",
@@ -296,7 +296,7 @@ func (p *Pipeline) sendReport(ctx context.Context, s *state.Series, pt *state.Pa
 		PatchURL:    p.pw().PatchWebURL(pt.ID),
 		BuildURL:    buildURL,
 		Extra:       extra,
-		From:        p.Cfg.Report.From,
+		From:        p.Cfg.Sender(),
 		To:          p.Cfg.Report.To,
 		Cc:          cc,
 		MessageID:   id,

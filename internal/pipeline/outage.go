@@ -385,9 +385,9 @@ func (p *Pipeline) sendAlert(o *state.Outage, subject, body string) {
 	}
 	subject = strings.TrimSpace("LeadTestKit "+p.Cfg.Name) + ": " + subject
 	e, err := report.ComposeAlert(report.Alert{
-		From: p.Cfg.Report.From, To: p.Cfg.Alerts.To, Subject: subject, Body: body,
+		From: p.Cfg.Sender(), To: p.Cfg.Alerts.To, Subject: subject, Body: body,
 		Date: now, MessageID: fmt.Sprintf("<leadtest.alert.%d@%s>", now.UnixNano(),
-			p.Cfg.Report.MessageIDDomain),
+			p.Cfg.MessageIDDomain()),
 	})
 	if err == nil {
 		err = p.Alerts.Send(context.Background(), e)

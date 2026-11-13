@@ -22,7 +22,7 @@ test_repo:
 report:
   style: ovs
   to: ovs-build@openvswitch.org
-  from: "LeadTestKit Robot <robot@example.org>"
+  from_name: LeadTestKit Robot
   label: github-robot
   apply_label: apply-robot
   cc_submitter: true

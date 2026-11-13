@@ -268,7 +268,7 @@ func (p *Pipeline) ingestMessage(ctx context.Context, msgURL string) error {
 		p.infof("Ignoring the archive message %s as not a report: %v", msgURL, err)
 		return errSkip
 	}
-	own := report.IsOwnMessageID(m.MessageID, p.Cfg.Report.MessageIDDomain)
+	own := report.IsOwnMessageID(m.MessageID, p.Cfg.MessageIDDomain())
 	if parsed.Test && !own {
 		p.infof("Ignoring the test report %s sent by another bot instance.", msgURL)
 		return errSkip

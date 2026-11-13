@@ -236,6 +236,10 @@ func cmdRun(args []string) error {
 	log.Info(fmt.Sprintf("Test repository: %s/%s. Push mode: %s. Checks: %s. Email: %s.",
 		cfg.TestRepo.GitHost, cfg.TestRepo.Repo,
 		cfg.Mode.Push, cfg.Mode.Checks, cfg.Mode.Email))
+	if !cfg.Mode.EmailOff() {
+		log.Info(fmt.Sprintf("Emails are sent as %s through %s.", cfg.Sender(),
+			cfg.SMTP.Host))
+	}
 
 	log.Info(fmt.Sprintf("Loading configuration and saved state from %s.", *stateDir))
 	st, err := state.Load(*stateDir)

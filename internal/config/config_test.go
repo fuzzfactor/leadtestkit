@@ -28,7 +28,7 @@ test_repo:
   repo: ipsum/lorem
 report:
   to: lorem-build@lists.example.org
-  from: "Robot <robot@example.org>"
+  from_name: Robot
 smtp:
   host: smtp.example.org
 mode:
@@ -55,8 +55,12 @@ func TestParseMinimalDefaults(t *testing.T) {
 	if c.UseCommentEvents() {
 		t.Error("API 1.2 has no comment events")
 	}
-	if c.Report.MessageIDDomain != "example.org" {
-		t.Errorf("message id domain = %q", c.Report.MessageIDDomain)
+	if c.MessageIDDomain() != "leadtestkit.invalid" {
+		t.Errorf("message id domain without secrets = %q", c.MessageIDDomain())
+	}
+	c.Secrets.SMTPUsername = "robot@example.org"
+	if c.MessageIDDomain() != "example.org" || c.Sender() != `"Robot" <robot@example.org>` {
+		t.Errorf("message id domain = %q, sender = %q", c.MessageIDDomain(), c.Sender())
 	}
 	if c.Limits.SeriesMaxAge.D() != 30*24*time.Hour {
 		t.Errorf("series max age = %v", c.Limits.SeriesMaxAge.D())
@@ -206,7 +210,8 @@ func TestSecrets(t *testing.T) {
 	key := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY",
 		Bytes: []byte("loremipsumdolorsitamet")}))
 	env := map[string]string{"LEADTEST_APP_CLIENT_ID": " Iv23lilorem \n",
-		"LEADTEST_APP_PRIVATE_KEY": key}
+		"LEADTEST_APP_PRIVATE_KEY": key, "LEADTEST_SMTP_USERNAME": "robot@example.org",
+		"LEADTEST_SMTP_PASSWORD": "lorem-pass"}
 	c.LoadSecrets(func(k string) string { return env[k] })
 	if c.Secrets.AppClientID != "Iv23lilorem" ||
 		c.Secrets.AppPrivateKey != strings.TrimSpace(key) {
@@ -237,6 +242,31 @@ func TestSecrets(t *testing.T) {
 	c.Mode.Checks = "post"
 	if err := c.CheckSecrets(); err == nil ||
 		!strings.Contains(err.Error(), "LEADTEST_PW_TOKEN") {
+		t.Errorf("err = %v", err)
+	}
+	c.Mode.Checks = "log"
+	c.Secrets.SMTPUsername = "Robot <robot@example.org>"
+	if err := c.CheckSecrets(); err == nil ||
+		!strings.Contains(err.Error(), "LEADTEST_SMTP_USERNAME must be") {
+		t.Errorf("the SMTP user name must be a plain address: %v", err)
+	}
+	c.Secrets.SMTPUsername, c.Secrets.SMTPPassword = "", ""
+	if err := c.CheckSecrets(); err == nil || !strings.Contains(err.Error(),
+		"LEADTEST_SMTP_USERNAME, LEADTEST_SMTP_PASSWORD") {
+		t.Errorf("email needs the SMTP account: %v", err)
+	}
+	c.Mode.Email = "off"
+	if err := c.CheckSecrets(); err != nil {
+		t.Errorf("no email needs no SMTP account: %v", err)
+	}
+}
+
+func TestRemovedOptions(t *testing.T) {
+	data := strings.Replace(minimal, "  from_name: Robot\n",
+		"  from: \"Robot <robot@example.org>\"\n", 1)
+	_, err := Parse([]byte(data))
+	if err == nil || !strings.Contains(err.Error(), "report.from is replaced by "+
+		"report.from_name") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -377,7 +407,6 @@ test_repo:
   repo: example/lorem
 report:
   to: lorem-build@lists.example.org
-  from: "LeadTestKit Robot <robot@example.org>"
 archive:
   dev_url: https://lists.example.org/pipermail/lorem-dev/
 smtp:

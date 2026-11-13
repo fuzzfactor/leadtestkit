@@ -10,7 +10,8 @@ so runner limits and configuration are not shared.  You need:
   repository*), for example ``ovs-ci/ovs``, preferably in a separate
   organization so it gets its own runner concurrency;
 - a Patchwork account with an API token, if checks are posted;
-- an SMTP account allowed to post to the reports list.
+- an SMTP account allowed to post to the reports list, whose user name
+  is the email address of the bot.
 
 Both can be forks on GitHub, but standalone repositories are better:
 GitHub disables Actions on forks more readily, and forks start with
@@ -177,7 +178,8 @@ update the secret and delete the old key in the App settings.
    ``LEADTEST_APP_PRIVATE_KEY``  the whole ``.pem`` file from step 2,
                                  including the BEGIN and END lines
    ``LEADTEST_PW_TOKEN``         Patchwork API token, needed to post checks
-   ``LEADTEST_SMTP_USERNAME``    SMTP user name
+   ``LEADTEST_SMTP_USERNAME``    SMTP user name, the address the bot
+                                 sends from
    ``LEADTEST_SMTP_PASSWORD``    SMTP password
    ============================  ==========================================
 
