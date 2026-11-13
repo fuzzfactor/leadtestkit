@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"leadtestkit/internal/pw"
 )
 
 var testEnv = []string{
@@ -297,5 +299,63 @@ func TestSyncBranchConflict(t *testing.T) {
 	// The work repository is usable again.
 	if _, err := w.Resolve(context.Background(), upstream, "main"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestApplyKeepsAuthors applies patch emails from a list that rewrote
+// From for DMARC: one sent on behalf of its author, named in a "From:"
+// line of the body, and one by its author.
+func TestApplyKeepsAuthors(t *testing.T) {
+	upstream, test, _ := setup(t)
+	ctx := context.Background()
+	rewritten := func(subject, content, diff string) []byte {
+		p := &pw.PatchDetail{
+			Headers: map[string]any{
+				"From":     "Dolor via dev <dev@lists.example.org>",
+				"Reply-To": "dolor@example.org",
+				"Subject":  subject,
+				"Date":     "Mon, 2 Mar 2026 10:00:00 +0100",
+			},
+			Content: content,
+			Diff:    diff,
+		}
+		p.ID, p.MsgID = 1, "<1@example.org>"
+		mbox, err := pw.BuildMbox(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return mbox
+	}
+	patches := [][]byte{
+		rewritten("[PATCH 1/2] lorem: Add dolor.",
+			"From: Sit Amet <sit@example.org>\n\nAdd dolor.\n\n"+
+				"Signed-off-by: Sit Amet <sit@example.org>\n"+
+				"Signed-off-by: Dolor <dolor@example.org>\n",
+			"diff --git a/lorem.txt b/lorem.txt\n--- a/lorem.txt\n+++ b/lorem.txt\n"+
+				"@@ -1,2 +1,3 @@\n lorem\n ipsum\n+dolor\n"),
+		rewritten("[PATCH 2/2] sit: Add file.",
+			"Add file.\n\nSigned-off-by: Dolor <dolor@example.org>\n",
+			"diff --git a/sit.txt b/sit.txt\nnew file mode 100644\n--- /dev/null\n"+
+				"+++ b/sit.txt\n@@ -0,0 +1 @@\n+sit\n"),
+	}
+	w := newWork(t, test)
+	base, err := w.Resolve(ctx, upstream, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shas, failed, out, err := w.Apply(ctx, base, patches)
+	if err != nil || failed != -1 || len(shas) != 2 {
+		t.Fatalf("shas=%v failed=%d out=%q err=%v", shas, failed, out, err)
+	}
+	for i, want := range []string{"Sit Amet <sit@example.org>|lorem: Add dolor.",
+		"Dolor <dolor@example.org>|sit: Add file."} {
+		got, _ := w.Git.Out(ctx, "log", "-1", "--format=%an <%ae>|%s", shas[i])
+		if got != want {
+			t.Errorf("patch %d: author and subject %q, want %q", i+1, got, want)
+		}
+	}
+	msg, _ := w.Git.Out(ctx, "log", "-1", "--format=%b", shas[0])
+	if strings.Contains(msg, "From:") {
+		t.Errorf("the in-body From is left in the message:\n%s", msg)
 	}
 }

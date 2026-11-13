@@ -42,6 +42,12 @@ func decodeHeader(s string) string {
 // Header returns a decoded header value from the Patchwork headers
 // map, where a value is either a string or a list of strings.
 func Header(headers map[string]any, key string) string {
+	return decodeHeader(rawHeader(headers, key))
+}
+
+// rawHeader is a header value unfolded but not decoded, for parsers
+// that decode it themselves.
+func rawHeader(headers map[string]any, key string) string {
 	var v any
 	for k, val := range headers {
 		if strings.EqualFold(k, key) {
@@ -58,22 +64,17 @@ func Header(headers map[string]any, key string) string {
 			s, _ = val[0].(string)
 		}
 	}
-	return decodeHeader(compactHeader(s))
+	return compactHeader(s)
 }
 
-// dmarcFromRe matches From headers rewritten by mailing lists for DMARC,
-// e.g. "Lorem Ipsum via dev <dev@lists.example.org>".
-var dmarcFromRe = regexp.MustCompile(`(?i)\svia\s+\S+`)
-
-// Author returns the patch author.  Mailing lists rewrite From for
-// DMARC and keep the original sender in Reply-To.
+// Author returns the author of the patch email: its sender, with the
+// rewrites of From undone.  A "From:" line at the start of the body,
+// as in patches sent on behalf of someone else, overrides it in git am.
 func Author(p *PatchDetail) string {
-	from := Header(p.Headers, "From")
-	if replyTo := Header(p.Headers, "Reply-To"); replyTo != "" &&
-		(from == "" || dmarcFromRe.MatchString(from)) {
-		return replyTo
+	if name, email, ok := Sender(p); ok {
+		return formatAddress(name, email)
 	}
-	if from != "" {
+	if from := Header(p.Headers, "From"); from != "" {
 		return from
 	}
 	return formatAddress(p.Submitter.Name, p.Submitter.Email)

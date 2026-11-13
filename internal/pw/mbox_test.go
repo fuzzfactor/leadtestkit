@@ -29,15 +29,19 @@ func TestAuthor(t *testing.T) {
 		want    string
 	}{
 		{"plain from", map[string]any{"From": "Lorem Ipsum <lorem@example.org>",
-			"Reply-To": "dev@lists.example.org"}, "Lorem Ipsum <lorem@example.org>"},
+			"Reply-To": "dev@lists.example.org"}, `"Lorem Ipsum" <lorem@example.org>`},
 		{"dmarc rewritten", map[string]any{
 			"From":     "Lorem Ipsum via dev <dev@lists.example.org>",
 			"Reply-To": "Lorem Ipsum <lorem@example.org>"},
-			"Lorem Ipsum <lorem@example.org>"},
+			`"Lorem Ipsum" <lorem@example.org>`},
+		{"dmarc rewritten, address lost", map[string]any{
+			"From":     "Lorem Ipsum via dev <dev@lists.example.org>",
+			"Reply-To": "dev@lists.example.org"},
+			"Lorem Ipsum via dev <dev@lists.example.org>"},
 		{"encoded", map[string]any{"From": "=?utf-8?q?D=C3=B6lor?= <dolor@example.org>"},
-			"Dölor <dolor@example.org>"},
+			"=?utf-8?q?D=C3=B6lor?= <dolor@example.org>"},
 		{"list value", map[string]any{"from": []any{"Sit Amet <sit@example.org>"}},
-			"Sit Amet <sit@example.org>"},
+			`"Sit Amet" <sit@example.org>`},
 		{"fallback to submitter", map[string]any{}, `"Consectetur" <cons@example.org>`},
 	}
 	for _, tt := range tests {
