@@ -169,6 +169,124 @@ func Compose(in Input) (*Email, error) {
 	return &Email{From: from.Address, Recipients: recipients, Data: []byte(data)}, nil
 }
 
+// Reply answers the email of a patch to tell its submitter that a test
+// failed or warned.
+type Reply struct {
+	// Test sends the reply to the reports list instead, saying who it
+	// would go to.
+	Test bool
+
+	From string
+	// Name greets the submitter.
+	Name string
+	To   string
+	Cc   string
+
+	// Subject is the subject of the patch email.
+	Subject    string
+	PatchMsgID string
+	PatchURL   string
+
+	Label string
+	// Apply is set when the patch did not apply.
+	Apply    bool
+	Result   string
+	BuildURL string
+	Extra    string
+	// Signature signs the reply off.
+	Signature string
+	// Intended are the recipients in live mode, mentioned in test mode.
+	Intended  string
+	MessageID string
+	Date      time.Time
+}
+
+var replyPrefixRe = regexp.MustCompile(`(?i)^re:\s`)
+
+func ComposeReply(in Reply) (*Email, error) {
+	from, err := mail.ParseAddress(in.From)
+	if err != nil {
+		return nil, fmt.Errorf("from: %w", err)
+	}
+	to, err := mail.ParseAddress(in.To)
+	if err != nil {
+		return nil, fmt.Errorf("to: %w", err)
+	}
+	recipients := []string{to.Address}
+	var cc *mail.Address
+	if in.Cc != "" {
+		if cc, err = mail.ParseAddress(in.Cc); err != nil {
+			return nil, fmt.Errorf("cc: %w", err)
+		}
+		if contains(recipients, cc.Address) {
+			cc = nil
+		} else {
+			recipients = append(recipients, cc.Address)
+		}
+	}
+	subject := strings.TrimSpace(in.Subject)
+	if !replyPrefixRe.MatchString(subject) {
+		subject = "Re: " + subject
+	}
+	if in.Test {
+		subject = SubjectPrefix + subject
+	}
+
+	var h strings.Builder
+	header := func(k, v string) { fmt.Fprintf(&h, "%s: %s\r\n", k, v) }
+	header("From", from.String())
+	header("To", to.String())
+	if cc != nil {
+		header("Cc", cc.String())
+	}
+	header("Subject", mime.QEncoding.Encode("utf-8", subject))
+	header("Date", in.Date.Format(time.RFC1123Z))
+	header("Message-ID", in.MessageID)
+	if in.PatchMsgID != "" {
+		header("In-Reply-To", in.PatchMsgID)
+		header("References", in.PatchMsgID)
+	}
+	header("MIME-Version", "1.0")
+	header("Content-Type", "text/plain; charset=utf-8")
+	header("Content-Transfer-Encoding", "8bit")
+
+	greeting := "Greetings"
+	if name := strings.TrimSpace(in.Name); name != "" {
+		greeting += " " + name
+	}
+	problem := fmt.Sprintf("the test %q failed", in.Label)
+	switch {
+	case in.Apply:
+		problem = "your patch does not apply"
+	case in.Result == "warning":
+		problem = fmt.Sprintf("the test %q passed with warnings", in.Label)
+	}
+	var b strings.Builder
+	if in.Test {
+		fmt.Fprintf(&b, "This is a LeadTestKit test reply; in live mode it goes to %s.\n\n",
+			in.Intended)
+	}
+	fmt.Fprintf(&b, "Bleep bloop.  %s, I am a robot and I have tried your patch.\n", greeting)
+	b.WriteString("Thanks for your contribution.\n\n")
+	fmt.Fprintf(&b, "Unfortunately, %s.  See the details below.\n\n", problem)
+	if in.PatchURL != "" {
+		fmt.Fprintf(&b, "Patch: %s\n", in.PatchURL)
+	}
+	if in.BuildURL != "" {
+		fmt.Fprintf(&b, "Build URL: %s\n", in.BuildURL)
+	}
+	if in.Extra != "" {
+		b.WriteString("\n")
+		b.WriteString(strings.TrimRight(in.Extra, "\n"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\nIf you think this is a mistake, please reply to this email.\n\n")
+	fmt.Fprintf(&b, "Thanks,\n%s\n", in.Signature)
+
+	data := h.String() + "\r\n" + crlf(limitLines(b.String()))
+	return &Email{From: from.Address, Recipients: recipients, Data: []byte(data)}, nil
+}
+
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if strings.EqualFold(x, s) {

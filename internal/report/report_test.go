@@ -266,3 +266,90 @@ func TestComposeAlert(t *testing.T) {
 		t.Error("an alert without recipients was composed")
 	}
 }
+
+func baseReply() Reply {
+	return Reply{
+		From:       "Lorem Robot <robot@example.org>",
+		Name:       "Lorem Ipsum",
+		To:         "\"Lorem Ipsum\" <lorem@example.org>",
+		Cc:         "lorem-dev@lists.example.org",
+		Subject:    "[lorem-dev] [PATCH v2 1/3] ipsum: Dolor sit.",
+		PatchMsgID: "<1@example.org>",
+		PatchURL:   "https://pw.example.org/patch/2052/",
+		Label:      "lorem-robot: Build and Test",
+		Result:     "fail",
+		BuildURL:   "https://github.com/ipsum/lorem/actions/runs/1",
+		Extra:      "Failed jobs:\n  lorem: failed at step \"make\"",
+		Signature:  "Lorem Robot",
+		Intended:   "\"Lorem Ipsum\" <lorem@example.org>, lorem-dev@lists.example.org",
+		MessageID:  "<leadtest.1.2052.x.reply.1@example.org>",
+		Date:       time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+	}
+}
+
+func TestComposeReply(t *testing.T) {
+	e, err := ComposeReply(baseReply())
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, body := split(t, e)
+	for _, want := range []string{
+		"From: \"Lorem Robot\" <robot@example.org>",
+		"To: \"Lorem Ipsum\" <lorem@example.org>",
+		"Cc: <lorem-dev@lists.example.org>",
+		"Subject: Re: [lorem-dev] [PATCH v2 1/3] ipsum: Dolor sit.",
+		"In-Reply-To: <1@example.org>",
+		"References: <1@example.org>",
+		"Message-ID: <leadtest.1.2052.x.reply.1@example.org>",
+	} {
+		if !strings.Contains(head, want) {
+			t.Errorf("headers missing %q:\n%s", want, head)
+		}
+	}
+	wantBody := "Bleep bloop.  Greetings Lorem Ipsum, I am a robot and I have tried " +
+		"your patch.\nThanks for your contribution.\n\n" +
+		"Unfortunately, the test \"lorem-robot: Build and Test\" failed.  See the " +
+		"details below.\n\n" +
+		"Patch: https://pw.example.org/patch/2052/\n" +
+		"Build URL: https://github.com/ipsum/lorem/actions/runs/1\n\n" +
+		"Failed jobs:\n  lorem: failed at step \"make\"\n\n" +
+		"If you think this is a mistake, please reply to this email.\n\n" +
+		"Thanks,\nLorem Robot\n"
+	if body != wantBody {
+		t.Errorf("body:\n%s\nwant:\n%s", body, wantBody)
+	}
+	if strings.Join(e.Recipients, ",") != "lorem@example.org,lorem-dev@lists.example.org" {
+		t.Errorf("recipients = %v", e.Recipients)
+	}
+}
+
+func TestComposeReplyVariants(t *testing.T) {
+	in := baseReply()
+	in.Subject, in.Cc, in.Name, in.Apply = "RE: [PATCH] lorem", "", "", true
+	e, err := ComposeReply(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, body := split(t, e)
+	if !strings.Contains(head, "Subject: RE: [PATCH] lorem\r\n") ||
+		strings.Contains(head, "Cc:") || len(e.Recipients) != 1 ||
+		!strings.HasPrefix(body, "Bleep bloop.  Greetings, I am a robot") ||
+		!strings.Contains(body, "Unfortunately, your patch does not apply.") {
+		t.Errorf("reply:\n%s\n\n%s", head, body)
+	}
+
+	in = baseReply()
+	in.Test, in.Result, in.To, in.Cc = true, "warning", "lorem-build@lists.example.org", ""
+	e, err = ComposeReply(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, body = split(t, e)
+	if !strings.Contains(head, "Subject: [leadtest-dryrun] Re: [lorem-dev] [PATCH v2") ||
+		!strings.HasPrefix(body, "This is a LeadTestKit test reply; in live mode it goes "+
+			"to \"Lorem Ipsum\" <lorem@example.org>, lorem-dev@lists.example.org.\n") ||
+		!strings.Contains(body, "\"lorem-robot: Build and Test\" passed with warnings.") ||
+		strings.Join(e.Recipients, ",") != "lorem-build@lists.example.org" {
+		t.Errorf("test reply:\n%s\n\n%s", head, body)
+	}
+}
