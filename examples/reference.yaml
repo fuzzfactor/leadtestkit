@@ -412,6 +412,7 @@ runner:
 
 pages:
   # Publish the status pages with GitHub Pages (source: GitHub Actions).
+  # A favicon.ico committed to the state branch becomes their icon.
   enabled: true
   title: LeadTestKit
 

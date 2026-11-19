@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -79,7 +80,7 @@ type Run struct {
 }
 
 func Render(st *state.Store, cfg *config.Config, out string, now time.Time, run Run) error {
-	if err := copySite(out); err != nil {
+	if err := copySite(out, st.Dir); err != nil {
 		return err
 	}
 	data := filepath.Join(out, "data")
@@ -191,7 +192,17 @@ func writeJSON(path string, v any) error {
 // up to 10 minutes on GitHub Pages, do not use it with a newer page.
 var assets = []string{"style.css", "app.js"}
 
-func copySite(out string) error {
+// Favicon is the file on the state branch that becomes the icon of the
+// pages.
+const Favicon = "favicon.ico"
+
+// versioned links an asset with a hash of its contents.
+func versioned(name string, b []byte) string {
+	sum := sha256.Sum256(b)
+	return name + "?v=" + hex.EncodeToString(sum[:4])
+}
+
+func copySite(out, stateDir string) error {
 	page, err := site.ReadFile("site/index.html")
 	if err != nil {
 		return err
@@ -201,11 +212,21 @@ func copySite(out string) error {
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(b)
-		v := name + "?v=" + hex.EncodeToString(sum[:4])
-		page = bytes.ReplaceAll(page, []byte(`"`+name+`"`), []byte(`"`+v+`"`))
+		page = bytes.ReplaceAll(page, []byte(`"`+name+`"`),
+			[]byte(`"`+versioned(name, b)+`"`))
 	}
 	if err := os.MkdirAll(out, 0o755); err != nil {
+		return err
+	}
+	icon, err := os.ReadFile(filepath.Join(stateDir, Favicon))
+	switch {
+	case err == nil:
+		if err := os.WriteFile(filepath.Join(out, Favicon), icon, 0o644); err != nil {
+			return err
+		}
+		link := `  <link rel="icon" href="` + versioned(Favicon, icon) + `">` + "\n</head>"
+		page = bytes.Replace(page, []byte("</head>"), []byte(link), 1)
+	case !errors.Is(err, fs.ErrNotExist):
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(out, "index.html"), page, 0o644); err != nil {

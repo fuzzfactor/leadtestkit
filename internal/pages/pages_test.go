@@ -4,6 +4,7 @@
 package pages
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -76,6 +77,9 @@ func TestRender(t *testing.T) {
 	if !regexp.MustCompile(`href="style\.css\?v=[0-9a-f]{8}"`).Match(page) ||
 		!regexp.MustCompile(`src="app\.js\?v=[0-9a-f]{8}"`).Match(page) {
 		t.Errorf("assets are not versioned:\n%s", page)
+	}
+	if bytes.Contains(page, []byte(`rel="icon"`)) {
+		t.Errorf("an icon without favicon.ico on the state branch:\n%s", page)
 	}
 	var idx Index
 	b, _ := os.ReadFile(filepath.Join(out, "data", "index.json"))
@@ -180,5 +184,32 @@ func TestServices(t *testing.T) {
 	if got := fmt.Sprint(services(cfg)); got != "[patchwork patchwork-checks github "+
 		"workflows email reports-archive dev-archive]" {
 		t.Errorf("ovs: %s", got)
+	}
+}
+
+// A favicon.ico on the state branch becomes the icon of the pages.
+func TestFavicon(t *testing.T) {
+	cfg, err := config.Parse([]byte(cfgYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	icon := []byte("\x00\x00\x01\x00lorem")
+	if err := os.WriteFile(filepath.Join(dir, Favicon), icon, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := state.Load(dir)
+	out := filepath.Join(t.TempDir(), "site")
+	if err := Render(st, cfg, out, time.Now(), Run{}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(out, Favicon)); err != nil ||
+		!bytes.Equal(b, icon) {
+		t.Errorf("favicon.ico = %q, %v", b, err)
+	}
+	page, _ := os.ReadFile(filepath.Join(out, "index.html"))
+	if !regexp.MustCompile(`<link rel="icon" href="favicon\.ico\?v=[0-9a-f]{8}">\n</head>`).
+		Match(page) {
+		t.Errorf("no icon link:\n%s", page)
 	}
 }

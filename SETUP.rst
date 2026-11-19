@@ -257,6 +257,8 @@ The state is plain JSON on the ``state`` branch:
 - ``availability.json``: when the services the bot uses were
   unavailable, for the last 90 days.
 
+A ``favicon.ico`` committed to the branch becomes the icon of the pages.
+
 Finished series and patch records are retained indefinitely.  History
 lookups are also unlimited by default (``limits.history_window: 0``).
 Set a duration to restrict lookups to recent history.  This does not
