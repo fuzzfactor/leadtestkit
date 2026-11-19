@@ -17,7 +17,7 @@ import (
 // even an added field: older versions refuse unknown fields, and a
 // version mismatch tells the user what to do.  TestSchemaFields fails
 // when the structure changes without a bump.
-const SchemaVersion = 13
+const SchemaVersion = 14
 
 const (
 	kindMeta         = "meta"
@@ -36,6 +36,46 @@ var migrations = map[int]func(kind string, doc map[string]any) error{
 	9:  splitCheckFailures,
 	11: startAvailability,
 	12: skipOldReplies,
+	13: fixRewrittenSubmitters,
+}
+
+// fixRewrittenSubmitters replaces the submitters that Patchwork kept as
+// rewritten by a mailing list, "<name> via <list>" with the address of
+// the list, which schema 14 no longer records, with the sender kept
+// for the first patch.  Without one, only the name is cut.
+func fixRewrittenSubmitters(kind string, doc map[string]any) error {
+	if kind != kindSeries {
+		return nil
+	}
+	list, _ := doc["series"].([]any)
+	for _, x := range list {
+		s, _ := x.(map[string]any)
+		sub, _ := s["submitter"].(map[string]any)
+		name, _ := sub["name"].(string)
+		i := strings.Index(name, " via ")
+		if sub == nil || i < 0 {
+			continue
+		}
+		var first map[string]any
+		number := 0
+		patches, _ := s["patches"].([]any)
+		for _, y := range patches {
+			p, _ := y.(map[string]any)
+			num, _ := p["number"].(json.Number)
+			n, _ := num.Int64()
+			if sender, _ := p["sender"].(map[string]any); sender != nil &&
+				(first == nil || int(n) < number) {
+				first, number = sender, int(n)
+			}
+		}
+		if first != nil {
+			s["submitter"] = map[string]any{"name": first["name"],
+				"email": first["email"]}
+			continue
+		}
+		sub["name"] = strings.Trim(strings.TrimSpace(name[:i]), `'"`)
+	}
+	return nil
 }
 
 // skipOldReplies marks the replies of runs whose final report was

@@ -325,6 +325,38 @@ func TestVersionTwelveSkipsOldReplies(t *testing.T) {
 	}
 }
 
+func TestVersionThirteenFixesRewrittenSubmitters(t *testing.T) {
+	dir := t.TempDir()
+	rewritten := Person{Name: "Lorem via dev", Email: "dev@lists.example.org"}
+	known, lost := sampleSeries(1), sampleSeries(2)
+	known.Submitter, lost.Submitter = rewritten, rewritten
+	known.Patches = []*Patch{
+		{ID: 102, Number: 2, Status: PatchDone,
+			Sender: &Person{Name: "Ipsum", Email: "ipsum@example.org"}},
+		{ID: 101, Number: 1, Status: PatchDone,
+			Sender: &Person{Name: "Lorem", Email: "lorem@example.org"}},
+	}
+	lost.Patches = []*Patch{{ID: 201, Number: 1, Status: PatchDone}}
+	b, err := json.Marshal(queueFile{Schema: 13, Series: []*Series{known, lost}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, QueueFile), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Queue[0].Submitter; got != (Person{Name: "Lorem", Email: "lorem@example.org"}) {
+		t.Errorf("with a sender: %+v", got)
+	}
+	if got := s.Queue[1].Submitter; got != (Person{Name: "Lorem",
+		Email: "dev@lists.example.org"}) {
+		t.Errorf("without a sender: %+v", got)
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)

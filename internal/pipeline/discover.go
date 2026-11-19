@@ -255,6 +255,19 @@ func (p *Pipeline) qualify(ctx context.Context) {
 		}
 		s.Failure = nil
 		p.fill(s, ps)
+		if ps.ReceivedAll && pw.Rewritten(s.Submitter.Name) && len(s.Patches) > 0 {
+			if err := p.fixSubmitter(ctx, s); err != nil {
+				if p.fail(&s.Failure, "fetch submitter", err) {
+					p.finishSeries(s, state.SeriesError,
+						"fetch submitter: "+s.Failure.LastError, now)
+					p.errorf("series %d: giving up fetching its submitter: %v",
+						s.ID, err)
+				}
+				p.noteSeries(s, "fetch-failed", "Attempt %d: %s. Next retry: %s.",
+					s.Failure.Attempts, s.Failure.LastError, s.Failure.Next)
+				continue
+			}
+		}
 		if reason := p.skipReason(s, ps, now); reason != "" {
 			p.infof("%s: skipping: %s.", seriesName(s), reason)
 			p.finishSeries(s, state.SeriesSkipped, reason, now)
@@ -313,6 +326,39 @@ func (p *Pipeline) fill(s *state.Series, ps *pw.Series) {
 		patches = append(patches, pt)
 	}
 	s.Patches = patches
+}
+
+// fixSubmitter replaces a submitter that Patchwork kept as rewritten by
+// a mailing list, "<name> via <list>" with the address of the list,
+// with the sender of the first patch email.  Without an original
+// address, the submitter has none, so that the series is not taken as
+// one of everyone the list rewrote.
+func (p *Pipeline) fixSubmitter(ctx context.Context, s *state.Series) error {
+	pt := sortedPatches(s)[0]
+	p.infof("%s: Patchwork recorded %s <%s> as the submitter, rewritten by the list; "+
+		"reading the sender of %s.", seriesName(s), s.Submitter.Name, s.Submitter.Email,
+		patchName(pt))
+	d, err := p.pw().GetPatch(ctx, pt.ID)
+	if err != nil {
+		return err
+	}
+	learnPatch(pt, d)
+	old := s.Submitter
+	s.Submitter = *pt.Sender
+	if s.Submitter.Email == "" {
+		p.infof("%s: the list kept no original address; the submitter is %s without one.",
+			seriesName(s), s.Submitter.Name)
+	} else {
+		p.infof("%s: the submitter is %s <%s>.", seriesName(s), s.Submitter.Name,
+			s.Submitter.Email)
+	}
+	sender := (&mailAddress{s.Submitter.Name, s.Submitter.Email}).String()
+	if s.Submitter.Email == "" {
+		sender += ", without an address"
+	}
+	p.noteSeries(s, "submitter", "Patchwork recorded %s <%s>, rewritten by the list; "+
+		"the sender of the patch email is %s.", old.Name, old.Email, sender)
+	return nil
 }
 
 func (p *Pipeline) skipReason(s *state.Series, ps *pw.Series, now time.Time) string {
@@ -400,7 +446,7 @@ func baseName(name string) string {
 }
 
 func (p *Pipeline) supersede(s *state.Series, now time.Time) {
-	if !p.Cfg.Rules.Supersede || s.Version < 2 {
+	if !p.Cfg.Rules.Supersede || s.Version < 2 || s.Submitter.Email == "" {
 		return
 	}
 	name := baseName(s.Name)

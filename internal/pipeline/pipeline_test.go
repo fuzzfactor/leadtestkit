@@ -1583,3 +1583,39 @@ func TestReplyFetchesUnknownSender(t *testing.T) {
 		t.Errorf("run = %+v, reply:\n%s", r, reply)
 	}
 }
+
+// Patchwork keeps the list as the submitter of a series whose From the
+// list rewrote, when it cannot find the original address.
+func TestRewrittenSubmitter(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Mode.Push = "off"
+	rewrite := func(id int, replyTo string) {
+		e.pw.addSeries(id, 1, "lorem", e.now)
+		e.pw.series[id].Submitter = pw.Person{Name: "Netdev via lorem-dev",
+			Email: "lorem-dev@lists.example.org"}
+		d := e.pw.patches[id*100+1]
+		d.Headers["From"] = "Lorem via lorem-dev <lorem-dev@lists.example.org>"
+		if replyTo != "" {
+			d.Headers["Reply-To"] = replyTo
+		}
+	}
+	rewrite(90, "lorem@example.org")
+	rewrite(91, "")
+	e.step()
+	if s := e.series(90); s.Submitter != (state.Person{Name: "Lorem",
+		Email: "lorem@example.org"}) || s.Status != state.SeriesQueued {
+		t.Errorf("series 90: %+v, %s", s.Submitter, s.Status)
+	}
+	if s := e.series(91); s.Submitter != (state.Person{Name: "Lorem"}) {
+		t.Errorf("series 91 without the original address: %+v", s.Submitter)
+	}
+
+	// A series without an address supersedes nothing: it may be anyone's.
+	rewrite(92, "")
+	e.pw.series[92].Version = 2
+	e.pw.series[92].Name = "[v2] lorem: Series 91"
+	e.step()
+	if s := e.series(91); s.Status != state.SeriesQueued {
+		t.Errorf("series 91 was superseded by a series of an unknown sender: %+v", s)
+	}
+}

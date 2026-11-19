@@ -52,6 +52,13 @@ func Sender(p *PatchDetail) (name, email string, ok bool) {
 	return name, "", false
 }
 
+// Rewritten reports whether a sender name is a rewritten "<name> via
+// <list>" one.
+func Rewritten(name string) bool {
+	_, rewritten := unvia(name)
+	return rewritten
+}
+
 // unvia cuts a name at the first " via ", which rewrites can stack:
 // "Lorem via B4 Relay via dev".
 func unvia(name string) (string, bool) {
