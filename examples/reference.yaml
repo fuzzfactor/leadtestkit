@@ -264,8 +264,9 @@ limits:
   max_series_patches: 50
 
   # Patches are pushed while fewer jobs than this wait for a runner in
-  # the test repository.  Keeping the queue short is what lets a new
-  # author get the next free runner.
+  # the test repository, counting those that the patches being tested
+  # will still start, from the average jobs per patch.  Keeping the
+  # queue short is what lets a new author get the next free runner.
   max_queued_jobs: 20
 
   # Maximum pushed patches awaiting completion, across all authors.

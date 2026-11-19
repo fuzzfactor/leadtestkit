@@ -172,8 +172,8 @@ func TestLogsExplainCapacityAndHolds(t *testing.T) {
 	e.p.schedule(context.Background())
 	requireLogs(t, &buf,
 		"1 queued jobs (limit 1)",
-		"Stopped selecting patches: 1 jobs waiting for a runner on GitHub reach the "+
-			"limit of 1.",
+		"Stopped selecting patches: 1 jobs waiting for a runner on GitHub or yet to "+
+			"be created reach the limit of 1.",
 		"selected 0 patch slots",
 	)
 }

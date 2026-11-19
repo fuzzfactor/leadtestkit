@@ -111,10 +111,7 @@ func (p *Pipeline) schedule(ctx context.Context) {
 	if len(notReady) > 0 {
 		p.infof("Nothing to push yet for series %s.", joinList(notReady, 10))
 	}
-	jobs := p.Cfg.Limits.JobsPerPatch
-	if avg := int(p.Store.Meta.Stats.JobsPerPatch + 0.5); avg > 0 {
-		jobs = avg
-	}
+	jobs := p.jobsPerPatch()
 	total := 0
 	for _, n := range inflight {
 		total += n
@@ -165,18 +162,59 @@ func (p *Pipeline) schedule(ctx context.Context) {
 	}
 }
 
+// queuedJobs counts the jobs waiting for a runner, and those that the
+// patches being tested will still start: GitHub creates jobs that need
+// others, and matrices made from their outputs, only when those finish,
+// and runs of expected workflows may not exist yet.  A patch is taken
+// to start the usual number of jobs per patch in all.
 func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 	runs, err := p.gh().ActiveRuns(ctx)
 	if err != nil {
 		return 0, err
 	}
-	p.infof("GitHub returned %d active workflow runs; counting jobs waiting for a runner.",
-		len(runs))
+	p.infof("GitHub returned %d active workflow runs; counting jobs waiting for a runner "+
+		"or yet to be created.", len(runs))
+	perPatch := p.jobsPerPatch()
 	total := 0
+	ours := map[int64]bool{}
+	for _, s := range p.Store.Queue {
+		for _, pt := range s.Patches {
+			if pt.Status != state.PatchPushed {
+				continue
+			}
+			for _, r := range ciRuns(pt) {
+				ours[r.ID] = true
+			}
+			if !p.awaitsJobs(pt) {
+				continue
+			}
+			started, waiting := 0, 0
+			for _, r := range ciRuns(pt) {
+				if r.ID == 0 {
+					continue
+				}
+				jobs, err := p.gh().Jobs(ctx, r.ID)
+				if err != nil {
+					return 0, err
+				}
+				for _, j := range jobs {
+					if j.Status == "in_progress" || j.Status == "completed" {
+						started++
+					} else {
+						waiting++
+					}
+				}
+			}
+			n := max(waiting, perPatch-started)
+			total += n
+			p.infof("%s: %d jobs started and %d wait for a runner; counting %d of the "+
+				"usual %d jobs per patch as still to run.", patchName(pt), started,
+				waiting, n, perPatch)
+		}
+	}
 	seen := map[int64]bool{}
 	for _, r := range runs {
-		if seen[r.ID] {
-			p.infof("Run %d was already counted; ignoring its duplicate listing.", r.ID)
+		if seen[r.ID] || ours[r.ID] {
 			continue
 		}
 		seen[r.ID] = true
@@ -197,10 +235,39 @@ func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 				waiting++
 			}
 		}
-		p.infof("Run %d (%s): %d of %d jobs are waiting for a runner.",
-			r.ID, r.Name, waiting, len(jobs))
+		p.infof("Run %d (%s), not of a patch being tested: %d of %d jobs are waiting "+
+			"for a runner.", r.ID, r.Name, waiting, len(jobs))
 	}
 	return total, nil
+}
+
+// awaitsJobs reports whether a pushed patch may still start jobs: a run
+// is not finished, or an expected workflow has no run yet.
+func (p *Pipeline) awaitsJobs(pt *state.Patch) bool {
+	runs := ciRuns(pt)
+	if len(runs) == 0 {
+		return true
+	}
+	for _, r := range runs {
+		if r.Status != "completed" {
+			return true
+		}
+	}
+	for _, name := range p.Cfg.Workflows.Expected {
+		if pt.Run(state.RunPush, name) == nil && pt.Run(state.RunMissing, name) == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// jobsPerPatch is the measured average of jobs per patch, or the
+// configured estimate before any patch finished.
+func (p *Pipeline) jobsPerPatch() int {
+	if avg := int(p.Store.Meta.Stats.JobsPerPatch + 0.5); avg > 0 {
+		return avg
+	}
+	return p.Cfg.Limits.JobsPerPatch
 }
 
 func (p *Pipeline) pushable(s *state.Series) []*state.Patch {

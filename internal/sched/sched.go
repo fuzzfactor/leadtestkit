@@ -149,8 +149,9 @@ func Pick(in Input) []int {
 			queued-in.QueuedJobs, len(out))
 	}
 	if queued >= l.MaxQueuedJobs {
-		explain("Stopped selecting patches: %d jobs waiting for a runner on GitHub%s "+
-			"reach the limit of %d.", in.QueuedJobs, selected, l.MaxQueuedJobs)
+		explain("Stopped selecting patches: %d jobs waiting for a runner on GitHub or "+
+			"yet to be created%s reach the limit of %d.", in.QueuedJobs, selected,
+			l.MaxQueuedJobs)
 	}
 	if total >= l.MaxInflightPatches {
 		selected = ""

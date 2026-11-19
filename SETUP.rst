@@ -288,7 +288,8 @@ The workflow can also be started manually with *Run workflow*, for a
 single step or a dry run.
 
 Concurrency is controlled in ``limits``: patches are pushed while
-fewer than ``max_queued_jobs`` jobs wait for a runner and fewer than
+fewer than ``max_queued_jobs`` jobs wait for a runner, including those
+that the patches being tested will still start, and fewer than
 ``max_inflight_patches`` patches are being tested.  A single author
 never gets more than ``per_author_max_share`` of the in-flight patches
 while others are waiting.  The pages and the job summary show the

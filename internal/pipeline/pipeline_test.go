@@ -4,6 +4,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -1617,5 +1618,42 @@ func TestRewrittenSubmitter(t *testing.T) {
 	e.step()
 	if s := e.series(91); s.Status != state.SeriesQueued {
 		t.Errorf("series 91 was superseded by a series of an unknown sender: %+v", s)
+	}
+}
+
+// GitHub creates jobs that need others only when those finish: a run
+// that builds an image for 20 test jobs first shows one job.
+func TestQueuedJobsStillToStart(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Workflows.Expected = []string{"Build", "Test"}
+	e.p.Store.Meta.Stats.JobsPerPatch = 21
+	pushed := func(id int, runs ...*state.Run) *state.Patch {
+		return &state.Patch{ID: id, Number: 1, Status: state.PatchPushed, Runs: runs}
+	}
+	e.p.Store.Add(&state.Series{ID: 96, Status: state.SeriesTesting,
+		Submitter: state.Person{Email: "lorem@example.org"},
+		Patches: []*state.Patch{
+			// One job started, its 20 dependents are not created yet.
+			pushed(9601, &state.Run{Kind: state.RunPush, Workflow: "Build", ID: 1,
+				Status: "in_progress"}),
+			// Pushed, no runs yet.
+			pushed(9602),
+			// Everything ran.
+			pushed(9603,
+				&state.Run{Kind: state.RunPush, Workflow: "Build", ID: 3,
+					Status: "completed"},
+				&state.Run{Kind: state.RunPush, Workflow: "Test", ID: 4,
+					Status: "completed"}),
+		}})
+	e.gh.active = []gh.WorkflowRun{
+		{ID: 1, Name: "Build", Status: "in_progress"},
+		// Not of a patch being tested, like a push to main.
+		{ID: 9, Name: "Build", Status: "queued"},
+	}
+	e.gh.jobs[1] = []gh.Job{{ID: 11, Status: "in_progress"}}
+	e.gh.jobs[9] = []gh.Job{{ID: 91, Status: "queued"}, {ID: 92, Status: "in_progress"}}
+	n, err := e.p.queuedJobs(context.Background())
+	if err != nil || n != 20+21+0+1 {
+		t.Errorf("queued jobs = %d, err = %v", n, err)
 	}
 }
