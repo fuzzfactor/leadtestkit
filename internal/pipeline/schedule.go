@@ -188,7 +188,7 @@ func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 			if !p.awaitsJobs(pt) {
 				continue
 			}
-			started, waiting := 0, 0
+			running, done, waiting := 0, 0, 0
 			for _, r := range ciRuns(pt) {
 				if r.ID == 0 {
 					continue
@@ -198,18 +198,21 @@ func (p *Pipeline) queuedJobs(ctx context.Context) (int, error) {
 					return 0, err
 				}
 				for _, j := range jobs {
-					if j.Status == "in_progress" || j.Status == "completed" {
-						started++
-					} else {
+					switch j.Status {
+					case "in_progress":
+						running++
+					case "completed":
+						done++
+					default:
 						waiting++
 					}
 				}
 			}
-			n := max(waiting, perPatch-started)
+			n := max(waiting, perPatch-running-done)
 			total += n
-			p.infof("%s: %d jobs started and %d wait for a runner; counting %d of the "+
-				"usual %d jobs per patch as still to run.", patchName(pt), started,
-				waiting, n, perPatch)
+			p.infof("%s: %d jobs finished, %d running and %d waiting for a runner; "+
+				"counting %d of the usual %d jobs per patch as still to start.",
+				patchName(pt), done, running, waiting, n, perPatch)
 		}
 	}
 	seen := map[int64]bool{}
