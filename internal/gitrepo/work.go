@@ -147,8 +147,9 @@ func (w *WorkRepo) ReadFile(ctx context.Context, rev, path string) ([]byte, erro
 }
 
 // Apply applies the emails on top of base one by one.  It returns the
-// commit of every applied patch; on a failure it also returns the index
-// of the failing patch and the git am output.
+// commit of every applied patch, or "" for a patch whose change is
+// already there, which git am applies without a commit; on a failure it
+// also returns the index of the failing patch and the git am output.
 func (w *WorkRepo) Apply(
 	ctx context.Context, base string, mboxes [][]byte,
 ) ([]string, int, string, error) {
@@ -177,6 +178,10 @@ func (w *WorkRepo) Apply(
 		if err := os.WriteFile(file, m, 0o644); err != nil {
 			return shas, -1, "", err
 		}
+		before, err := w.Git.Out(ctx, "rev-parse", "HEAD")
+		if err != nil {
+			return shas, -1, "", err
+		}
 		if _, err := g.Run(ctx, "am", "-q", "-3", "--no-gpg-sign", file); err != nil {
 			var gerr *Error
 			if !errors.As(err, &gerr) {
@@ -188,6 +193,11 @@ func (w *WorkRepo) Apply(
 		sha, err := w.Git.Out(ctx, "rev-parse", "HEAD")
 		if err != nil {
 			return shas, -1, "", err
+		}
+		if sha == before {
+			w.Git.log().Info(fmt.Sprintf("Email %d of %d made no commit: its "+
+				"change is already applied.", i+1, len(mboxes)))
+			sha = ""
 		}
 		shas = append(shas, sha)
 	}

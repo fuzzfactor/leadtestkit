@@ -143,6 +143,26 @@ func TestApplyFailure(t *testing.T) {
 	}
 }
 
+// git am applies a patch whose change is already there without a
+// commit, and without an error.
+func TestApplyAlreadyApplied(t *testing.T) {
+	upstream, test, patches := setup(t)
+	ctx := context.Background()
+	w := newWork(t, test)
+	base, _ := w.Resolve(ctx, upstream, "main")
+	first, failed, out, err := w.Apply(ctx, base, patches[:1])
+	if err != nil || failed != -1 || len(first) != 1 {
+		t.Fatalf("shas=%v failed=%d out=%q err=%v", first, failed, out, err)
+	}
+	shas, failed, out, err := w.Apply(ctx, first[0], patches[:2])
+	if err != nil || failed != -1 || len(shas) != 2 || shas[0] != "" || shas[1] == "" {
+		t.Fatalf("shas=%v failed=%d out=%q err=%v", shas, failed, out, err)
+	}
+	if parent, err := w.Parent(ctx, shas[1]); err != nil || parent != first[0] {
+		t.Errorf("parent=%q err=%v", parent, err)
+	}
+}
+
 func TestResolveMissingBranch(t *testing.T) {
 	upstream, test, _ := setup(t)
 	w := newWork(t, test)

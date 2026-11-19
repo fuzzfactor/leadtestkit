@@ -490,7 +490,9 @@ func (f *fakeGH) restartRun(id int64) {
 }
 
 type fakeRepo struct {
-	failAt   map[int]int
+	failAt map[int]int
+	// already lists patches whose change is in the base already.
+	already  map[int]bool
 	pushed   map[string]string
 	parents  map[string]string
 	applies  int
@@ -512,9 +514,10 @@ func (f *fakeRepo) SyncBranch(ctx context.Context, upstreamURL, upstreamBranch,
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{failAt: map[int]int{}, pushed: map[string]string{},
-		files: map[string]string{},
-		fail:  map[string]int{}, parents: map[string]string{}}
+	return &fakeRepo{failAt: map[int]int{}, already: map[int]bool{},
+		pushed: map[string]string{},
+		files:  map[string]string{},
+		fail:   map[string]int{}, parents: map[string]string{}}
 }
 
 func (f *fakeRepo) Resolve(ctx context.Context, url, branch string) (string, error) {
@@ -559,6 +562,10 @@ func (f *fakeRepo) Apply(
 		if fi, ok := f.failAt[pid/100]; ok && fi == i {
 			out := "error: patch failed: f:1\nerror: f: patch does not apply"
 			return shas, i, out, nil
+		}
+		if f.already[pid] {
+			shas = append(shas, "")
+			continue
 		}
 		sha := "sha-" + id
 		if f.applies > 1 {

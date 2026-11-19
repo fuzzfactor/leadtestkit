@@ -1657,3 +1657,60 @@ func TestQueuedJobsStillToStart(t *testing.T) {
 		t.Errorf("queued jobs = %d, err = %v", n, err)
 	}
 }
+
+// Patches can be applied by the time the bot gets to them: git am
+// applies them without a commit, which must not be pushed or tested.
+func TestAlreadyApplied(t *testing.T) {
+	e := newEnv(t, "")
+	e.cfg.Report.ApplySuccess = false
+	e.pw.addSeries(98, 3, "lorem", e.now)
+	// Patch 1 is on the base, patch 3 repeats patch 2.
+	e.repo.already[9801], e.repo.already[9803] = true, true
+	e.pw.addSeries(99, 2, "lorem", e.now)
+	e.repo.already[9901], e.repo.already[9902] = true, true
+	e.step()
+
+	s := e.series(98)
+	first, second, third := s.Patches[0], s.Patches[1], s.Patches[2]
+	if s.Status != state.SeriesTesting || first.Status != state.PatchSkipped ||
+		first.SHA != "" || len(first.Runs) != 0 || second.Status != state.PatchPushed ||
+		third.Status != state.PatchSkipped {
+		t.Errorf("partly applied: series %s, patches %+v, %+v and %+v", s.Status,
+			first, second, third)
+	}
+	if e.gh.branches["series_98"] != second.SHA {
+		t.Errorf("series_98 = %q, want %q", e.gh.branches["series_98"], second.SHA)
+	}
+	last := func(pt *state.Patch) string {
+		return pt.Decisions[len(pt.Decisions)-1].Detail
+	}
+	if !strings.Contains(last(first), "already applied on main at base-ma") ||
+		!strings.Contains(last(third), "already applied on the earlier patches of the "+
+			"series, at "+short(second.SHA)) {
+		t.Errorf("notes: %q, %q", last(first), last(third))
+	}
+	// The recovery refs of skipped patches do not make their change.
+	if got := e.repo.pushed[e.p.patchRef(first)]; got != "base-main" {
+		t.Errorf("ref of patch 1 = %q", got)
+	}
+	if got := e.repo.pushed[e.p.patchRef(third)]; got != second.SHA {
+		t.Errorf("ref of patch 3 = %q", got)
+	}
+
+	s = e.series(99)
+	if s.Status != state.SeriesSkipped || !strings.Contains(s.Reason, "already applied") {
+		t.Errorf("all applied: series %s (%s)", s.Status, s.Reason)
+	}
+	if _, ok := e.gh.branches["series_99"]; ok || len(e.mail.sent) != 0 {
+		t.Errorf("all applied: branch pushed or %d emails sent", len(e.mail.sent))
+	}
+
+	// A series that depends on an applied one takes the usual base.
+	e.pw.addSeries(100, 1, "ipsum", e.now)
+	e.pw.patches[10001].Content = "Lorem.\n\nDepends-on: series-99\n"
+	e.step()
+	s = e.series(100)
+	if s.Base == nil || s.Base.Branch != "main" || strings.Contains(s.Reason, "available") {
+		t.Errorf("dependent series: base %+v, reason %q", s.Base, s.Reason)
+	}
+}

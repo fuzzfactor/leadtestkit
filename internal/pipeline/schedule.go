@@ -277,7 +277,8 @@ func (p *Pipeline) pushable(s *state.Series) []*state.Patch {
 	var out []*state.Patch
 	for _, pt := range sortedPatches(s) {
 		switch pt.Status {
-		case state.PatchPushed, state.PatchDone:
+		// Skipped patches are already applied on the base.
+		case state.PatchPushed, state.PatchDone, state.PatchSkipped:
 			continue
 		case state.PatchApplied:
 			if pt.Failure.Due(p.now()) {
@@ -490,9 +491,36 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 			failed, output = len(reused)+f, out
 		}
 	}
-	if len(shas) > 0 {
-		refs := map[string]string{p.stagingRef(s): shas[len(shas)-1]}
+	// Patches whose change is already there made no commit; onto is
+	// the commit each one was applied on.
+	top, already := "", 0
+	onto := make([]string, len(shas))
+	for i, sha := range shas {
+		if sha == "" {
+			already++
+			onto[i] = top
+		} else {
+			top = sha
+		}
+	}
+	if already == len(patches) {
+		p.infof("%s: skipping: all %d patches are already applied on %s.",
+			seriesName(s), len(patches), describeBase(base))
+		p.finishSeries(s, state.SeriesSkipped, reasonAlreadyApplied+base.Branch, now)
+		return
+	}
+	if top != "" {
+		refs := map[string]string{p.stagingRef(s): top}
 		for i, sha := range shas {
+			// The ref of a patch without a commit points to the commit
+			// it was applied on, which does not make its change, so
+			// that recovery does not reuse an older commit of it.
+			if sha == "" {
+				sha = onto[i]
+				if sha == "" {
+					sha = base.SHA
+				}
+			}
 			refs[p.patchRef(patches[i])] = sha
 		}
 		p.infof("%s: publishing %d recovery refs before updating the test branch.",
@@ -514,6 +542,17 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 	for i, pt := range patches {
 		pt.Runs = nil
 		switch {
+		case (failed < 0 || i < failed) && shas[i] == "":
+			where := describeBase(base)
+			if onto[i] != "" {
+				where = "the earlier patches of the series, at " + short(onto[i])
+			}
+			pt.SHA = ""
+			pt.Status = state.PatchSkipped
+			p.notePatch(pt, "already-applied", "Its change is already applied on %s; "+
+				"not tested.", where)
+			p.infof("%s: skipped: its change is already applied on %s; not testing it.",
+				patchName(pt), where)
 		case failed < 0 || i < failed:
 			pt.SHA = shas[i]
 			pt.Status = state.PatchApplied
@@ -543,8 +582,21 @@ func (p *Pipeline) prepare(ctx context.Context, s *state.Series) {
 			p.notePatch(pt, "not-applied", "An earlier patch failed to apply.")
 		}
 	}
-	p.infof("%s: preparation finished; %d of %d patches applied (%d reused).",
-		seriesName(s), len(shas), len(patches), len(reused))
+	p.infof("%s: preparation finished; %d of %d patches applied (%d reused, %d already "+
+		"applied).", seriesName(s), len(shas)-already, len(patches), len(reused), already)
+}
+
+// reasonAlreadyApplied starts the reason of series whose patches are all
+// applied on the base already, followed by the branch.
+const reasonAlreadyApplied = "already applied on "
+
+// describeBase names a base for logs: its branch and commit, or only
+// the commit for one found from the commits of an earlier attempt.
+func describeBase(b *state.Base) string {
+	if b.Branch == "" {
+		return short(b.SHA)
+	}
+	return b.Branch + " at " + short(b.SHA)
 }
 
 // reuseApplied finds patches applied by an earlier attempt whose
@@ -720,6 +772,14 @@ func (p *Pipeline) dependencyBase(ctx context.Context, s *state.Series,
 		s.Status = state.SeriesWaiting
 		s.Reason = fmt.Sprintf("waiting for series %d", depID)
 		return nil, false, nil
+	}
+	if dep != nil && dep.Status == state.SeriesSkipped &&
+		strings.HasPrefix(dep.Reason, reasonAlreadyApplied) {
+		p.noteSeries(s, "dependency-applied", "Series %d is already applied upstream; "+
+			"using the base-selection rules.", depID)
+		p.infof("%s: dependency series %d is already applied upstream; using the "+
+			"base-selection rules.", seriesName(s), depID)
+		return nil, true, nil
 	}
 	s.Reason = fmt.Sprintf("dependency series %d is not available", depID)
 	p.warnf("%s: dependency series %d is unavailable; falling back to base-selection rules.",
