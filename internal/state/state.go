@@ -199,9 +199,12 @@ type Patch struct {
 	Pushed  string  `json:"pushed,omitempty"`
 
 	// CommentsSeen is the highest comment ID checked for rechecks;
-	// CommentsPending asks for the comments to be fetched.
-	CommentsSeen    int  `json:"comments_seen,omitempty"`
-	CommentsPending bool `json:"comments_pending,omitempty"`
+	// CommentsPending asks for the comments to be fetched, and
+	// CommentsPendingSince is when that was asked for, to give up
+	// after a while when no comments show up.
+	CommentsSeen         int    `json:"comments_seen,omitempty"`
+	CommentsPending      bool   `json:"comments_pending,omitempty"`
+	CommentsPendingSince string `json:"comments_pending_since,omitempty"`
 
 	// Recheck requests a rerun of the failed runs and RecheckChecks of
 	// the runs with these Patchwork check names, from a Recheck-request

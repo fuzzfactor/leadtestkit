@@ -4,8 +4,11 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -796,6 +799,151 @@ func TestRecheckFromArchive(t *testing.T) {
 	e.step()
 	if len(e.gh.reruns) != 1 {
 		t.Errorf("reruns = %v", e.gh.reruns)
+	}
+}
+
+// A dev-list reply that requests a recheck can be matched while
+// Patchwork is down, and Patchwork can answer again before it ingests
+// that reply as a comment.  A comment fetch that returns no comments
+// must not consume the request: the archive message is seen only once,
+// so nothing else would look at the patch's comments again, and the
+// recheck would be lost.  The request must also survive the run that
+// matched it, and give up after a while when no comment shows up.
+func TestRecheckCommentLag(t *testing.T) {
+	e := newEnv(t, "")
+	_, failed := testedPatch(t, e, 250)
+
+	// The reply reaches the dev archive while Patchwork is down.
+	e.reload()
+	e.dev.add(e.now, 50, "Re: [lorem-dev,1/1] lorem: Patch 1 of series 250", "", "")
+	e.pw.errs["*"] = errTransient
+	e.step()
+	pt := e.series(250).Patches[0]
+	if !pt.CommentsPending || pt.CommentsSeen != 0 || len(e.gh.reruns) != 0 {
+		t.Fatalf("after the Patchwork outage: patch = %+v reruns = %v", pt, e.gh.reruns)
+	}
+
+	// Patchwork answers again, but it has not ingested the reply as a
+	// comment yet: the fetch succeeds and returns no comments.
+	delete(e.pw.errs, "*")
+	e.reload()
+	if pt = e.series(250).Patches[0]; !pt.CommentsPending {
+		t.Fatalf("the request did not survive the run: patch = %+v", pt)
+	}
+	e.step()
+	if pt = e.series(250).Patches[0]; !pt.CommentsPending {
+		t.Errorf("an empty comment fetch consumed the recheck request: patch = %+v", pt)
+	}
+
+	// The comment shows up only now; the recheck must still happen.
+	e.pw.comments[25001] = comments("Recheck-request: github-robot\n")
+	e.step()
+	if len(e.gh.reruns) != 1 || e.gh.reruns[0] != failed {
+		t.Fatalf("reruns = %v, want [%d]: the recheck was lost", e.gh.reruns, failed)
+	}
+	if pt = e.series(250).Patches[0]; pt.CommentsSeen != 1 {
+		t.Fatalf("comments seen = %d, want 1", pt.CommentsSeen)
+	}
+
+	// One more reply matches, but Patchwork never turns it into a
+	// comment: the request must wait instead of being lost, and give
+	// up after a while, with a decision instead of a rerun.
+	e.reload()
+	e.dev.add(e.now, 51, "Re: [lorem-dev,1/1] lorem: Patch 1 of series 250", "", "")
+	e.step()
+	if pt = e.series(250).Patches[0]; !pt.CommentsPending {
+		t.Errorf("fetching only old comments consumed the recheck request: patch = %+v", pt)
+	}
+	// When the wait started must survive the run, too.
+	e.reload()
+	e.advance(7 * time.Hour)
+	e.step()
+	pt = e.series(250).Patches[0]
+	if pt.CommentsPending || pt.CommentsPendingSince != "" {
+		t.Errorf("the comment wait never gave up: patch = %+v", pt)
+	}
+	if len(e.gh.reruns) != 1 {
+		t.Errorf("reruns = %v, want only the recheck that arrived", e.gh.reruns)
+	}
+	var gaveUp bool
+	for _, d := range pt.Decisions {
+		if d.Action == "comments-skipped" {
+			gaveUp = true
+		}
+	}
+	if !gaveUp {
+		t.Errorf("giving up was not recorded in the decisions: patch = %+v", pt)
+	}
+}
+
+// Patchwork can be unavailable many times in a row for a few minutes
+// each, and these periods can add up to more than the comment wait.
+// Patchwork cannot ingest a reply while it is down, so only the time it
+// was available counts against the wait.  Waiting must not change the
+// state either: the patch of a finished series lives in a history shard
+// of a whole month, which would be rewritten on every run.
+func TestRecheckCommentWaitOutages(t *testing.T) {
+	e := newEnv(t, "")
+	testedPatch(t, e, 270)
+	shard := func() []byte {
+		t.Helper()
+		paths, err := filepath.Glob(filepath.Join(e.dir, state.HistoryDir, "*.json"))
+		if err != nil || len(paths) != 1 {
+			t.Fatalf("history shards = %v, err = %v", paths, err)
+		}
+		data, err := os.ReadFile(paths[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+
+	e.reload()
+	e.dev.add(e.now, 50, "Re: [lorem-dev,1/1] lorem: Patch 1 of series 270", "", "")
+	e.step()
+	e.reload()
+	if pt := e.series(270).Patches[0]; !pt.CommentsPending {
+		t.Fatalf("the reply did not mark the patch: patch = %+v", pt)
+	}
+	waiting := shard()
+
+	// For 9 hours, Patchwork answers for 10 minutes, then is down for
+	// 50: it was available for only 90 minutes.
+	for hour := 1; hour <= 9; hour++ {
+		e.advance(10 * time.Minute)
+		e.pw.errs["*"] = errTransient
+		e.step()
+		e.reload()
+		e.advance(50 * time.Minute)
+		delete(e.pw.errs, "*")
+		e.step()
+		e.reload()
+		if pt := e.series(270).Patches[0]; !pt.CommentsPending {
+			t.Fatalf("hour %d: gave up waiting for the comment while Patchwork was "+
+				"mostly down: patch = %+v", hour, pt)
+		}
+		if !bytes.Equal(shard(), waiting) {
+			t.Fatalf("hour %d: waiting for the comment rewrote the history shard", hour)
+		}
+	}
+
+	// Patchwork stays available: the wait goes on until it was
+	// available for the whole wait, then gives up.
+	e.advance(4 * time.Hour)
+	e.step()
+	e.reload()
+	if pt := e.series(270).Patches[0]; !pt.CommentsPending {
+		t.Fatalf("gave up after 5.5 hours of Patchwork availability: patch = %+v", pt)
+	}
+	e.advance(time.Hour)
+	e.step()
+	e.reload()
+	pt := e.series(270).Patches[0]
+	if pt.CommentsPending || pt.CommentsPendingSince != "" {
+		t.Fatalf("the comment wait never gave up: patch = %+v", pt)
+	}
+	if len(e.gh.reruns) != 0 {
+		t.Errorf("reruns = %v, want none", e.gh.reruns)
 	}
 }
 

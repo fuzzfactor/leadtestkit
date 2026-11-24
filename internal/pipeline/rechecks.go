@@ -19,6 +19,12 @@ import (
 
 const commentEvents = "patch-comment-created"
 
+// commentWait is how long a patch waits for its comments after
+// activity was detected: Patchwork can take a while to ingest a
+// matched message, but not every message becomes a comment.  Only the
+// time Patchwork was available counts: it ingests nothing while down.
+const commentWait = 6 * time.Hour
+
 var recheckRe = regexp.MustCompile(`(?m)^Recheck-request:[ \t]*(.+)$`)
 
 // ParseRecheck returns whether a comment requests a recheck by label,
@@ -111,13 +117,14 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 			p.warnf("%s: cannot fetch comments: %v", patchName(t.patch), err)
 			continue
 		}
-		t.patch.CommentsPending = false
+		delivered := false
 		for _, c := range comments {
 			if c.ID <= t.patch.CommentsSeen {
 				p.infof("%s: comment %d already processed; skipping it.",
 					patchName(t.patch), c.ID)
 				continue
 			}
+			delivered = true
 			t.patch.CommentsSeen = c.ID
 			all, names := ParseRecheck(c.Content, labels)
 			checks := p.matchChecks(t.patch, names)
@@ -147,6 +154,43 @@ func (p *Pipeline) rechecks(ctx context.Context) {
 				}
 			}
 		}
+		// The patch can live in a history shard of a whole month,
+		// which is only written when marked: mark it when it changes,
+		// or the request and the seen comments would not survive the
+		// run, but not while it only waits, or every run would
+		// rewrite the shard.
+		if delivered {
+			t.patch.CommentsPending = false
+			t.patch.CommentsPendingSince = ""
+			p.Store.PatchChanged(t.patch)
+			continue
+		}
+		// Patchwork can answer before it ingests a message that
+		// matched a tracked patch, and the archive shows a message
+		// only once: an empty fetch must not consume the request, or
+		// a recheck in that message would be lost.  Wait for the
+		// comment instead, but not forever: not every matched
+		// message becomes a comment.
+		if t.patch.CommentsPendingSince == "" {
+			// Marked before the bot noted since when.
+			t.patch.CommentsPendingSince = state.FormatTime(now)
+			p.Store.PatchChanged(t.patch)
+		}
+		since := state.ParseTime(t.patch.CommentsPendingSince)
+		down := p.Store.Availability.Downtime(state.ServicePatchwork, since, now)
+		if wait := now.Sub(since) - down; wait < commentWait {
+			p.infof("%s: no new comments yet; waited %s while Patchwork was "+
+				"available, and %s while it was not.  Still waiting for "+
+				"Patchwork to ingest the message.", patchName(t.patch),
+				wait.Round(time.Minute), down.Round(time.Minute))
+			continue
+		}
+		p.notePatch(t.patch, "comments-skipped",
+			"Gave up waiting for comments: none in %s of Patchwork being "+
+				"available since the activity was detected at %s.",
+			commentWait, t.patch.CommentsPendingSince)
+		t.patch.CommentsPending = false
+		t.patch.CommentsPendingSince = ""
 	}
 	for _, id := range ids {
 		if t := patches[id]; (t.patch.Recheck || len(t.patch.RecheckChecks) > 0) &&
@@ -176,6 +220,8 @@ func (p *Pipeline) commentsFromEvents(ctx context.Context, patches map[int]track
 				p.infof("Comment event %d: marking patch %d for a comment scan.",
 					ev.ID, pl.Patch.ID)
 				t.patch.CommentsPending = true
+				t.patch.CommentsPendingSince = state.FormatTime(p.now())
+				p.Store.PatchChanged(t.patch)
 			} else {
 				p.infof("Ignoring event %d: patch %d is not tracked for rechecks.",
 					ev.ID, pl.Patch.ID)
@@ -226,6 +272,11 @@ func (p *Pipeline) commentsFromArchive(ctx context.Context, patches map[int]trac
 	for _, id := range archive.MatchPatchSubjects(msgs, names) {
 		p.infof("Dev-list activity matches patch %d; checking comments for rechecks.", id)
 		patches[id].patch.CommentsPending = true
+		patches[id].patch.CommentsPendingSince = state.FormatTime(p.now())
+		// The patch can live in a history shard, which is only
+		// written when marked: mark it, or the request would not
+		// survive the run.
+		p.Store.PatchChanged(patches[id].patch)
 	}
 }
 
