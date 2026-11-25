@@ -573,20 +573,22 @@ func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error)
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&b, "\nLast %d log lines of %q:\n", p.Cfg.Report.LogLines, j.Name)
-		b.WriteString(logTail(log, p.Cfg.Report.LogLines))
+		if tests := testFailures(log, p.Cfg.Report.LogLines); tests != "" {
+			fmt.Fprintf(&b, "\nFailed tests in %q:\n", j.Name)
+			b.WriteString(capReport(tests))
+		} else {
+			fmt.Fprintf(&b, "\nLast %d log lines of %q:\n", p.Cfg.Report.LogLines, j.Name)
+			b.WriteString(logTailBeforeError(log, p.Cfg.Report.LogLines))
+		}
 		b.WriteString("\n")
 	}
 	return b.String(), nil
 }
 
 func logTail(log string, n int) string {
-	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(log, "\r\n", "\n"), "\n"), "\n")
+	lines := logLines(log)
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
-	}
-	for i, l := range lines {
-		lines[i] = logTimestampRe.ReplaceAllString(l, "")
 	}
 	return strings.Join(lines, "\n")
 }
