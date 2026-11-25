@@ -136,10 +136,77 @@ func TestApplyFailure(t *testing.T) {
 	if err != nil || failed != 0 || len(shas) != 0 || out == "" {
 		t.Fatalf("shas=%v failed=%d out=%q err=%v", shas, failed, out, err)
 	}
+	// Without a three-way merge there are no conflicts to show.
+	if strings.Contains(out, diffHeading) {
+		t.Errorf("out=%q", out)
+	}
 	// The repository must be usable again after a failure.
 	shas, failed, out, err = w.Apply(ctx, base, patches[:2])
 	if err != nil || failed != -1 || len(shas) != 2 {
 		t.Fatalf("second apply: shas=%v failed=%d out=%q err=%v", shas, failed, out, err)
+	}
+}
+
+func TestApplyConflict(t *testing.T) {
+	upstream, test, patches := setup(t)
+	ctx := context.Background()
+	w := newWork(t, test)
+	// Settings of the operator must not change the diff in reports.
+	config := filepath.Join(t.TempDir(), "gitconfig")
+	write(t, config, "[color]\n\tui = always\n[diff]\n\texternal = false\n")
+	w.Git.Env = []string{"GIT_CONFIG_GLOBAL=" + config}
+	old, _ := w.Resolve(ctx, upstream, "main")
+	clone := filepath.Join(t.TempDir(), "clone")
+	run(t, "", "clone", "-q", upstream, clone)
+	write(t, filepath.Join(clone, "lorem.txt"), "lorem\nipsum\namet\n")
+	run(t, clone, "commit", "-qam", "lorem: Add amet.")
+	run(t, clone, "push", "-q", "origin", "main")
+	base, _ := w.Resolve(ctx, upstream, "main")
+	shas, failed, out, err := w.Apply(ctx, base, patches[:1])
+	if err != nil || failed != 0 || len(shas) != 0 {
+		t.Fatalf("shas=%v failed=%d out=%q err=%v", shas, failed, out, err)
+	}
+	conflict := strings.Index(out, "CONFLICT (content): Merge conflict in lorem.txt")
+	heading := strings.Index(out, diffHeading)
+	if conflict < 0 || heading < conflict || !strings.Contains(out[heading:], "<<<<<<<") ||
+		strings.Contains(out, "hint:") || strings.Contains(out, "\x1b[") {
+		t.Errorf("out=%q", out)
+	}
+	// The repository must be usable again after a conflict.
+	if shas, failed, out, err = w.Apply(ctx, old, patches[:1]); err != nil ||
+		failed != -1 || len(shas) != 1 {
+		t.Fatalf("second apply: shas=%v failed=%d out=%q err=%v", shas, failed, out, err)
+	}
+}
+
+func TestCapDiff(t *testing.T) {
+	lines := func(n int, line string) string {
+		s := make([]string, n)
+		for i := range s {
+			s[i] = line
+		}
+		return strings.Join(s, "\n")
+	}
+	const tooLong = "\n... longer than 10000 characters."
+	wide := strings.Repeat("x", 299)
+	for _, c := range []struct{ name, in, want string }{
+		{"100 lines", lines(100, "line"), lines(100, "line")},
+		{"101 lines", lines(101, "line"),
+			lines(100, "line") + "\n... 1 more lines."},
+		{"150 lines", lines(150, "line"), lines(100, "line") + "\n... 50 more lines."},
+		{"10000 characters", lines(1, strings.Repeat("x", 10000)),
+			strings.Repeat("x", 10000)},
+		// Whole lines are kept: 33 lines of 299 characters and their
+		// newlines fit in 10000 characters, 34 do not.
+		{"long lines", lines(50, wide), lines(33, wide) + tooLong},
+		{"one long line", strings.Repeat("x", 20000), strings.Repeat("x", 10000) + tooLong},
+		// A two-byte rune across the limit is dropped whole.
+		{"one long line of runes", "x" + strings.Repeat("é", 6000),
+			"x" + strings.Repeat("é", 4999) + tooLong},
+	} {
+		if got := capDiff(c.in); got != c.want {
+			t.Errorf("%s: got %d bytes %q...", c.name, len(got), got[max(0, len(got)-80):])
+		}
 	}
 }
 

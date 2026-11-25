@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // WorkRepo is the local repository used to apply series.  It is a
@@ -149,7 +150,8 @@ func (w *WorkRepo) ReadFile(ctx context.Context, rev, path string) ([]byte, erro
 // Apply applies the emails on top of base one by one.  It returns the
 // commit of every applied patch, or "" for a patch whose change is
 // already there, which git am applies without a commit; on a failure it
-// also returns the index of the failing patch and the git am output.
+// also returns the index of the failing patch and the git am output,
+// followed by the diff of any conflicts.
 func (w *WorkRepo) Apply(
 	ctx context.Context, base string, mboxes [][]byte,
 ) ([]string, int, string, error) {
@@ -182,13 +184,27 @@ func (w *WorkRepo) Apply(
 		if err != nil {
 			return shas, -1, "", err
 		}
-		if _, err := g.Run(ctx, "am", "-q", "-3", "--no-gpg-sign", file); err != nil {
+		// Without -q, git am names the files with conflicts.
+		if _, err := g.Run(ctx, "-c", "advice.mergeConflict=false", "-c",
+			"advice.amWorkDir=false", "am", "-3",
+			"--no-gpg-sign", file); err != nil {
 			var gerr *Error
 			if !errors.As(err, &gerr) {
 				return shas, -1, "", err
 			}
+			out := strings.TrimSpace(gerr.Stdout + "\n" + gerr.Stderr)
+			if len(out) > maxAmOutput {
+				out = "...\n" + out[len(out)-maxAmOutput:]
+			}
+			diff, err := w.Git.Out(ctx, "diff", "--no-color", "--no-ext-diff")
 			w.abortAm(ctx)
-			return shas, i, strings.TrimSpace(gerr.Stdout + "\n" + gerr.Stderr), nil
+			if err != nil {
+				return shas, -1, "", err
+			}
+			if diff != "" {
+				out += "\n\n" + diffHeading + "\n" + capDiff(diff)
+			}
+			return shas, i, out, nil
 		}
 		sha, err := w.Git.Out(ctx, "rev-parse", "HEAD")
 		if err != nil {
@@ -202,6 +218,36 @@ func (w *WorkRepo) Apply(
 		shas = append(shas, sha)
 	}
 	return shas, -1, "", nil
+}
+
+const (
+	maxAmOutput  = 4000
+	maxDiffLines = 100
+	maxDiffChars = 10000
+	diffHeading  = "Diff of the conflicts:"
+)
+
+// capDiff keeps the start of a diff of at most maxDiffLines lines and
+// maxDiffChars bytes, saying so when it drops any.  It cuts whole lines
+// unless the first line alone is too long.
+func capDiff(s string) string {
+	note := ""
+	if lines := strings.Split(s, "\n"); len(lines) > maxDiffLines {
+		s = strings.Join(lines[:maxDiffLines], "\n")
+		note = fmt.Sprintf("\n... %d more lines.", len(lines)-maxDiffLines)
+	}
+	if len(s) > maxDiffChars {
+		cut := strings.LastIndexByte(s[:maxDiffChars+1], '\n')
+		if cut < 0 {
+			cut = maxDiffChars
+			for cut > 0 && !utf8.RuneStart(s[cut]) {
+				cut--
+			}
+		}
+		s = s[:cut]
+		note = fmt.Sprintf("\n... longer than %d characters.", maxDiffChars)
+	}
+	return s + note
 }
 
 // SameChange reports whether a commit makes the change of an email,

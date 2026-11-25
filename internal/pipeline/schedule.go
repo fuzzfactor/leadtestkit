@@ -669,10 +669,6 @@ func short(sha string) string {
 }
 
 func applyFailure(base *state.Base, output string) string {
-	const maxDetails = 4000
-	if len(output) > maxDetails {
-		output = "...\n" + output[len(output)-maxDetails:]
-	}
 	return fmt.Sprintf("Failed to apply on top of %s (%s):\n\n%s", base.Branch,
 		short(base.SHA), output)
 }
