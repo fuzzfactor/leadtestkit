@@ -596,6 +596,32 @@ function recordedTime(data, seconds) {
   return now - Math.max(now - seconds, data.since ? Date.parse(data.since) / 1000 : -Infinity);
 }
 
+// successRate counts the tries of a service in the hours and UTC days
+// that overlap the last seconds, or is null without any.  Only Patchwork
+// is counted.
+function successRate(data, service, seconds) {
+  if (service !== "patchwork") return null;
+  const start = Date.now() / 1000 - seconds;
+  const counts = (data.patchwork_hourly_tries || []).map(b =>
+    ({ end: Date.parse(b.hour) / 1000 + 3600, b })).concat(
+    (data.patchwork_daily_tries || []).map(b =>
+      ({ end: Date.parse(b.day + "T00:00:00Z") / 1000 + 86400, b })));
+  const r = counts.filter(c => c.end > start).reduce((r, c) =>
+    ({ tries: r.tries + c.b.tries, failed: r.failed + (c.b.failed || 0) }), { tries: 0, failed: 0 });
+  return r.tries ? r : null;
+}
+
+// formatRate shows the share of tries that worked in whole percent,
+// rounded down so that it only shows 100% when none failed.
+function formatRate(r) {
+  return Math.floor(100 * (r.tries - r.failed) / r.tries) + "%";
+}
+
+// rateColor goes from yellow when most tries worked to red when none did.
+function rateColor(r) {
+  return "hsl(" + Math.round(50 * (r.tries - r.failed) / r.tries) + ", 90%, 45%)";
+}
+
 async function showAvailability() {
   const path = "data/availability.json";
   if (!cache.has(path)) {
@@ -622,23 +648,31 @@ function renderAvailability() {
   const used = index.services || MAIN_SERVICES;
   const services = used.concat(Object.keys(SERVICES).filter(s =>
     !used.includes(s) && list.some(p => p.service === s)));
-  const summary = el("table", { class: "avail" },
-    el("tr", {}, el("th", {}, "Service"), el("th", {}, "Now"),
-      WINDOWS.map(([name]) => el("th", {}, name)), el("th", {}, TIMELINE_DAYS + " days")),
+  const summary = el("table", { class: "avail summary" },
+    el("tr", {}, el("th", { class: "fit" }, "Service"), el("th", { class: "fit" }, "Now"),
+      WINDOWS.map(([name]) => el("th", { class: "fit center" }, name)), el("th"),
+      el("th", { class: "center" }, TIMELINE_DAYS + " days")),
     services.map(service => {
       const failing = (data.failing || {})[service];
       return el("tr", {},
-        el("td", {}, SERVICES[service] || service),
-        el("td", { class: failing ? "down" : "up" },
+        el("td", { class: "fit" }, SERVICES[service] || service),
+        el("td", { class: failing ? "fit down" : "fit up" },
           failing ? ["unavailable for ", span(failing.since)] : "available"),
         WINDOWS.map(([, seconds]) => {
           const down = downtime(list, service, seconds);
+          const rate = successRate(data, service, seconds);
           const recorded = recordedTime(data, seconds);
-          return el("td", { class: down ? "num down" : "num muted",
-            title: recorded > 0 ? Math.max(0, 100 - 100 * down / recorded).toFixed(2) +
-              "% of the time recorded available" : null },
-          duration(down));
-        }),
+          const parts = [];
+          if (recorded > 0) parts.push(Math.max(0, 100 - 100 * down / recorded).toFixed(2) +
+            "% of the time recorded available");
+          if (rate) parts.push(formatRate(rate) + " of " + rate.tries + " tries worked");
+          const title = parts.join(", ") || null;
+          return el("td", { class: "fit window", title }, el("div", {},
+            el("span", { class: down ? "down" : "muted" },
+              rate && !down ? "0m" : duration(down)),
+            rate ? el("span", rate.failed ? { class: "rate", style: "color: " + rateColor(rate) } :
+              { class: "rate muted" }, formatRate(rate)) : null));
+        }), el("td"),
         el("td", { class: "timeline" }, el("div", { class: "days" },
           timeline(list, service, data))));
     }));
@@ -665,7 +699,8 @@ function renderAvailability() {
       "the hours in which the service was unavailable, the higher the longer, red for an ",
       "outage.  Times are as the bot saw them: from ",
       "the first request that failed to the first that worked, as precise as its ",
-      "polling cycles.  The bot keeps them for 90 days."),
+      "polling cycles.  The bot keeps them for 90 days.  The percentage is the share ",
+      "of the bot's requests to Patchwork, retries included, that worked: the lower, the redder."),
     rows.length ? el("div", { class: "wide" }, pager(),
       el("table", { class: "avail periods" },
         el("tr", {}, ["Service", "From", "To", "Duration", "", "Reason"].map(h =>

@@ -121,10 +121,15 @@ a:hover .badge { background: color-mix(in srgb, currentColor 20%, transparent); 
 .avail th, .avail td { padding: 4px 8px; border-bottom: 1px solid var(--line);
   white-space: nowrap; }
 .avail .num { text-align: right; font-variant-numeric: tabular-nums; }
+.avail .window { font-variant-numeric: tabular-nums; }
+.avail .window div { display: flex; justify-content: space-between; gap: 2ch; }
 .avail .up { color: var(--success); }
 .avail .down { color: var(--fail); }
 .avail .reason { white-space: normal; overflow-wrap: anywhere; }
 .avail .timeline { width: 40%; min-width: 200px; }
+/* The columns as narrow as their contents, the space left before the bar. */
+.avail.summary th.center { text-align: center; }
+.avail.summary .fit { width: 1%; padding: 4px 1.25ch; }
 .days { position: relative; height: 16px; border-radius: 3px; overflow: hidden;
   background: var(--row); }
 .days span { position: absolute; bottom: 0; }
