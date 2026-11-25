@@ -378,7 +378,9 @@ without becoming an outage: for how long in the last hour, day, week
 and month, every hour of the last 30 days in which it was unavailable,
 and every period of the last 90 days with its reason.  The bot only
 notices while it runs, so the times are as precise as its polling
-cycles.
+cycles.  For Patchwork, the windows also show the share of the bot's
+requests that worked, retries included, which tells how it felt to use
+it even when the bot got through.
 
 The bot cannot notice that it does not run itself, for example when
 GitHub disables Actions on the bot repository.  The pages warn when

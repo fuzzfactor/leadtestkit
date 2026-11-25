@@ -37,6 +37,8 @@ type Options struct {
 	Token    string
 	MinDelay time.Duration
 	Logger   *slog.Logger
+	// OnTry is passed to the HTTP client made when HTTP is nil.
+	OnTry func(failed bool)
 
 	HTTP *httpx.Client
 }
@@ -83,6 +85,7 @@ func New(opts Options) (*Client, error) {
 			Authorization: auth,
 			AuthHost:      u.Hostname(),
 			Logger:        opts.Logger,
+			OnTry:         opts.OnTry,
 		})
 	}
 	base := strings.TrimRight(opts.APIURL, "/")
