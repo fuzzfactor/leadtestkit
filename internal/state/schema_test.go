@@ -357,6 +357,35 @@ func TestVersionThirteenFixesRewrittenSubmitters(t *testing.T) {
 	}
 }
 
+func TestVersionFourteenKeepsPendingComments(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	x := sampleSeries(1)
+	x.Finish(SeriesDone, "", now)
+	x.Patches[0].CommentsPending = true
+	b, err := json.Marshal(queueFile{Schema: 14, Series: []*Series{x}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, HistoryDir, "2026-03.json"), b,
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.History("2026-03")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt := list[0].Patches[0]; !pt.CommentsPending || pt.CommentsPendingSince != "" {
+		t.Errorf("patch = %+v", pt)
+	}
+}
+
 func TestNewerSchemaRefused(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, HistoryDir), 0o755)

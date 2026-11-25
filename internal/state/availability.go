@@ -69,6 +69,34 @@ func (a *Availability) Available(service string, now time.Time) *Period {
 	return p
 }
 
+// Downtime returns how long a service was unavailable between two
+// times, as far as the kept periods tell; a period going on lasts until
+// the end.
+func (a *Availability) Downtime(service string, from, to time.Time) time.Duration {
+	var d time.Duration
+	add := func(p *Period, until time.Time) {
+		since := ParseTime(p.Since)
+		if since.Before(from) {
+			since = from
+		}
+		if until.After(to) {
+			until = to
+		}
+		if until.After(since) {
+			d += until.Sub(since)
+		}
+	}
+	for _, p := range a.Periods {
+		if p.Service == service {
+			add(p, ParseTime(p.Until))
+		}
+	}
+	if p := a.Failing[service]; p != nil {
+		add(p, to)
+	}
+	return d
+}
+
 // Prune forgets the periods that ended before a time.
 func (a *Availability) Prune(before time.Time) {
 	keep := a.Periods[:0]
