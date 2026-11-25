@@ -19,6 +19,13 @@ import (
 // kept for the pages.
 const availabilityKept = 90 * 24 * time.Hour
 
+// The counts of tries are kept by hour for triesHourly, then by day, for
+// triesKept in all.
+const (
+	triesHourly = 7 * 24 * time.Hour
+	triesKept   = 31 * 24 * time.Hour
+)
+
 func serviceName(service string) string {
 	switch service {
 	case state.ServicePatchwork:

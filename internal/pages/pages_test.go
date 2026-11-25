@@ -59,6 +59,7 @@ func TestRender(t *testing.T) {
 	st.Meta.Outages = map[string]*state.Outage{state.OutageRuns: {
 		Since: state.FormatTime(now), Reason: "no workflow run started"}}
 	st.Availability.Unavailable(state.ServicePatchwork, "lorem", now)
+	st.Availability.CountPatchworkTry(true, now)
 	if err := st.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +98,8 @@ func TestRender(t *testing.T) {
 	var avail state.Availability
 	b, _ = os.ReadFile(filepath.Join(out, "data", "availability.json"))
 	if err := json.Unmarshal(b, &avail); err != nil ||
-		avail.Failing[state.ServicePatchwork].Reason != "lorem" {
+		avail.Failing[state.ServicePatchwork].Reason != "lorem" ||
+		len(avail.PatchworkHourlyTries) != 1 || avail.PatchworkHourlyTries[0].Failed != 1 {
 		t.Errorf("availability = %s, %v", b, err)
 	}
 	b, err = os.ReadFile(filepath.Join(out, "data", "history", "2026-03.json"))

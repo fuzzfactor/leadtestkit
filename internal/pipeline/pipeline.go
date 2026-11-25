@@ -238,6 +238,7 @@ func (p *Pipeline) Step(ctx context.Context, final bool) {
 	p.steps++
 	p.pwDown, p.checksDown, p.pwSkipLogged = nil, nil, nil
 	p.Store.Availability.Prune(p.now().Add(-availabilityKept))
+	p.Store.Availability.PrunePatchworkTries(p.now(), triesHourly, triesKept)
 	if p.Store.Availability.Since == "" {
 		p.Store.Availability.Since = state.FormatTime(p.now())
 	}

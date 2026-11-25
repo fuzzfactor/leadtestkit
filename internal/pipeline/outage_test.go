@@ -775,3 +775,17 @@ func TestRefusedReportsRetriedHourly(t *testing.T) {
 		t.Fatalf("report failure = %+v", f)
 	}
 }
+
+func TestStepPrunesTries(t *testing.T) {
+	e := newEnv(t, "")
+	a := e.p.Store.Availability
+	a.CountPatchworkTry(true, e.now.Add(-31*24*time.Hour-time.Hour))
+	a.CountPatchworkTry(false, e.now.Add(-30*24*time.Hour))
+	e.p.Step(context.Background(), false)
+	day := e.now.Add(-30 * 24 * time.Hour).UTC().Format("2006-01-02")
+	if len(a.PatchworkHourlyTries) != 0 || len(a.PatchworkDailyTries) != 1 ||
+		a.PatchworkDailyTries[0].Day != day || a.PatchworkDailyTries[0].Tries != 1 {
+		t.Fatalf("tries after the step: %d hours, days %+v",
+			len(a.PatchworkHourlyTries), a.PatchworkDailyTries)
+	}
+}

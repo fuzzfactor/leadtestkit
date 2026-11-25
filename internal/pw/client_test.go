@@ -335,3 +335,23 @@ func TestWalkEventsFetchErrorKeepsCursor(t *testing.T) {
 		t.Errorf("cursor %d err %v", cursor, err)
 	}
 }
+
+func TestNewReportsTries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":1}`))
+	}))
+	defer srv.Close()
+	var tries []bool
+	c, err := New(Options{APIURL: srv.URL + "/api", Logger: slog.New(slog.DiscardHandler),
+		OnTry: func(failed bool) { tries = append(tries, failed) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetPatch(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(tries) != 1 || tries[0] {
+		t.Fatalf("tries = %v", tries)
+	}
+}

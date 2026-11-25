@@ -342,6 +342,9 @@ func buildPipeline(cfg *config.Config, st *state.Store, workDir string,
 		Token:    cfg.Secrets.PatchworkToken,
 		MinDelay: cfg.Patchwork.MinDelay.D(),
 		Logger:   log,
+		OnTry: func(failed bool) {
+			st.Availability.CountPatchworkTry(failed, time.Now())
+		},
 	})
 	if err != nil {
 		return nil, err
