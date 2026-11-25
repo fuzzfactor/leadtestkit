@@ -55,7 +55,7 @@ Installation token
   limited to the test repository and to the permissions the bot uses:
 
   - Actions: read and write (reading runs, reruns, dispatching);
-  - Checks: read (warning annotations);
+  - Checks: read (warning and error annotations);
   - Contents: read and write (test branches and recovery refs);
   - Workflows: read and write (patches may change workflow files);
   - Metadata: read (always granted).

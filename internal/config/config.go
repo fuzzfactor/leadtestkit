@@ -268,7 +268,8 @@ type Workflows struct {
 	// RerunJobs is "failed" (GitHub's "Re-run failed jobs") or "all".
 	RerunJobs string `yaml:"rerun_jobs"`
 	// WarningAnnotation is the title of the warning annotations that
-	// make a successful run a warning.  Empty disables the check.
+	// make a successful run a warning, and of the error annotations
+	// reported instead of the log of a failed job.  Empty disables both.
 	WarningAnnotation string `yaml:"warning_annotation"`
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"leadtestkit/internal/gh"
 	"leadtestkit/internal/httpx"
@@ -66,7 +67,7 @@ func (p *Pipeline) successResult(ctx context.Context, pt *state.Patch, r *state.
 	if len(msgs) == 0 {
 		return state.ResultSuccess, true
 	}
-	warnings := headLines(strings.Join(msgs, "\n"), p.Cfg.Report.LogLines)
+	warnings := capDetails(strings.Join(msgs, "\n"))
 	r.Details = "Warnings:\n" + warnings
 	p.noteRun(pt, wr.HTMLURL, wr.RunAttempt, "workflow-warnings",
 		"%s run %d, attempt %d passed with %s:\n%s", r.Workflow, wr.ID, wr.RunAttempt,
@@ -98,6 +99,64 @@ func (p *Pipeline) warningAnnotations(ctx context.Context, suiteID int64,
 		}
 	}
 	return msgs, nil
+}
+
+// errorAnnotations returns the messages of the error annotations of a
+// failed job titled workflows.warning_annotation; a workflow uses them to
+// report only what matters, like the output of checkpatch, instead of the
+// end of its log.  It returns "" when the job has none or they cannot be
+// read for lack of permission.
+func (p *Pipeline) errorAnnotations(ctx context.Context, runID int64,
+	j gh.Job) (string, error) {
+	title := p.Cfg.Workflows.WarningAnnotation
+	if title == "" {
+		return "", nil
+	}
+	// The check run of a job has the ID of the job.
+	notes, err := p.gh().Annotations(ctx, j.ID)
+	if code := httpx.StatusCode(err); code == http.StatusForbidden ||
+		code == http.StatusNotFound {
+		p.warnf("Run %d: cannot read the annotations of job %d (%s); reporting its "+
+			"log (the GitHub App needs Checks: read-only): %v", runID, j.ID, j.Name, err)
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var msgs []string
+	for _, a := range notes {
+		if a.Level == "failure" && a.Title == title {
+			msgs = append(msgs, strings.TrimRight(a.Message, "\n"))
+		}
+	}
+	return strings.Join(msgs, "\n"), nil
+}
+
+const (
+	maxDetailLines = 100
+	maxDetailChars = 10000
+)
+
+// capDetails cuts text from a workflow to maxDetailLines lines and
+// maxDetailChars characters, at a line break when it can.
+func capDetails(text string) string {
+	text = headLines(text, maxDetailLines)
+	if len(text) <= maxDetailChars {
+		return text
+	}
+	cut := text[:maxDetailChars]
+	if i := strings.LastIndexByte(cut, '\n'); i > 0 {
+		cut = cut[:i]
+	} else {
+		for i := len(cut); i > 0; i-- {
+			if utf8.RuneStart(text[i]) {
+				cut = text[:i]
+				break
+			}
+		}
+	}
+	return cut + fmt.Sprintf("\n... longer than %d characters, see the workflow run.",
+		maxDetailChars)
 }
 
 func headLines(text string, n int) string {

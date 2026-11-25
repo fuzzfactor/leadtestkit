@@ -64,8 +64,23 @@ jobs:
           done
           chmod +x linux/checkpatch.pl
 
+      # On failure the output goes in an error annotation titled like
+      # workflows.warning_annotation, which LeadTestKit reports instead of
+      # the end of the log.
       - name: Run checkpatches.sh
         run: |
           cd dpdk
+          status=0
           DPDK_CHECKPATCH_PATH="$GITHUB_WORKSPACE/linux/checkpatch.pl" \
-            devtools/checkpatches.sh "$GITHUB_WORKSPACE/patch.mbox"
+            devtools/checkpatches.sh "$GITHUB_WORKSPACE/patch.mbox" \
+            > ../checkpatch.log 2>&1 || status=$?
+          cat ../checkpatch.log
+          [ "$status" -eq 0 ] && exit 0
+          python3 - ../checkpatch.log <<'EOF'
+          import sys
+          text = open(sys.argv[1]).read().strip()
+          for c, e in (("%", "%25"), ("\r", "%0D"), ("\n", "%0A")):
+              text = text.replace(c, e)
+          print("::error title=leadtest::" + text)
+          EOF
+          exit "$status"
