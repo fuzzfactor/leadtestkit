@@ -83,6 +83,13 @@ type Options struct {
 	HTTPClient *http.Client
 	Logger     *slog.Logger
 	Sleep      func(ctx context.Context, d time.Duration) error
+
+	// OnTry, when set, is called after each try of a request.  A try
+	// fails on a network error, a timeout or a transient status: 5xx,
+	// 429 or a rate-limited 403.  Other statuses, 404 included, are the
+	// bot's mistake and count as working.  Tries ended by the context
+	// or by bot protection are not reported.
+	OnTry func(failed bool)
 }
 
 type Client struct {
@@ -258,6 +265,9 @@ func (c *Client) Do(ctx context.Context, r Request) (*Response, error) {
 		resp, err := c.once(ctx, r)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if c.opts.OnTry != nil && !errors.Is(err, ErrBotProtection) {
+			c.opts.OnTry(err != nil || isTransientStatus(resp))
 		}
 		var retryAfter time.Duration
 		retry := false
