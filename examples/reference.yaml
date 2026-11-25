@@ -135,9 +135,11 @@ report:
 
   # Reports of failed runs cover up to max_log_jobs failed jobs.  For
   # each, they list the failed tests with the last log_lines lines of
-  # each test's log, cut to 100 lines and 10000 characters per job.  A job
-  # without failed tests shows the last log_lines lines before the error
-  # of its failed step.
+  # each test's log, cut to 100 lines and 10000 characters per job and
+  # 300 lines in all.  A test's log shown whole for one job is skipped
+  # for the next ones, unless all of theirs were shown.  A job without
+  # failed tests shows the last log_lines lines before the error of its
+  # failed step.
   log_lines: 25
   max_log_jobs: 5
 

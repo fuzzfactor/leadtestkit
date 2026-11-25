@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	maxReportLines = 100
-	maxReportChars = 10000
+	maxReportLines      = 100
+	maxReportChars      = 10000
+	maxTotalReportLines = 300
 )
 
 var (
@@ -26,17 +27,23 @@ func logLines(log string) []string {
 	return lines
 }
 
-// testFailures lists the tests that autotest reports as failed in a job
-// log, each followed by the last n lines of its detailed log.  It returns
-// "" if no test failed.
-func testFailures(log string, n int) string {
+type failedTest struct {
+	num, name, line string
+	log             []string // last lines of its detailed log, if found
+}
+
+func (t failedTest) key() string { return t.num + ": " + t.name }
+
+// failedTests returns the tests that autotest reports as failed in a job
+// log, with the last n lines of their detailed logs.
+func failedTests(log string, n int) []failedTest {
 	lines := logLines(log)
-	type test struct {
-		num, name, line string
-		failed          bool
+	type result struct {
+		test   failedTest
+		failed bool
 	}
 	var order []string
-	results := map[string]test{}
+	results := map[string]result{}
 	details := -1
 	for i, l := range lines {
 		if l == "## Detailed failed tests. ##" {
@@ -48,47 +55,85 @@ func testFailures(log string, n int) string {
 			if _, ok := results[m[1]]; !ok {
 				order = append(order, m[1])
 			}
-			results[m[1]] = test{m[1], m[2], l, strings.HasPrefix(m[3], "FAILED")}
+			results[m[1]] = result{failedTest{num: m[1], name: m[2], line: l},
+				strings.HasPrefix(m[3], "FAILED")}
 		}
 	}
-	var tests []test
+	var tests []failedTest
 	for _, num := range order {
-		if results[num].failed {
-			tests = append(tests, results[num])
+		r := results[num]
+		if !r.failed {
+			continue
 		}
-	}
-	if len(tests) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, t := range tests {
-		b.WriteString(t.line + "\n")
-	}
-	if details < 0 {
-		return strings.TrimSuffix(b.String(), "\n")
-	}
-	for _, t := range tests {
-		start, end := details, -1
-		for i := details; i < len(lines); i++ {
+		t := r.test
+		start := details
+		for i := details; details >= 0 && i < len(lines); i++ {
 			if compilationRe.MatchString(lines[i]) {
 				start = i
 			}
 			if strings.HasPrefix(lines[i], t.num+". ") &&
 				strings.Contains(lines[i], ": FAILED (") {
-				end = i
+				t.log = lines[max(start, i+1-n) : i+1]
 				break
 			}
 		}
-		if end < 0 {
+		tests = append(tests, t)
+	}
+	return tests
+}
+
+// testDetails lists failed tests followed by their logs.  It skips the
+// logs in shown, unless all are, and returns the tests it skips.  ends
+// has, for each log, the number of lines up to its end.
+func testDetails(tests []failedTest, shown map[string]bool) (lines []string,
+	ends map[string]int, skipped []string) {
+	fresh := false
+	for _, t := range tests {
+		lines = append(lines, t.line)
+		fresh = fresh || t.log != nil && !shown[t.key()]
+	}
+	ends = map[string]int{}
+	for _, t := range tests {
+		if t.log == nil {
 			continue
 		}
-		block := lines[start : end+1]
-		if len(block) > n {
-			block = block[len(block)-n:]
+		if fresh && shown[t.key()] {
+			skipped = append(skipped, t.num)
+			continue
 		}
-		fmt.Fprintf(&b, "\nLog of test %s: %s\n%s\n", t.num, t.name, strings.Join(block, "\n"))
+		lines = append(lines, "", fmt.Sprintf("Log of test %s: %s", t.num, t.name))
+		lines = append(lines, t.log...)
+		ends[t.key()] = len(lines)
 	}
-	return strings.TrimSuffix(b.String(), "\n")
+	return lines, ends, skipped
+}
+
+// introduceLogs puts lines before the logs after the list of n failed
+// tests, saying which were skipped and how many lines of the limit
+// follow.
+func introduceLogs(lines []string, ends map[string]int, n int, skipped []string,
+	job string, limit int) ([]string, map[string]int) {
+	intro := []string{"", ""}
+	if len(skipped) > 0 {
+		what := "test"
+		if len(skipped) > 1 {
+			what = "tests"
+		}
+		intro = append(intro, "")
+		intro[1] = fmt.Sprintf("Skipping the logs of already shown %s %s (see workflow run).",
+			what, strings.Join(skipped, ", "))
+	}
+	follow := max(min(len(lines)+len(intro), limit)-n-len(intro), 0)
+	if len(skipped) > 0 {
+		intro[2] = fmt.Sprintf("Next %d lines of %q:", follow, job)
+	} else {
+		intro[1] = fmt.Sprintf("First %d lines of failures in %q:", follow, job)
+	}
+	lines = append(lines[:n:n], append(intro, lines[n:]...)...)
+	for key := range ends {
+		ends[key] += len(intro)
+	}
+	return lines, ends
 }
 
 // logTailBeforeError returns the last n lines of a job log before the
@@ -108,26 +153,26 @@ func logTailBeforeError(log string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// capReport cuts text to maxReportLines lines and then maxReportChars
-// bytes.
-func capReport(text string) string {
-	note := ""
-	if lines := strings.Split(text, "\n"); len(lines) > maxReportLines {
-		text = strings.Join(lines[:maxReportLines], "\n")
-		note = fmt.Sprintf("\n... %d more lines, see the workflow run for the full report.",
-			len(lines)-maxReportLines)
-	}
-	if len(text) <= maxReportChars {
-		return text + note
-	}
-	cut := text[:maxReportChars]
-	if i := strings.LastIndexByte(cut, '\n'); i >= 0 {
-		cut = cut[:i]
-	} else {
-		for len(cut) > 0 && !utf8.RuneStart(text[len(cut)]) {
-			cut = cut[:len(cut)-1]
+// cutReport joins at most maxLines lines and cuts them to maxReportChars
+// bytes.  whole is the number of lines it keeps whole.
+func cutReport(lines []string, maxLines int) (text string, whole int, cutChars bool) {
+	lines = lines[:min(len(lines), maxLines)]
+	size := 0
+	for i, l := range lines {
+		if i > 0 {
+			size++
+		}
+		size += len(l)
+		if size > maxReportChars {
+			if i > 0 {
+				return strings.Join(lines[:i], "\n"), i, true
+			}
+			cut := l[:maxReportChars]
+			for len(cut) > 0 && !utf8.RuneStart(l[len(cut)]) {
+				cut = cut[:len(cut)-1]
+			}
+			return cut, 0, true
 		}
 	}
-	return cut + fmt.Sprintf("\n... longer than %d characters, see the workflow run for the full report.",
-		maxReportChars)
+	return strings.Join(lines, "\n"), len(lines), false
 }

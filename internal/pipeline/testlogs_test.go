@@ -5,9 +5,15 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"leadtestkit/internal/gh"
 )
+
+func testFailures(log string, n int) string {
+	lines, _, _ := testDetails(failedTests(log, n), nil)
+	return strings.Join(lines, "\n")
+}
 
 func jobLog(lines ...string) string {
 	for i, l := range lines {
@@ -149,34 +155,29 @@ func TestLogTailBeforeError(t *testing.T) {
 	}
 }
 
-func TestCapReport(t *testing.T) {
+func TestCutReport(t *testing.T) {
 	lines := numbered(1, 150, "line %d")
-	got := capReport(strings.Join(lines, "\n"))
-	want := strings.Join(lines[:100], "\n") +
-		"\n... 50 more lines, see the workflow run for the full report."
-	if got != want {
-		t.Errorf("lines: got tail %q", got[len(got)-80:])
+	text, whole, cutChars := cutReport(lines, 100)
+	if text != strings.Join(lines[:100], "\n") || whole != 100 || cutChars {
+		t.Errorf("lines: got %d whole, cutChars %v, tail %q", whole, cutChars,
+			text[len(text)-20:])
 	}
 
 	long := strings.Repeat("x", 199)
-	text := strings.Repeat(long+"\n", 98) + long
-	got = capReport(text)
-	note := "\n... longer than 10000 characters, see the workflow run for the full report."
-	if !strings.HasSuffix(got, note) {
-		t.Fatalf("chars: got tail %q", got[len(got)-80:])
-	}
-	cut := strings.TrimSuffix(got, note)
-	if len(cut) > 10000 || !strings.HasPrefix(text, cut+"\n") {
-		t.Errorf("chars: cut to %d bytes, not at a newline", len(cut))
+	lines = strings.Split(strings.Repeat(long+"\n", 98)+long, "\n")
+	text, whole, cutChars = cutReport(lines, 100)
+	if !cutChars || whole != 50 || text != strings.Join(lines[:50], "\n") {
+		t.Errorf("chars: got %d bytes, %d whole, cutChars %v", len(text), whole, cutChars)
 	}
 
-	got = capReport(strings.Repeat(long+"\n", 150))
-	if !strings.HasSuffix(got, note) || len(strings.TrimSuffix(got, note)) > 10000 {
-		t.Errorf("lines and chars: got %d bytes, tail %q", len(got), got[len(got)-80:])
+	text, whole, cutChars = cutReport([]string{strings.Repeat("é", 6000)}, 100)
+	if !cutChars || whole != 0 || len(text) != 10000 || !utf8.ValidString(text) {
+		t.Errorf("one line: got %d bytes, %d whole, cutChars %v", len(text), whole, cutChars)
 	}
 
-	if got := capReport("short\ntext"); got != "short\ntext" {
-		t.Errorf("short: got %q", got)
+	if text, whole, cutChars := cutReport([]string{"short", "text"}, 100); text !=
+		"short\ntext" || whole != 2 || cutChars {
+		t.Errorf("short: got %q, %d, %v", text, whole, cutChars)
 	}
 }
 
@@ -208,5 +209,106 @@ func TestBuildFailureReport(t *testing.T) {
 	}
 	if strings.Contains(got, "Post job cleanup.") || strings.Contains(got, "##[error]") {
 		t.Errorf("cleanup in report:\n%s", got)
+	}
+}
+
+func testsLog(nums ...int) []string {
+	var lines []string
+	for _, n := range nums {
+		lines = append(lines, fmt.Sprintf("%d: %s FAILED (ovn.at:34206)", n, pinning))
+	}
+	lines = append(lines, "## Detailed failed tests. ##")
+	for _, n := range nums {
+		lines = append(lines, testBlock(n)...)
+	}
+	return lines
+}
+
+func failedJobs(e *env, logs ...[]string) {
+	e.gh.jobs[77] = nil
+	for i, l := range logs {
+		id := int64(100 + i)
+		e.gh.jobs[77] = append(e.gh.jobs[77], gh.Job{ID: id,
+			Name: fmt.Sprintf("job %d", i+1), Conclusion: "failure",
+			Steps: []gh.Step{{Name: "build", Conclusion: "failure"}}})
+		e.gh.logs[id] = jobLog(l...)
+	}
+}
+
+func TestTestLogsShownAgainIfAllShown(t *testing.T) {
+	e := newEnv(t, "")
+	failedJobs(e, failedTestsLog(), failedTestsLog(), failedTestsLog())
+	got, err := e.p.failureLogs(context.Background(), 77)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"464", "465"} {
+		if c := strings.Count(got, "\nLog of test "+n+": "); c != 3 {
+			t.Errorf("log of test %s shown %d times:\n%s", n, c, got)
+		}
+	}
+	for _, job := range []string{"job 1", "job 2", "job 3"} {
+		// 2 logs of 27 lines.
+		s := "465: " + pinning + " FAILED (ovn.at:34206)\n\n" +
+			"First 54 lines of failures in \"" + job + "\":\n\nLog of test 464: "
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in:\n%s", s, got)
+		}
+	}
+	if strings.Contains(got, "Skipping") {
+		t.Errorf("skipped logs:\n%s", got)
+	}
+}
+
+func TestCutTestLogShownAgain(t *testing.T) {
+	e := newEnv(t, "")
+	// 4 list lines and 4 logs of 27 lines: the log of 467 is cut.
+	failedJobs(e, testsLog(464, 465, 466, 467), testsLog(464, 465, 466, 467))
+	got, err := e.p.failureLogs(context.Background(), 77)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, job2, _ := strings.Cut(got, "Failed tests in \"job 2\":")
+	for _, s := range []string{
+		"467: " + pinning + " FAILED (ovn.at:34206)\n\n" +
+			"Skipping the logs of already shown tests 464, 465, 466 (see workflow run).\n" +
+			"Next 27 lines of \"job 2\":\n\nLog of test 467: ",
+		"\nLog of test 467: " + pinning + "\n",
+		"467. ovn.at:34206: 467. " + pinning,
+	} {
+		if !strings.Contains(job2, s) {
+			t.Errorf("missing %q in job 2:\n%s", s, job2)
+		}
+	}
+	if strings.Contains(job2, "Log of test 466") || strings.Contains(job2, "...") {
+		t.Errorf("log of 466 shown again:\n%s", job2)
+	}
+}
+
+func TestTotalLineLimit(t *testing.T) {
+	e := newEnv(t, "")
+	failedJobs(e, numbered(1, 30, "compile %d"),
+		testsLog(411, 412, 413, 414), testsLog(421, 422, 423, 424),
+		testsLog(431, 432, 433, 434), testsLog(441, 442, 443, 444))
+	got, err := e.p.failureLogs(context.Background(), 77)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 25 + 100 + 100 lines, then 75 of the 100 of job 4 and none of job 5.
+	_, job4, _ := strings.Cut(got, "Failed tests in \"job 4\":\n")
+	note := "\n... Total line limit reached, 125 more lines. " +
+		"See the workflow run for all detailed failed tests.\n"
+	body, rest, ok := strings.Cut(job4, note)
+	if !ok || rest != "" {
+		t.Fatalf("no total note at the end of job 4:\n%s", job4)
+	}
+	if n := len(strings.Split(body, "\n")); n != 75 {
+		t.Errorf("job 4 has %d lines:\n%s", n, body)
+	}
+	if strings.Contains(got, "job 5\":") {
+		t.Errorf("job 5 included:\n%s", got)
+	}
+	if c := strings.Count(got, "more lines, see the workflow run for the full report."); c != 2 {
+		t.Errorf("%d per-job notes:\n%s", c, got)
 	}
 }

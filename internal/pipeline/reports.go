@@ -560,12 +560,13 @@ func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error)
 		}
 	}
 	maxJobs := p.Cfg.Report.MaxLogJobs
+	// Later jobs skip the test logs shown whole, unless they have no others.
+	shown := map[string]bool{}
+	left, more := maxTotalReportLines, 0
 	for i, j := range failed {
 		if i >= maxJobs {
 			p.infof("Run %d: logs limited to %d failed jobs; omitting %d more.",
 				runID, maxJobs, len(failed)-maxJobs)
-			fmt.Fprintf(&b, "\nLogs of %d more failed jobs are not included.\n",
-				len(failed)-maxJobs)
 			break
 		}
 		p.infof("Fetching log tail for failed job %d (%s) in run %d.", j.ID, j.Name, runID)
@@ -573,14 +574,51 @@ func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error)
 		if err != nil {
 			return "", err
 		}
-		if tests := testFailures(log, p.Cfg.Report.LogLines); tests != "" {
-			fmt.Fprintf(&b, "\nFailed tests in %q:\n", j.Name)
-			b.WriteString(capReport(tests))
-		} else {
-			fmt.Fprintf(&b, "\nLast %d log lines of %q:\n", p.Cfg.Report.LogLines, j.Name)
-			b.WriteString(logTailBeforeError(log, p.Cfg.Report.LogLines))
+		limit := maxReportLines
+		if left > 0 {
+			limit = min(left, maxReportLines)
+		}
+		heading := fmt.Sprintf("Failed tests in %q:", j.Name)
+		tests := failedTests(log, p.Cfg.Report.LogLines)
+		lines, ends, skipped := testDetails(tests, shown)
+		if len(ends) > 0 {
+			lines, ends = introduceLogs(lines, ends, len(tests), skipped, j.Name, limit)
+		}
+		if len(lines) == 0 {
+			heading = fmt.Sprintf("Last %d log lines of %q:", p.Cfg.Report.LogLines, j.Name)
+			lines = strings.Split(logTailBeforeError(log, p.Cfg.Report.LogLines), "\n")
+		}
+		if left == 0 {
+			more += min(len(lines), maxReportLines)
+			continue
+		}
+		text, whole, cutChars := cutReport(lines, limit)
+		for key, end := range ends {
+			if end <= whole {
+				shown[key] = true
+			}
+		}
+		left -= min(len(lines), limit)
+		fmt.Fprintf(&b, "\n%s\n%s", heading, text)
+		switch {
+		case len(lines) > limit && limit < maxReportLines:
+			more += min(len(lines), maxReportLines) - limit
+		case cutChars:
+			fmt.Fprintf(&b, "\n... longer than %d characters, see the workflow run "+
+				"for the full report.", maxReportChars)
+		case len(lines) > limit:
+			fmt.Fprintf(&b, "\n... %d more lines, see the workflow run for the full report.",
+				len(lines)-limit)
 		}
 		b.WriteString("\n")
+	}
+	if more > 0 {
+		fmt.Fprintf(&b, "... Total line limit reached, %d more lines. "+
+			"See the workflow run for all detailed failed tests.\n", more)
+	}
+	if len(failed) > maxJobs {
+		fmt.Fprintf(&b, "\nLogs of %d more failed jobs are not included.\n",
+			len(failed)-maxJobs)
 	}
 	return b.String(), nil
 }
