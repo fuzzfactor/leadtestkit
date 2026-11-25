@@ -370,9 +370,14 @@ workflows:
   # annotations with this title, e.g. from
   #   echo "::warning title=leadtest::2 lines are too long"
   # Their messages are included in the report.  This lets a workflow
-  # pass with warnings, like checkpatch in fork-workflows/.  Reading the
+  # pass with warnings, like checkpatch in fork-workflows/.  The report of
+  # a failed job carries the messages of its error annotations with this
+  # title, e.g. from
+  #   echo "::error title=leadtest::ERROR: Line is too long"
+  # instead of the last report.log_lines lines of its log.  Either way the
+  # messages are cut to 100 lines and 10000 characters.  Reading the
   # annotations needs the Checks permission of the GitHub App (see
-  # SETUP.rst).  Empty disables it.
+  # SETUP.rst).  Empty disables both.
   warning_annotation: leadtest
 
 rechecks:

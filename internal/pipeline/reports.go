@@ -568,6 +568,14 @@ func (p *Pipeline) failureLogs(ctx context.Context, runID int64) (string, error)
 				len(failed)-maxJobs)
 			break
 		}
+		errors, err := p.errorAnnotations(ctx, runID, j)
+		if err != nil {
+			return "", err
+		}
+		if errors != "" {
+			fmt.Fprintf(&b, "\nErrors of %q:\n%s\n", j.Name, capDetails(errors))
+			continue
+		}
 		p.infof("Fetching log tail for failed job %d (%s) in run %d.", j.ID, j.Name, runID)
 		log, err := p.gh().JobLog(ctx, j.ID)
 		if err != nil {
