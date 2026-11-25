@@ -589,6 +589,13 @@ function downtime(list, service, seconds) {
     sum + Math.max(0, Math.min(p.to, now) - Math.max(p.from, start)), 0);
 }
 
+// recordedTime is the part of the last seconds since the bot started
+// recording availability, in seconds.
+function recordedTime(data, seconds) {
+  const now = Date.now() / 1000;
+  return now - Math.max(now - seconds, data.since ? Date.parse(data.since) / 1000 : -Infinity);
+}
+
 async function showAvailability() {
   const path = "data/availability.json";
   if (!cache.has(path)) {
@@ -626,8 +633,10 @@ function renderAvailability() {
           failing ? ["unavailable for ", span(failing.since)] : "available"),
         WINDOWS.map(([, seconds]) => {
           const down = downtime(list, service, seconds);
+          const recorded = recordedTime(data, seconds);
           return el("td", { class: down ? "num down" : "num muted",
-            title: (100 - 100 * down / seconds).toFixed(2) + "% available" },
+            title: recorded > 0 ? Math.max(0, 100 - 100 * down / recorded).toFixed(2) +
+              "% of the time recorded available" : null },
           duration(down));
         }),
         el("td", { class: "timeline" }, el("div", { class: "days" },
